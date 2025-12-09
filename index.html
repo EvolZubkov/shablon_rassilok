@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Модульный конструктор писем</title>
+  <link rel="stylesheet" href="modular-styles.css">
+</head>
+
+<body>
+  <div class="app-container">
+    <!-- Левая панель - Библиотека блоков -->
+    <aside class="blocks-library">
+      <h2>Библиотека блоков</h2>
+
+      <div class="blocks-grid">
+        <button class="block-btn" data-block-type="banner">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <path d="M21 15l-5-5L5 21"></path>
+          </svg>
+          <span>Баннер</span>
+        </button>
+
+        <button class="block-btn" data-block-type="text">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M4 7V4h16v3M9 20h6M12 4v16"></path>
+          </svg>
+          <span>Текст</span>
+        </button>
+
+        <button class="block-btn" data-block-type="heading">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 4v8m0 0v8m0-8h12M18 4v16"></path>
+          </svg>
+          <span>Заголовок</span>
+        </button>
+
+        <button class="block-btn" data-block-type="button">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="8" width="18" height="8" rx="2"></rect>
+          </svg>
+          <span>Кнопка</span>
+        </button>
+
+        <button class="block-btn" data-block-type="list">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="8" y1="6" x2="21" y2="6"></line>
+            <line x1="8" y1="12" x2="21" y2="12"></line>
+            <line x1="8" y1="18" x2="21" y2="18"></line>
+            <circle cx="4" cy="6" r="1"></circle>
+            <circle cx="4" cy="12" r="1"></circle>
+            <circle cx="4" cy="18" r="1"></circle>
+          </svg>
+          <span>Список</span>
+        </button>
+
+        <button class="block-btn" data-block-type="expert">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+            <circle cx="12" cy="7" r="4"></circle>
+          </svg>
+          <span>Эксперт</span>
+        </button>
+
+        <button class="block-btn" data-block-type="important">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+            <line x1="12" y1="9" x2="12" y2="13"></line>
+            <line x1="12" y1="17" x2="12.01" y2="17"></line>
+          </svg>
+          <span>Важно</span>
+        </button>
+
+        <button class="block-btn" data-block-type="divider">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+          </svg>
+          <span>Разделитель</span>
+        </button>
+
+        <button class="block-btn" data-block-type="image">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+            <circle cx="8.5" cy="8.5" r="1.5"></circle>
+            <path d="M21 15l-5-5L5 21"></path>
+          </svg>
+          <span>Картинка</span>
+        </button>
+
+        <button class="block-btn" data-block-type="spacer">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+          </svg>
+          <span>Отступ</span>
+        </button>
+      </div>
+
+      <button id="btn-create-outlook" class="btn-download">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path
+            d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+          </path>
+        </svg>
+        Создать письмо в Outlook
+      </button>
+
+      <button id="btn-save-template" class="btn-save-template">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+          <polyline points="17 21 17 13 7 13 7 21"></polyline>
+          <polyline points="7 3 7 8 15 8"></polyline>
+        </svg>
+        Сохранить шаблон
+      </button>
+
+    </aside>
+
+    <!-- Центральная панель - Конструктор -->
+    <main class="canvas-area">
+      <div class="canvas-header">
+        <button id="btn-toggle-templates" class="btn-burger" title="Библиотека шаблонов">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+        <h2>Конструктор письма</h2>
+        <button id="btn-preview" class="btn-preview">Превью</button>
+      </div>
+
+      <div id="canvas" class="canvas-content">
+        <div class="canvas-empty">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          <p>Добавьте блоки из левой панели</p>
+        </div>
+      </div>
+    </main>
+
+    <!-- Правая панель - Настройки блока -->
+    <aside class="settings-panel">
+      <h2>Настройки блока</h2>
+      <div id="settings-content" class="settings-content">
+        <div class="settings-empty">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M12 1v6m0 6v6m0-6h6m-6 0H6"></path>
+          </svg>
+          <p>Выберите блок для настройки</p>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Модальное окно превью -->
+  <div id="preview-modal" class="modal" style="display: none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Превью письма</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body">
+        <div id="preview-container" class="preview-container"></div>
+      </div>
+      <div class="modal-footer">
+        <textarea id="html-output" class="html-output" spellcheck="false" readonly></textarea>
+      </div>
+    </div>
+  </div>
+
+  </div>
+
+  <!-- Панель шаблонов -->
+  <div id="templates-panel" class="templates-panel">
+    <div class="templates-panel-header">
+      <h3>📚 Библиотека шаблонов</h3>
+      <div class="templates-search">
+        <input type="text" id="templates-search-input" placeholder="🔍 Поиск...">
+      </div>
+    </div>
+
+    <div class="templates-list" id="templates-list">
+      <!-- Список шаблонов будет здесь -->
+    </div>
+
+    <div class="templates-panel-footer">
+      <button id="btn-clear-canvas" class="btn-secondary">
+        🗑️ Очистить холст
+      </button>
+    </div>
+  </div>
+
+  <!-- Затемнение фона -->
+  <div id="templates-overlay" class="templates-overlay"></div>
+
+  <!-- Подключение модулей в правильном порядке -->
+  <!-- Подключение модулей в правильном порядке -->
+
+  <!-- 1. Константы и настройки -->
+  <script src="js/definitions.js"></script>
+
+  <!-- 2. Управление состоянием -->
+  <script src="js/state.js"></script>
+
+  <!-- 3. Базовая функциональность -->
+  <script src="js/blockDefaults.js"></script>
+  <script src="js/blockOperations.js"></script>
+  <script src="js/columnOperations.js"></script>
+  <script src="js/templatesAPI.js"></script>
+  <script src="js/templatesUI.js"></script>
+
+  <!-- 4. Drag and Drop -->
+  <script src="js/dragDrop.js"></script>
+
+  <!-- 5. Рендеринг -->
+  <script src="js/canvasRenderer.js"></script>
+  <script src="js/blockPreview.js"></script>
+  <script src="js/imageRenderers.js"></script>
+
+  <!-- 6. Настройки -->
+  <script src="js/settingsUI.js"></script>
+  <script src="js/settingsPanels.js"></script>
+
+  <!-- 7. Генерация и экспорт -->
+  <script src="js/emailGenerator.js"></script>
+  <script src="js/outlookIntegration.js"></script>
+  <script src="js/modalPreview.js"></script>
+
+  <!-- 8. Инициализация приложения -->
+  <script src="js/main.js"></script>
+
+</body>
+
+</html>

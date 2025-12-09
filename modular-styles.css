@@ -1,0 +1,961 @@
+/* Подключение шрифтов RostelecomBasis - отдельные имена */
+@font-face {
+  font-family: 'RostelecomBasis-Light';
+  src: url('fonts/RostelecomBasis-Light.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'RostelecomBasis-Regular';
+  src: url('fonts/RostelecomBasis-Regular.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'RostelecomBasis-Medium';
+  src: url('fonts/RostelecomBasis-Medium.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: 'RostelecomBasis-Bold';
+  src: url('fonts/RostelecomBasis-Bold.woff') format('woff');
+  font-weight: normal;
+  font-style: normal;
+}
+
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  font-family: 'CustomFont', Arial, sans-serif;
+  background: #0f172a;
+  color: #e5e7eb;
+  overflow: hidden;
+}
+
+/* Layout */
+.app-container {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+}
+
+/* Левая панель - Библиотека блоков */
+.blocks-library {
+  width: 280px;
+  background: #020617;
+  border-right: 1px solid #1f2937;
+  padding: 20px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.blocks-library h2 {
+  font-size: 18px;
+  margin-bottom: 20px;
+  color: #f9fafb;
+}
+
+.blocks-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.block-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 8px;
+  background: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 8px;
+  color: #e5e7eb;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.block-btn:hover {
+  background: #334155;
+  border-color: #f97316;
+  transform: translateY(-2px);
+}
+
+.block-btn svg {
+  opacity: 0.8;
+}
+
+.btn-download {
+  margin-top: auto;
+  padding: 14px;
+  background: #10b981;
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.2s;
+}
+
+.btn-download:hover {
+  background: #059669;
+}
+
+/* Центральная панель - Конструктор */
+.canvas-area {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: #0f172a;
+}
+
+.canvas-header {
+  padding: 20px;
+  border-bottom: 1px solid #1f2937;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+}
+
+.canvas-header h2 {
+  font-size: 20px;
+  color: #f9fafb;
+}
+
+.btn-preview {
+  padding: 10px 20px;
+  background: #3b82f6;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-preview:hover {
+  background: #2563eb;
+}
+
+.canvas-content {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.canvas-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #6b7280;
+  text-align: center;
+}
+
+.canvas-empty svg {
+  opacity: 0.3;
+  margin-bottom: 16px;
+}
+
+.canvas-empty p {
+  font-size: 16px;
+}
+
+/* Блоки в канвасе */
+.email-block {
+  background: #1e293b;
+  border: 2px solid #334155;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  padding: 16px;
+  cursor: move;
+  transition: all 0.2s;
+  position: relative;
+}
+
+.email-block:hover {
+  border-color: #475569;
+}
+
+.email-block.selected {
+  border-color: #f97316;
+  background: #292524;
+}
+
+.email-block.dragging {
+  opacity: 0.5;
+}
+
+.block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #374151;
+}
+
+.block-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #9ca3af;
+}
+
+.block-drag-handle {
+  cursor: move;
+  color: #6b7280;
+}
+
+.block-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.block-action-btn {
+  padding: 4px;
+  background: transparent;
+  border: none;
+  color: #9ca3af;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+.block-action-btn:hover {
+  background: #374151;
+  color: #f9fafb;
+}
+
+.block-action-btn.delete:hover {
+  background: #dc2626;
+  color: white;
+}
+
+.block-content {
+  padding: 12px;
+  background: #0f172a;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #e5e7eb;
+}
+
+/* Правая панель - Настройки */
+.settings-panel {
+  width: 340px;
+  background: #020617;
+  border-left: 1px solid #1f2937;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.settings-panel h2 {
+  font-size: 18px;
+  margin-bottom: 20px;
+  color: #f9fafb;
+}
+
+.settings-content {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.settings-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 20px;
+  color: #6b7280;
+  text-align: center;
+}
+
+.settings-empty svg {
+  opacity: 0.3;
+  margin-bottom: 12px;
+}
+
+.settings-empty p {
+  font-size: 14px;
+}
+
+.setting-group {
+  margin-bottom: 16px;
+}
+
+.setting-label {
+  display: block;
+  font-size: 13px;
+  font-weight: 500;
+  margin-bottom: 6px;
+  color: #d1d5db;
+}
+
+.setting-input,
+.setting-textarea,
+.setting-select {
+  width: 100%;
+  padding: 8px 12px;
+  background: #1e293b;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 13px;
+  font-family: 'CustomFont', Arial, sans-serif;
+}
+
+.setting-input:focus,
+.setting-textarea:focus,
+.setting-select:focus {
+  outline: none;
+  border-color: #f97316;
+}
+
+.setting-textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.setting-range {
+  width: calc(100% - 60px);
+  margin-right: 8px;
+}
+
+.setting-range-value {
+  display: inline-block;
+  min-width: 50px;
+  font-size: 12px;
+  color: #9ca3af;
+  text-align: right;
+}
+
+.setting-file-upload {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.file-upload-btn {
+  padding: 10px;
+  background: #1e293b;
+  border: 2px dashed #475569;
+  border-radius: 6px;
+  color: #9ca3af;
+  font-size: 13px;
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s;
+}
+
+.file-upload-btn:hover {
+  border-color: #f97316;
+  background: #292524;
+}
+
+.file-upload-btn input {
+  display: none;
+}
+
+.banner-grid,
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.banner-option,
+.icon-option {
+  /* aspect-ratio: 1; */
+  border: 2px solid #374151;
+  border-radius: 6px;
+  padding: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+  overflow: hidden;
+}
+
+.banner-option:hover,
+.icon-option:hover {
+  border-color: #f97316;
+}
+
+.banner-option.selected,
+.icon-option.selected {
+  border-color: #f97316;
+  background: #292524;
+}
+
+.banner-option img,
+.icon-option img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 4px;
+}
+
+.expert-photo-settings {
+  padding: 12px;
+  background: #1e293b;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+.photo-preview-box {
+  width: 120px;
+  height: 120px;
+  margin: 0 auto 12px;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.photo-mask {
+  width: 100px;
+  height: 100px;
+  border-radius: 45px;
+  overflow: hidden;
+  transform: rotate(45deg);
+  border: 2px solid #374151;
+  position: relative;
+}
+
+.photo-mask img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.expert-badge-preview {
+  position: absolute;
+  bottom: 0;
+  right: 0;
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.expert-badge-preview img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* Модальное окно */
+.modal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.modal-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.8);
+}
+
+.modal-content {
+  position: relative;
+  width: 90%;
+  max-width: 1200px;
+  max-height: 90vh;
+  background: #1e293b;
+  border-radius: 12px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.modal-header {
+  padding: 20px;
+  border-bottom: 1px solid #374151;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.modal-header h2 {
+  font-size: 20px;
+  color: #f9fafb;
+}
+
+.modal-close {
+  width: 32px;
+  height: 32px;
+  background: #374151;
+  border: none;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 24px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+}
+
+.modal-close:hover {
+  background: #dc2626;
+}
+
+.modal-body {
+  flex: 1;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.preview-container {
+  max-width: 600px;
+  margin: 0 auto;
+  background: #111111;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.modal-footer {
+  padding: 20px;
+  border-top: 1px solid #374151;
+}
+
+.html-output {
+  width: 100%;
+  height: 200px;
+  padding: 12px;
+  background: #0f172a;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-family: 'Consolas', monospace;
+  font-size: 12px;
+  resize: vertical;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+/* Responsive */
+@media (max-width: 1200px) {
+  .settings-panel {
+    width: 300px;
+  }
+}
+
+@media (max-width: 900px) {
+  .blocks-library {
+    width: 240px;
+  }
+  
+  .settings-panel {
+    display: none;
+  }
+}
+.color-setting-button {
+  width: 100%;
+  padding: 8px 12px;
+  background: #1e293b;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 13px;
+  font-family: 'CustomFont', Arial, sans-serif;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+}
+
+.color-setting-button:hover {
+  border-color: #f97316;
+}
+
+.color-setting-input {
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  margin: 0;
+  border: none;
+  cursor: pointer;
+
+  /* важное */
+  -webkit-appearance: none;
+  appearance: none;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* Chrome / Edge / Safari */
+.color-setting-input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.color-setting-input::-webkit-color-swatch {
+  border-radius: 4px; /* скруглённые углы */
+  border: 1px solid #4b5563;
+}
+
+/* Firefox */
+.color-setting-input::-moz-color-swatch {
+  border-radius: 4px;
+  border: 1px solid #4b5563;
+}
+.columns-width-info {
+  font-size: 12px;
+  color: #9ca3af;
+  margin-bottom: 8px;
+}
+.column-block {
+  cursor: move;
+}
+
+.column-block.dragging {
+  opacity: 0.5;
+}
+
+/* Колонки */
+.columns-container {
+  display: flex;
+  gap: 12px;
+  padding: 0;
+}
+
+.column {
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.column-content {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 100px;
+}
+
+.column-block {
+  margin-bottom: 0 !important;
+}
+
+.column-drop-zone {
+  min-height: 80px;
+  border: 2px dashed #475569;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #6b7280;
+  font-size: 13px;
+  transition: all 0.2s;
+}
+
+.column-drop-zone:hover {
+  border-color: #f97316;
+  background: rgba(249, 115, 22, 0.05);
+}
+
+.column-block.dragging {
+  opacity: 0.5;
+}
+
+.column-block.selected {
+  border-color: #f97316 !important;
+  background: #292524 !important;
+}
+
+/* ===== БИБЛИОТЕКА ШАБЛОНОВ ===== */
+
+/* Burger кнопка */
+.btn-burger {
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  padding: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-right: 16px;
+}
+
+.btn-burger:hover {
+  background: #475569;
+  border-color: #f97316;
+}
+
+.btn-burger svg {
+  display: block;
+}
+
+/* Затемнение фона */
+.templates-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 999;
+  display: none;
+  opacity: 0;
+  transition: opacity 0.3s;
+}
+
+.templates-overlay.active {
+  display: block;
+  opacity: 1;
+}
+
+/* Панель шаблонов */
+.templates-panel {
+  position: fixed;
+  top: 0;
+  left: -320px;
+  width: 320px;
+  height: 100vh;
+  background: #1e293b;
+  border-right: 1px solid #334155;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  transition: left 0.3s ease;
+  box-shadow: 4px 0 12px rgba(0, 0, 0, 0.3);
+}
+
+.templates-panel.active {
+  left: 0;
+}
+
+/* Заголовок панели */
+.templates-panel-header {
+  padding: 20px;
+  border-bottom: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+.templates-panel-header h3 {
+  margin: 0 0 16px 0;
+  color: #f9fafb;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+/* Поиск */
+.templates-search input {
+  width: 100%;
+  padding: 10px 12px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.templates-search input:focus {
+  border-color: #f97316;
+}
+
+.templates-search input::placeholder {
+  color: #64748b;
+}
+
+/* Список шаблонов */
+.templates-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px;
+}
+
+/* Элемент шаблона */
+.template-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px;
+  margin-bottom: 6px;
+  background: #0f172a;
+  border: 1px solid #334155;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+  gap: 8px;
+}
+
+.template-item:hover {
+  background: #1e293b;
+  border-color: #f97316;
+}
+
+.template-item.active {
+  background: #292524;
+  border-color: #f97316;
+}
+
+.template-name {
+  flex: 1;
+  color: #e5e7eb;
+  font-size: 14px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
+}
+
+.template-name.editing {
+  background: #0f172a;
+  border: 1px solid #f97316;
+  border-radius: 4px;
+  padding: 4px 6px;
+  outline: none;
+  user-select: text;
+  white-space: normal;
+}
+
+/* Кнопка удаления */
+.template-delete {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  background: transparent;
+  border: 1px solid #475569;
+  border-radius: 4px;
+  color: #ef4444;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.template-delete:hover {
+  background: #ef4444;
+  color: white;
+  border-color: #ef4444;
+}
+
+/* Пустой список */
+.templates-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+/* Футер панели */
+.templates-panel-footer {
+  padding: 16px;
+  border-top: 1px solid #334155;
+  flex-shrink: 0;
+}
+
+.btn-secondary {
+  width: 100%;
+  padding: 10px;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 6px;
+  color: #e5e7eb;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-secondary:hover {
+  background: #475569;
+  border-color: #64748b;
+}
+
+/* Скроллбар для списка */
+.templates-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.templates-list::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.templates-list::-webkit-scrollbar-thumb {
+  background: #475569;
+  border-radius: 4px;
+}
+
+.templates-list::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+/* Кнопка сохранения шаблона */
+.btn-save-template {
+  width: 100%;
+  margin-top: 12px;
+  padding: 12px 20px;
+  background: #334155;
+  border: 1px solid #475569;
+  border-radius: 8px;
+  color: #e5e7eb;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.btn-save-template:hover {
+  background: #475569;
+  border-color: #f97316;
+}
+
+.btn-save-template svg {
+  flex-shrink: 0;
+}

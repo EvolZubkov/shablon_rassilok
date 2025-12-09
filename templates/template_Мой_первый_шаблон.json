@@ -1,0 +1,109 @@
+{
+  "id": "tpl_1765008582",
+  "name": "Мой первый шаблон",
+  "created": "2025-12-06T12:09:42.546175",
+  "blocks": [
+    {
+      "id": 1,
+      "type": "banner",
+      "settings": {
+        "image": "banners/Анкета ОС.png",
+        "text": "До встречи в эфире!",
+        "fontSize": 24,
+        "fontFamily": "rt-regular",
+        "positionY": 50,
+        "positionX": 3,
+        "lineHeight": 1.2,
+        "letterSpacing": 0,
+        "renderedBanner": null
+      },
+      "columns": null
+    },
+    {
+      "id": 2,
+      "type": "text",
+      "settings": {
+        "content": "Введите текст здесь. Можно использовать несколько строк.",
+        "fontSize": 14,
+        "lineHeight": 1.6,
+        "align": "left",
+        "color": "#e5e7eb",
+        "fontFamily": "default",
+        "customFontFamily": ""
+      },
+      "columns": null
+    },
+    {
+      "id": 3,
+      "type": "button",
+      "settings": {
+        "text": "Подключиться",
+        "url": "https://example.com",
+        "color": "#f97316",
+        "textColor": "#ffffff",
+        "icon": "",
+        "align": "center",
+        "size": 1
+      },
+      "columns": null
+    },
+    {
+      "id": 4,
+      "type": "heading",
+      "settings": {
+        "text": "Заголовок раздела",
+        "size": 22,
+        "weight": 700,
+        "color": "#f9fafb",
+        "align": "left",
+        "fontFamily": "default",
+        "customFontFamily": ""
+      },
+      "columns": null
+    },
+    {
+      "id": 5,
+      "type": "list",
+      "settings": {
+        "items": [
+          "Первый пункт списка",
+          "Второй пункт списка",
+          "Третий пункт списка"
+        ],
+        "bulletType": "circle",
+        "bulletCustom": "",
+        "fontFamily": "default",
+        "customFontFamily": "",
+        "fontSize": 14,
+        "lineHeight": 1,
+        "bulletSize": 20,
+        "bulletGap": 10,
+        "itemSpacing": 8,
+        "listStyle": "bullets"
+      },
+      "columns": null
+    },
+    {
+      "id": 6,
+      "type": "expert",
+      "settings": {
+        "photo": "images/expert-placeholder.png",
+        "name": "Имя эксперта",
+        "title": "Должность",
+        "bio": "Краткое описание эксперта",
+        "positionX": 0,
+        "positionY": 0,
+        "scale": 115,
+        "badgeIcon": "",
+        "badgePositionX": 100,
+        "badgePositionY": 100,
+        "bgColor": "#0f172a",
+        "textColor": "#e5e7eb",
+        "nameColor": "#f9fafb",
+        "titleColor": "#9ca3af",
+        "renderedExpert": null
+      },
+      "columns": null
+    }
+  ]
+}
