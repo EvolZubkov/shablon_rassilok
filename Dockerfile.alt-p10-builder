@@ -1,0 +1,25 @@
+FROM alt:p10
+
+ENV LANG=C
+ENV LC_ALL=C
+ENV PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && \
+    apt-get install -y \
+        python3 \
+        python3-devel \
+        python3-module-pip \
+        python3-module-virtualenv \
+        gcc \
+        gcc-c++ \
+        binutils \
+        make \
+        git \
+        findutils \
+        file && \
+    apt-get clean
+
+WORKDIR /app
+
+CMD ["/bin/bash"]

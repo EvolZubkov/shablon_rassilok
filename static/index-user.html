@@ -1,0 +1,735 @@
+<!DOCTYPE html>
+<html lang="ru">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Email Builder</title>
+  <link rel="stylesheet" href="theme-variables.css">
+  <link rel="stylesheet" href="user-styles.css">
+</head>
+
+<body>
+  <div class="user-app">
+
+    <!-- Стартовый экран с шаблонами -->
+    <div id="start-screen" class="start-screen">
+
+      <!-- Шапка -->
+      <header class="start-header">
+        <div class="start-header-logo">
+          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path
+              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+            </path>
+          </svg>
+          <h1>Email Builder</h1>
+        </div>
+        <div class="start-header-search">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="11" cy="11" r="8"></circle>
+            <path d="M21 21l-4.35-4.35"></path>
+          </svg>
+          <input type="text" id="template-search" placeholder="Поиск шаблонов...">
+        </div>
+      </header>
+
+      <!-- Вкладки категорий -->
+      <nav class="category-tabs">
+        <button class="category-tab active" data-category="all">Все шаблоны</button>
+        <!-- Остальные вкладки загружаются динамически -->
+      </nav>
+
+      <!-- Сетка шаблонов -->
+      <main class="templates-grid-container">
+        <div id="templates-grid" class="templates-grid">
+          <!-- Карточки шаблонов загружаются динамически -->
+        </div>
+
+        <!-- Пустое состояние -->
+        <div id="empty-state" class="empty-state" style="display: none;">
+          <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+            <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+            <polyline points="13 2 13 9 20 9"></polyline>
+          </svg>
+          <p>Шаблоны не найдены</p>
+        </div>
+
+        <!-- Загрузка -->
+        <div id="loading-state" class="loading-state">
+          <div class="spinner"></div>
+          <p>Загрузка шаблонов...</p>
+        </div>
+      </main>
+
+    </div>
+
+    <!-- Экран редактирования (скрыт по умолчанию) -->
+    <div id="editor-screen" class="editor-screen" style="display: none;">
+
+      <!-- Шапка редактора -->
+      <header class="editor-header">
+        <button id="btn-back" class="btn-back" title="Назад к шаблонам">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M19 12H5M12 19l-7-7 7-7"></path>
+          </svg>
+          <span>Назад</span>
+        </button>
+
+        <div class="editor-title">
+          <span id="current-template-name">Новое письмо</span>
+        </div>
+
+        <div class="editor-actions">
+          <button id="btn-preview-user" class="btn-editor btn-preview-user">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+              <circle cx="12" cy="12" r="3"></circle>
+            </svg>
+            Превью
+          </button>
+          <button id="btn-send-outlook" class="btn-editor btn-send">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path
+                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+              </path>
+            </svg>
+            Письмо
+          </button>
+          <button id="btn-send-meeting" class="btn-editor btn-meeting">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+              <line x1="16" y1="2" x2="16" y2="6"></line>
+              <line x1="8" y1="2" x2="8" y2="6"></line>
+              <line x1="3" y1="10" x2="21" y2="10"></line>
+            </svg>
+            Встреча
+          </button>
+          <!-- <button class="btn-editor btn-download" onclick="BulkMail.open()">
+           Массовая рассылка
+          </button> -->
+          <button id="btn-exchange-settings" class="btn-editor btn-settings" title="Настройки подключения Exchange">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="3"></circle>
+              <path
+                d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z">
+              </path>
+            </svg>
+          </button>
+          <button id="btn-save-personal" class="btn-editor btn-save" style="display: none;">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path>
+              <polyline points="17 21 17 13 7 13 7 21"></polyline>
+              <polyline points="7 3 7 8 15 8"></polyline>
+            </svg>
+            Сохранить
+          </button>
+        </div>
+      </header>
+
+      <!-- Canvas для редактирования -->
+      <main class="editor-canvas-area">
+        <div id="user-canvas" class="user-canvas">
+          <!-- Блоки шаблона рендерятся здесь -->
+        </div>
+      </main>
+
+      <!-- Popup Toolbar (появляется при выделении текста) -->
+      <div id="text-toolbar" class="text-toolbar" style="display: none;">
+        <!-- Режим форматирования -->
+        <div id="toolbar-format-mode" class="toolbar-mode" style="display: flex;">
+          <button type="button" class="toolbar-btn" data-action="bold" title="Жирный">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+              <path d="M6 4h8a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+              <path d="M6 12h9a4 4 0 0 1 4 4 4 4 0 0 1-4 4H6z"></path>
+            </svg>
+          </button>
+          <button type="button" class="toolbar-btn" data-action="italic" title="Курсив">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="19" y1="4" x2="10" y2="4"></line>
+              <line x1="14" y1="20" x2="5" y2="20"></line>
+              <line x1="15" y1="4" x2="9" y2="20"></line>
+            </svg>
+          </button>
+          <button type="button" class="toolbar-btn" data-action="link" title="Ссылка">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path>
+              <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
+            </svg>
+          </button>
+          <div class="toolbar-divider"></div>
+          <button type="button" class="toolbar-btn" data-action="align-left" title="По левому краю">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="17" y1="10" x2="3" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="17" y1="18" x2="3" y2="18"></line>
+            </svg>
+          </button>
+          <button type="button" class="toolbar-btn" data-action="align-center" title="По центру">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="10" x2="6" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="18" y1="18" x2="6" y2="18"></line>
+            </svg>
+          </button>
+          <button type="button" class="toolbar-btn" data-action="align-right" title="По правому краю">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="21" y1="10" x2="7" y2="10"></line>
+              <line x1="21" y1="6" x2="3" y2="6"></line>
+              <line x1="21" y1="14" x2="3" y2="14"></line>
+              <line x1="21" y1="18" x2="7" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+
+        <!-- Режим редактирования ссылки -->
+        <div id="toolbar-link-mode" class="toolbar-mode" style="display: none;">
+          <button type="button" class="toolbar-btn" id="toolbar-link-back" title="Назад">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M19 12H5"></path>
+              <path d="M12 19l-7-7 7-7"></path>
+            </svg>
+          </button>
+          <div class="toolbar-link-input-wrap">
+            <input type="text" id="toolbar-link-input" placeholder="https://" />
+          </div>
+          <button type="button" class="toolbar-btn" id="toolbar-link-open" title="Открыть ссылку">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"></path>
+              <polyline points="15 3 21 3 21 9"></polyline>
+              <line x1="10" y1="14" x2="21" y2="3"></line>
+            </svg>
+          </button>
+          <button type="button" class="toolbar-btn toolbar-btn-success" id="toolbar-link-apply" title="Применить">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <polyline points="20 6 9 17 4 12"></polyline>
+            </svg>
+          </button>
+          <button type="button" class="toolbar-btn toolbar-btn-danger" id="toolbar-link-remove" title="Удалить ссылку">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Модальное окно превью -->
+    <div id="preview-modal-user" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content">
+        <div class="modal-header">
+          <h2>Превью письма</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div id="preview-container-user" class="preview-container"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно просмотра шаблона (до входа в редактор) -->
+    <div id="template-preview-modal" class="modal" style="display: none;">
+      <div class="modal-overlay" onclick="closeTemplatePreview()"></div>
+      <div class="modal-content modal-preview-template">
+        <div class="modal-header">
+          <h2 id="template-preview-title">Просмотр шаблона</h2>
+          <button class="modal-close" onclick="closeTemplatePreview()">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="template-preview-scroll">
+            <div id="template-preview-content" class="template-preview-wrapper">
+              <!-- Контент шаблона -->
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button type="button" class="btn-secondary" onclick="closeTemplatePreview()">Закрыть</button>
+          <button type="button" class="btn-primary" id="btn-open-template" onclick="openTemplateFromPreview()">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path>
+            </svg>
+            Открыть и редактировать
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно выбора картинки -->
+    <div id="image-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-small">
+        <div class="modal-header">
+          <h2>Настройки картинки</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Изображение</label>
+            <button type="button" class="btn-secondary" id="btn-change-image" style="width:100%;">
+              📁 Выбрать файл
+            </button>
+            <div id="image-preview-thumb" style="margin-top:8px; text-align:center; display:none;">
+              <img id="image-thumb-img" src="" style="max-width:100%; max-height:120px; border-radius:6px;">
+            </div>
+          </div>
+          <div class="form-group">
+            <label>Ссылка (необязательно)</label>
+            <input type="url" id="image-url-input" placeholder="https://...">
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-apply-image" class="btn-primary">Применить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно редактирования кнопки -->
+    <div id="button-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-small">
+        <div class="modal-header">
+          <h2>Настройки кнопки</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="form-group">
+            <label>Текст кнопки</label>
+            <input type="text" id="button-text-input" maxlength="25">
+          </div>
+          <div class="form-group">
+            <label>Ссылка</label>
+            <input type="url" id="button-url-input" placeholder="https://...">
+          </div>
+          <div class="attention-help" id="button-url-help" style="display:none;">
+            Укажите ссылку для кнопки
+          </div>
+          <div class="form-group">
+            <label>Цвет</label>
+            <div class="color-palette" id="button-color-palette">
+              <button class="color-btn" data-color="#7700ff" style="background:#7700ff"></button>
+              <button class="color-btn" data-color="#ff4f12" style="background:#ff4f12"></button>
+              <button class="color-btn" data-color="#282631" style="background:#282631"></button>
+              <button class="color-btn" data-color="#d0fd51" style="background:#d0fd51"></button>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-apply-button" class="btn-primary">Применить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно редактирования списка -->
+    <div id="list-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-medium">
+        <div class="modal-header">
+          <h2>Настройки списка</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Тип списка -->
+          <div class="form-group">
+            <label>Тип списка</label>
+            <div class="toggle-buttons">
+              <button class="toggle-btn active" data-value="bullets">• Буллеты</button>
+              <button class="toggle-btn" data-value="numbered">01 Нумерованный</button>
+            </div>
+          </div>
+
+          <!-- Номер начала (для нумерованного) -->
+          <div class="form-group" id="start-number-group" style="display: none;">
+            <label>Начать с номера</label>
+            <input type="number" id="list-start-number" min="1" max="99" value="1">
+          </div>
+
+          <!-- Выбор иконки буллета -->
+          <div class="form-group" id="bullet-icon-group">
+            <label>Иконка буллета</label>
+            <div class="bullet-icons-grid" id="bullet-icons-grid">
+              <!-- Иконки загружаются динамически -->
+            </div>
+          </div>
+
+          <!-- Элементы списка -->
+          <div class="form-group">
+            <label>Элементы списка</label>
+            <div class="list-items-editor" id="list-items-editor">
+              <!-- Элементы загружаются динамически -->
+            </div>
+            <button type="button" class="btn-add-item" id="btn-add-list-item">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              Добавить пункт
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-apply-list" class="btn-primary">Применить</button>
+        </div>
+      </div>
+    </div>
+    <!-- Модальное окно выбора разделителя -->
+    <div id="divider-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-medium">
+        <div class="modal-header">
+          <h2>Выберите разделитель</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="divider-grid" id="divider-grid">
+            <!-- Разделители загружаются динамически -->
+          </div>
+        </div>
+      </div>
+    </div>
+    <!-- Модалка выбора иконки Important -->
+    <div id="important-icon-modal" class="modal" style="display:none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-medium">
+        <div class="modal-header">
+          <h2>Выберите иконку</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="divider-grid" id="important-icon-grid"></div>
+        </div>
+      </div>
+    </div>
+    <!-- Модальное окно редактирования эксперта -->
+    <div id="expert-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-large">
+        <div class="modal-header">
+          <h2>Настройки эксперта</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="expert-editor-layout">
+            <!-- Левая часть - превью -->
+            <div class="expert-preview-section">
+              <div class="expert-preview-container" id="expert-preview-container">
+                <!-- Превью рендерится динамически -->
+              </div>
+            </div>
+
+            <!-- Правая часть - настройки -->
+            <div class="expert-settings-section">
+              <!-- Фото -->
+              <div class="form-group">
+                <label>Фото эксперта</label>
+                <div class="photo-upload-row">
+                  <div class="current-photo" id="expert-current-photo">
+                    <img src="" alt="Фото">
+                  </div>
+                  <button type="button" class="btn-secondary" id="btn-change-expert-photo">
+                    📁 Загрузить фото
+                  </button>
+                  <input type="file" id="expert-photo-input" accept="image/*" style="display:none;">
+                </div>
+              </div>
+
+              <!-- Позиционирование фото -->
+              <div class="form-group">
+                <label>Позиция фото в маске</label>
+                <div class="position-controls">
+                  <div class="position-row">
+                    <span>Масштаб:</span>
+                    <input type="range" id="expert-scale" min="100" max="200" value="100">
+                    <span id="expert-scale-value">100%</span>
+                  </div>
+                  <div class="position-row">
+                    <span>По горизонтали:</span>
+                    <input type="range" id="expert-pos-x" min="-50" max="50" value="0">
+                    <span id="expert-pos-x-value">0</span>
+                  </div>
+                  <div class="position-row">
+                    <span>По вертикали:</span>
+                    <input type="range" id="expert-pos-y" min="-50" max="50" value="0">
+                    <span id="expert-pos-y-value">0</span>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Бейдж -->
+              <div class="form-group">
+                <label>Иконка-бейдж</label>
+                <div class="badge-grid" id="expert-badge-grid">
+                  <!-- Бейджи загружаются динамически -->
+                </div>
+              </div>
+
+              <!-- Подложка -->
+              <div class="form-group">
+                <label>Подложка</label>
+                <div class="toggle-row">
+                  <label class="toggle-switch">
+                    <input type="checkbox" id="expert-bg-toggle">
+                    <span class="toggle-slider"></span>
+                  </label>
+                  <span>Показывать цветную подложку</span>
+                </div>
+                <div class="color-row" id="expert-bg-color-row" style="display:none; margin-top:8px;">
+                  <input type="color" id="expert-bg-color" value="#f3f4f6">
+                  <span>Цвет подложки</span>
+                </div>
+              </div>
+
+              <!-- Текстовые поля -->
+              <div class="form-group" id="expert-name-group">
+                <label>Имя</label>
+                <input type="text" id="expert-name" placeholder="Имя Фамилия">
+              </div>
+              <div class="form-group" id="expert-title-group">
+                <label>Должность</label>
+                <input type="text" id="expert-title" placeholder="Должность">
+              </div>
+              <div class="form-group" id="expert-bio-group">
+                <label>Описание</label>
+                <textarea id="expert-bio" rows="3" placeholder="Краткое описание..."></textarea>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-apply-expert" class="btn-primary">Применить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно редактирования баннера -->
+    <div id="banner-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-xlarge">
+        <div class="modal-header">
+          <h2>Настройки баннера</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="banner-editor-layout">
+            <!-- Левая часть - превью -->
+            <div class="banner-preview-section">
+              <div class="banner-preview-wrapper">
+                <div class="banner-preview-container" id="banner-preview-container">
+                  <!-- Превью рендерится динамически -->
+                </div>
+              </div>
+            </div>
+
+            <!-- Правая часть - настройки -->
+            <div class="banner-settings-section">
+              <!-- Вкладки -->
+              <div class="banner-tabs">
+                <button type="button" class="banner-tab active" data-tab="texts">Тексты</button>
+                <button type="button" class="banner-tab" data-tab="logo">Логотип</button>
+                <button type="button" class="banner-tab" data-tab="image">Картинка</button>
+                <button type="button" class="banner-tab" data-tab="colors">Цвета</button>
+              </div>
+
+              <!-- Контент вкладок -->
+              <div class="banner-tab-content">
+                <!-- Вкладка: Тексты -->
+                <div id="banner-tab-texts" class="banner-tab-pane active">
+                  <div id="banner-text-elements-list">
+                    <!-- Текстовые элементы загружаются динамически -->
+                  </div>
+                </div>
+
+                <!-- Вкладка: Логотип -->
+                <div id="banner-tab-logo" class="banner-tab-pane" style="display: none;">
+                  <div class="form-group">
+                    <label>Выберите логотип</label>
+                    <div class="banner-logo-grid" id="banner-logo-grid">
+                      <!-- Логотипы загружаются динамически -->
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Или загрузите свой</label>
+                    <div class="photo-upload-row">
+                      <button type="button" class="btn-secondary" id="btn-upload-banner-logo">
+                        📁 Загрузить логотип
+                      </button>
+                      <input type="file" id="banner-logo-input" accept="image/*" style="display:none;">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Масштаб логотипа</label>
+                    <div class="position-row">
+                      <input type="range" id="banner-logo-scale" min="50" max="150" value="100">
+                      <span id="banner-logo-scale-value">100%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Вкладка: Картинка -->
+                <div id="banner-tab-image" class="banner-tab-pane" style="display: none;">
+                  <div class="form-group">
+                    <label>Выберите картинку</label>
+                    <div class="banner-image-grid" id="banner-image-grid">
+                      <!-- Картинки загружаются динамически -->
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Или загрузите свою</label>
+                    <div class="photo-upload-row">
+                      <button type="button" class="btn-secondary" id="btn-upload-banner-image">
+                        📁 Загрузить картинку
+                      </button>
+                      <input type="file" id="banner-image-input" accept="image/*" style="display:none;">
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Настройки картинки</label>
+                    <div class="position-controls">
+                      <div class="position-row">
+                        <span>Масштаб:</span>
+                        <input type="range" id="banner-image-scale" min="50" max="200" value="100">
+                        <span id="banner-image-scale-value">100%</span>
+                      </div>
+                      <div class="position-row">
+                        <span>Сдвиг X:</span>
+                        <input type="range" id="banner-image-x" min="-200" max="200" value="0">
+                        <span id="banner-image-x-value">0</span>
+                      </div>
+                      <div class="position-row">
+                        <span>Сдвиг Y:</span>
+                        <input type="range" id="banner-image-y" min="-200" max="200" value="0">
+                        <span id="banner-image-y-value">0</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Вкладка: Цвета -->
+                <div id="banner-tab-colors" class="banner-tab-pane" style="display: none;">
+                  <div class="form-group">
+                    <label>Цвет фона</label>
+                    <div class="color-row">
+                      <input type="color" id="banner-bg-color" value="#7700FF">
+                      <span id="banner-bg-color-hex">#7700FF</span>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Цвет левого блока</label>
+                    <div class="color-row">
+                      <input type="color" id="banner-left-color" value="#1D2533">
+                      <span id="banner-left-color-hex">#1D2533</span>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label>Быстрые цвета фона</label>
+                    <div class="color-palette" id="banner-color-palette">
+                      <button class="color-btn" data-color="#7700FF" style="background:#7700FF"></button>
+                      <button class="color-btn" data-color="#5887FF" style="background:#5887FF"></button>
+                      <button class="color-btn" data-color="#29CCA3" style="background:#29CCA3"></button>
+                      <button class="color-btn" data-color="#FFB608" style="background:#FFB608"></button>
+                      <button class="color-btn" data-color="#FE842D" style="background:#FE842D"></button>
+                      <button class="color-btn" data-color="#FF5E2E" style="background:#FF5E2E"></button>
+                      <button class="color-btn" data-color="#FF4F12" style="background:#FF4F12"></button>
+                      <button class="color-btn" data-color="#5F657B" style="background:#5F657B"></button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-apply-banner" class="btn-primary">Применить</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Модальное окно полного превью письма -->
+    <div id="email-fullpreview-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-fullpreview">
+        <div class="modal-header">
+          <h2>Превью письма</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <div class="fullpreview-scroll">
+            <div id="email-fullpreview-content" class="fullpreview-content">
+              <!-- Контент письма -->
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- Модалка -->
+  <div id="modal-bulk-mail" class="exc-modal-overlay" style="display:none">
+    <div class="exc-modal" style="width:95vw;max-width:1200px;height:90vh;display:flex;flex-direction:column;padding:0">
+      <div class="exc-modal-header" style="flex-shrink:0">
+        <span class="exc-modal-title">Массовая рассылка</span>
+        <button class="exc-modal-close" onclick="closeBulkMail()">×</button>
+      </div>
+      <iframe id="bulk-mail-frame" src="bulk-mail-prototype.html"
+        style="flex:1;border:none;border-radius:0 0 12px 12px">
+      </iframe>
+    </div>
+  </div>
+
+  <!-- Подключение скриптов -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+  <!-- Общие модули -->
+  <script src="js/toast.js"></script>
+  <script src="js/shared/utils.js"></script>
+  <script src="js/definitions.js"></script>
+  <script src="js/configLoader.js"></script>
+  <script src="js/state.js"></script>
+  <script src="js/blockDefaults.js"></script>
+  <script src="js/templatesAPI.js"></script>
+  <script src="js/imageRenderers.js"></script>
+  <script src="js/blockPreview.js"></script>
+  <script src="js/emailGenerator.js"></script>
+  <script src="js/outlookIntegration.js"></script>
+  <script src="js/buttonAutoStyle.js"></script>
+
+  <!-- User-специфичные модули -->
+  <script src="js/user/userApp.js"></script>
+  <script src="js/user/userTemplates.js"></script>
+  <script src="js/user/userEditor.js"></script>
+  <script src="js/user/userToolbar.js"></script>
+  <script src="js/user/userBannerEditor.js"></script>
+  <script src="js/user/exchangeModals.js"></script>
+  <!-- <script src="js/user/bulk-mail.js"></script> -->
+
+  <!-- Завершаем процесс при закрытии вкладки -->
+  <script>
+
+    function switchToAdmin() {
+      window.location.href = '/';
+    }
+
+    function shutdownApp() {
+      if (confirm('Закрыть приложение?')) {
+        fetch('/api/shutdown', { method: 'POST' }).finally(() => {
+          window.close();
+        });
+      }
+    }
+
+    // Heartbeat — пингуем сервер каждые 5 секунд
+    setInterval(() => {
+      fetch('/api/heartbeat', { method: 'POST' }).catch(() => { });
+    }, 5000);
+  </script>
+</body>
+
+</body>
+
+</html>
