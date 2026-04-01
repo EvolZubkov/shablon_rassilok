@@ -1,0 +1,14 @@
+{
+  "name": "email-builder",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "test": "jest tests/app.test.js --no-coverage"
+  },
+  "devDependencies": {
+    "jest": "^29.0.0"
+  },
+  "jest": {
+    "testEnvironment": "node"
+  }
+}

@@ -1,0 +1,1120 @@
+/* theme-variables.css - CSS переменные для светлой и тёмной темы */
+
+/* ===== ТЁМНАЯ ТЕМА (по умолчанию) ===== */
+:root,
+[data-theme="dark"] {
+    /* Основные фоны */
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #020617;
+    --bg-input: #1e293b;
+    --bg-hover: #334155;
+    --bg-selected: #292524;
+
+    /* Границы */
+    --border-primary: #1f2937;
+    --border-secondary: #334155;
+    --border-tertiary: #374151;
+    --border-hover: #475569;
+    --border-focus: #f97316;
+    --border-dashed: #475569;
+
+    /* Текст */
+    --text-primary: #f9fafb;
+    --text-secondary: #e5e7eb;
+    --text-tertiary: #d1d5db;
+    --text-muted: #9ca3af;
+    --text-disabled: #6b7280;
+    --text-placeholder: #64748b;
+
+    /* Акцентные цвета */
+    --accent-primary: #f97316;
+    --accent-primary-hover: #ea580c;
+    --accent-secondary: #3b82f6;
+    --accent-secondary-hover: #2563eb;
+    --accent-success: #10b981;
+    --accent-success-hover: #059669;
+    --accent-danger: #dc2626;
+    --accent-danger-hover: #b91c1c;
+    --accent-purple: #8b5cf6;
+    --accent-purple-hover: #7c3aed;
+
+    /* Тени */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.3);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.4);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.5);
+    --shadow-panel: 4px 0 12px rgba(0, 0, 0, 0.3);
+
+    /* Специальные */
+    --canvas-bg: #0f172a;
+    --block-bg: #1e293b;
+    --block-content-bg: #0f172a;
+    --modal-overlay: rgba(0, 0, 0, 0.8);
+    --modal-bg: #1e293b;
+    --scrollbar-track: #1e293b;
+    --scrollbar-thumb: #475569;
+    --scrollbar-thumb-hover: #64748b;
+
+    /* Карточки и секции */
+    --card-bg: #1e293b;
+    --card-border: #334155;
+    --section-header-color: #9ca3af;
+
+    /* Табы и переключатели */
+    --tab-bg: #334155;
+    --tab-active-bg: #f97316;
+    --tab-text: #9ca3af;
+    --tab-active-text: #ffffff;
+
+    /* Слайдеры */
+    --slider-track: #334155;
+    --slider-fill: #3b82f6;
+    --slider-thumb: #ffffff;
+    /* Exchange-модалка */
+    --exchange-modal-bg: #1e2b45;
+    --exchange-modal-border: #334766;
+    --exchange-modal-close-bg: #3a4a66;
+    --exchange-modal-close-color: #dbe4f0;
+    --exchange-modal-close-hover-bg: #4a5c7c;
+    --input-bg: #0c1730;
+    --input-border: #344765;
+    --input-border-hover: #45608b;
+    --input-border-focus: #7c3aed;
+    --input-focus-ring: rgba(124, 58, 237, 0.18);
+    --input-text: #f5f7fb;
+    --input-placeholder: #8090a8;
+    --exchange-btn-secondary-bg: #3b4b67;
+    --exchange-btn-secondary-hover: #495d80;
+}
+
+/* ===== СВЕТЛАЯ ТЕМА ===== */
+[data-theme="light"] {
+    /* Основные фоны */
+    --bg-primary: #f8fafc;
+    --bg-secondary: #ffffff;
+    --bg-tertiary: #f1f5f9;
+    --bg-input: #ffffff;
+    --bg-hover: #e2e8f0;
+    --bg-selected: #fff7ed;
+
+    /* Границы */
+    --border-primary: #e2e8f0;
+    --border-secondary: #cbd5e1;
+    --border-tertiary: #94a3b8;
+    --border-hover: #64748b;
+    --border-focus: #f97316;
+    --border-dashed: #94a3b8;
+
+    /* Текст - ВАЖНО: тёмные цвета для читаемости */
+    --text-primary: #0f172a;
+    --text-secondary: #1e293b;
+    --text-tertiary: #334155;
+    --text-muted: #64748b;
+    --text-disabled: #94a3b8;
+    --text-placeholder: #94a3b8;
+
+    /* Акцентные цвета */
+    --accent-primary: #f97316;
+    --accent-primary-hover: #ea580c;
+    --accent-secondary: #3b82f6;
+    --accent-secondary-hover: #2563eb;
+    --accent-success: #10b981;
+    --accent-success-hover: #059669;
+    --accent-danger: #dc2626;
+    --accent-danger-hover: #b91c1c;
+    --accent-purple: #8b5cf6;
+    --accent-purple-hover: #7c3aed;
+
+    /* Тени */
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
+    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
+    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.15);
+    --shadow-panel: 4px 0 12px rgba(0, 0, 0, 0.1);
+
+    /* Специальные */
+    --canvas-bg: #f1f5f9;
+    --block-bg: #ffffff;
+    --block-content-bg: #f8fafc;
+    --modal-overlay: rgba(0, 0, 0, 0.5);
+    --modal-bg: #ffffff;
+    --scrollbar-track: #e2e8f0;
+    --scrollbar-thumb: #94a3b8;
+    --scrollbar-thumb-hover: #64748b;
+
+    /* Карточки и секции */
+    --card-bg: #ffffff;
+    --card-border: #e2e8f0;
+    --section-header-color: #64748b;
+
+    /* Табы и переключатели */
+    --tab-bg: #e2e8f0;
+    --tab-active-bg: #f97316;
+    --tab-text: #64748b;
+    --tab-active-text: #ffffff;
+
+    /* Слайдеры */
+    --slider-track: #cbd5e1;
+    --slider-fill: #3b82f6;
+    --slider-thumb: #ffffff;
+    /* Exchange-модалка */
+    --exchange-modal-bg: #ffffff;
+    --exchange-modal-border: #d7deea;
+    --exchange-modal-close-bg: #e8edf5;
+    --exchange-modal-close-color: #4a5568;
+    --exchange-modal-close-hover-bg: #d1d9e6;
+    --input-bg: #ffffff;
+    --input-border: #c7d2e3;
+    --input-border-hover: #9fb0ca;
+    --input-border-focus: #7c3aed;
+    --input-focus-ring: rgba(124, 58, 237, 0.18);
+    --input-text: #111827;
+    --input-placeholder: #94a3b8;
+    --exchange-btn-secondary-bg: #e2e8f0;
+    --exchange-btn-secondary-hover: #cbd5e1;
+}
+
+/* ===== ПРИМЕНЕНИЕ ПЕРЕМЕННЫХ ===== */
+
+/* Body */
+body {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    transition: background-color 0.3s ease, color 0.3s ease;
+}
+
+/* ===== ЛЕВАЯ ПАНЕЛЬ - БИБЛИОТЕКА БЛОКОВ ===== */
+.blocks-library {
+    background: var(--bg-tertiary);
+    border-right-color: var(--border-primary);
+}
+
+.blocks-library h2 {
+    color: var(--text-primary);
+}
+
+.block-btn {
+    background: var(--bg-secondary);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.block-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
+.block-btn svg {
+    color: var(--text-muted);
+}
+
+.block-btn span {
+    color: var(--text-secondary);
+}
+
+/* ===== ЦЕНТРАЛЬНАЯ ПАНЕЛЬ - CANVAS ===== */
+.canvas-area {
+    background: var(--canvas-bg);
+}
+
+.canvas-header {
+    position: relative;
+    border-bottom-color: var(--border-primary);
+    background: var(--bg-primary);
+}
+
+.canvas-header h2 {
+    width: 100%;
+    margin: 0;
+    text-align: center;
+    color: var(--text-primary);
+}
+
+.canvas-content {
+    background: var(--canvas-bg);
+}
+
+.canvas-empty {
+    color: var(--text-disabled);
+}
+
+.canvas-empty svg {
+    color: var(--text-disabled);
+}
+
+.canvas-empty p {
+    color: var(--text-disabled);
+}
+
+/* ===== БЛОКИ В CANVAS ===== */
+.email-block {
+    background: var(--block-bg);
+    border-color: var(--border-secondary);
+}
+
+.email-block:hover {
+    border-color: var(--border-hover);
+}
+
+.email-block.selected {
+    border-color: var(--accent-primary);
+    background: var(--bg-selected);
+}
+
+.email-block.multi-selected {
+    border-color: var(--accent-primary);
+    background: var(--bg-selected);
+}
+
+.block-header {
+    border-bottom-color: var(--border-tertiary);
+}
+
+.block-title {
+    color: var(--text-muted);
+}
+
+.block-drag-handle {
+    color: var(--text-disabled);
+}
+
+.block-action-btn {
+    color: var(--text-muted);
+    background: transparent;
+}
+
+.block-action-btn:hover {
+    background: var(--bg-hover);
+    color: var(--text-primary);
+}
+
+.block-action-btn.delete:hover {
+    background: var(--accent-danger);
+    color: white;
+}
+
+.block-content {
+    background: var(--block-content-bg);
+    color: var(--text-secondary);
+}
+
+/* Текст внутри блоков - placeholder и введённый текст */
+.block-content p,
+.block-content span,
+.block-content div,
+.block-content textarea,
+.block-content input,
+.block-content h1,
+.block-content h2,
+.block-content h3,
+.block-content h4 {
+    color: var(--text-secondary);
+}
+
+/* Input внутри блоков - принудительно */
+.block-content input[type="text"],
+.block-content input:not([type]),
+.block-content textarea {
+    color: var(--text-secondary) !important;
+    background: var(--block-content-bg) !important;
+}
+
+.block-content input::placeholder,
+.block-content textarea::placeholder {
+    color: var(--text-placeholder) !important;
+}
+
+/* Placeholder текст в блоках */
+.block-content .placeholder,
+.block-content [contenteditable]:empty:before,
+.block-content .text-placeholder {
+    color: var(--text-placeholder);
+}
+
+/* Editable текст в блоках */
+.block-content [contenteditable] {
+    color: var(--text-secondary);
+}
+
+/* ===== ПРАВАЯ ПАНЕЛЬ - НАСТРОЙКИ ===== */
+.settings-panel {
+    background: var(--bg-tertiary);
+    border-left-color: var(--border-primary);
+}
+
+.settings-panel h2 {
+    color: var(--text-primary);
+}
+
+.settings-empty {
+    color: var(--text-disabled);
+}
+
+.settings-empty p {
+    color: var(--text-disabled);
+}
+
+.setting-group {
+    background: transparent;
+}
+
+.setting-label {
+    color: var(--text-tertiary);
+}
+
+/* Заголовки секций в настройках */
+.settings-content h3,
+.settings-content h4,
+.setting-group h3,
+.setting-group h4 {
+    color: var(--text-primary);
+}
+
+/* Подзаголовки и описания */
+.settings-content p,
+.setting-group p,
+.setting-description {
+    color: var(--text-muted);
+}
+
+.setting-input,
+.setting-textarea,
+.setting-select {
+    background: var(--bg-input);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.setting-input:focus,
+.setting-textarea:focus,
+.setting-select:focus {
+    border-color: var(--border-focus);
+}
+
+.setting-input::placeholder,
+.setting-textarea::placeholder {
+    color: var(--text-placeholder);
+}
+
+/* Select option */
+.setting-select option {
+    background: var(--bg-input);
+    color: var(--text-secondary);
+}
+
+.setting-range-value {
+    color: var(--text-muted);
+}
+
+/* Range input (slider) */
+.setting-range {
+    accent-color: var(--accent-secondary);
+}
+
+input[type="range"] {
+    accent-color: var(--accent-secondary);
+}
+
+/* Number inputs */
+input[type="number"] {
+    background: var(--bg-input);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+input[type="number"]:focus {
+    border-color: var(--border-focus);
+}
+
+.file-upload-btn {
+    background: var(--bg-secondary);
+    border-color: var(--border-dashed);
+    color: var(--text-muted);
+}
+
+.file-upload-btn:hover {
+    border-color: var(--accent-primary);
+    background: var(--bg-selected);
+}
+
+/* ===== BANNER / ICON GRID ===== */
+.banner-grid,
+.icon-grid {
+    background: transparent;
+}
+
+.banner-option,
+.icon-option {
+    border: 2px solid var(--border-secondary);
+    background: var(--bg-secondary);
+}
+
+.banner-option:hover,
+.icon-option:hover {
+    border-color: var(--accent-primary);
+}
+
+.banner-option.selected,
+.icon-option.selected {
+    border-color: var(--accent-primary);
+    background: var(--bg-selected);
+}
+
+/* Текст под иконками */
+.icon-option span,
+.banner-option span {
+    color: var(--text-secondary);
+}
+
+/* "Без иконки" и подобные опции */
+.icon-option-empty,
+.banner-option-empty {
+    color: var(--text-muted);
+    border-color: var(--border-secondary);
+}
+
+/* ===== EXPERT PHOTO SETTINGS ===== */
+.expert-photo-settings {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+}
+
+.photo-mask {
+    border-color: var(--border-tertiary);
+}
+
+/* ===== TABS / ПЕРЕКЛЮЧАТЕЛИ ===== */
+.tabs,
+.tab-buttons,
+.switcher {
+    background: var(--tab-bg);
+    border-radius: 6px;
+}
+
+.tab,
+.tab-btn,
+.switcher-btn {
+    background: transparent;
+    color: var(--tab-text);
+    border: none;
+}
+
+.tab.active,
+.tab-btn.active,
+.switcher-btn.active {
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+}
+
+/* Специфичные табы для баннера */
+.banner-format-tabs,
+.image-format-tabs {
+    background: var(--tab-bg);
+}
+
+.banner-format-tabs button,
+.image-format-tabs button {
+    color: var(--tab-text);
+}
+
+.banner-format-tabs button.active,
+.image-format-tabs button.active {
+    background: var(--tab-active-bg);
+    color: var(--tab-active-text);
+}
+
+/* ===== ТЕКСТОВЫЕ ЭЛЕМЕНТЫ (карточки) ===== */
+.text-element-card,
+.text-item-card {
+    background: var(--card-bg);
+    border: 1px solid var(--card-border);
+}
+
+.text-element-card:hover,
+.text-item-card:hover {
+    border-color: var(--border-hover);
+}
+
+.text-element-card .text-content,
+.text-item-card .text-content {
+    color: var(--text-secondary);
+}
+
+.text-element-card .text-label,
+.text-item-card .text-label {
+    color: var(--text-muted);
+}
+
+/* Кнопка удаления в карточке */
+.text-element-card .delete-btn,
+.text-item-card .delete-btn {
+    color: var(--accent-danger);
+}
+
+/* ===== МОДАЛЬНОЕ ОКНО ===== */
+.modal-overlay {
+    background: var(--modal-overlay);
+}
+
+.modal-content {
+    background: var(--modal-bg);
+    border: 1px solid var(--border-secondary);
+}
+
+.modal-header {
+    border-bottom-color: var(--border-secondary);
+}
+
+.modal-header h2 {
+    color: var(--text-primary);
+}
+
+.modal-close {
+    background: var(--bg-hover);
+    color: var(--text-secondary);
+}
+
+.modal-close:hover {
+    background: var(--accent-danger);
+    color: white;
+}
+
+.modal-footer {
+    border-top-color: var(--border-secondary);
+}
+
+.html-output {
+    background: var(--bg-primary);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+/* ===== COLOR PICKER ===== */
+.color-setting-button {
+    background: var(--bg-input);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.color-setting-button:hover {
+    border-color: var(--accent-primary);
+}
+
+.color-setting-button span {
+    color: var(--text-secondary);
+}
+
+.color-setting-input::-webkit-color-swatch {
+    border-color: var(--border-hover);
+}
+
+.color-setting-input::-moz-color-swatch {
+    border-color: var(--border-hover);
+}
+
+/* ===== COLUMNS ===== */
+.columns-width-info {
+    color: var(--text-muted);
+}
+
+.column-drop-zone {
+    border-color: var(--border-dashed);
+    color: var(--text-disabled);
+    background: transparent;
+}
+
+.column-drop-zone:hover {
+    border-color: var(--accent-primary);
+    background: rgba(249, 115, 22, 0.05);
+}
+
+.column-block {
+    background: var(--block-bg);
+    border-color: var(--border-secondary);
+}
+
+.column-block.selected {
+    border-color: var(--accent-primary) !important;
+    background: var(--bg-selected) !important;
+}
+
+/* ===== БИБЛИОТЕКА ШАБЛОНОВ ===== */
+.btn-burger {
+    background: var(--bg-hover);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.btn-burger:hover {
+    background: var(--border-hover);
+    border-color: var(--accent-primary);
+}
+
+.btn-burger svg {
+    stroke: var(--text-secondary);
+}
+
+.templates-panel {
+    background: var(--bg-secondary);
+    border-right-color: var(--border-secondary);
+}
+
+.templates-panel-header {
+    border-bottom-color: var(--border-secondary);
+}
+
+.templates-panel-header h3 {
+    color: var(--text-primary);
+}
+
+.templates-search input {
+    background: var(--bg-input);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.templates-search input::placeholder {
+    color: var(--text-placeholder);
+}
+
+.template-item {
+    background: var(--bg-primary);
+    border-color: var(--border-secondary);
+}
+
+.template-item:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+}
+
+.template-name {
+    color: var(--text-secondary);
+}
+
+.templates-empty {
+    color: var(--text-placeholder);
+}
+
+.templates-section-header {
+    color: var(--section-header-color);
+}
+
+.templates-panel-footer {
+    border-top-color: var(--border-secondary);
+}
+
+.btn-secondary {
+    background: var(--bg-hover);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.btn-secondary:hover {
+    background: var(--border-hover);
+}
+
+.btn-save-template {
+    background: var(--bg-hover);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.btn-save-template:hover {
+    border-color: var(--accent-primary);
+}
+
+.btn-save-template svg {
+    stroke: var(--text-muted);
+}
+
+/* ===== КНОПКИ ДЕЙСТВИЙ ===== */
+.btn-download {
+    background: var(--accent-success);
+    color: white;
+}
+
+.btn-download:hover {
+    background: var(--accent-success-hover);
+}
+
+.btn-meeting {
+    background: var(--accent-purple);
+}
+
+.btn-meeting:hover {
+    background: var(--accent-purple-hover);
+}
+
+.btn-preview {
+    background: var(--accent-secondary);
+    color: white;
+}
+
+.btn-preview:hover {
+    background: var(--accent-secondary-hover);
+}
+
+/* ===== THEME TOGGLE BUTTON ===== */
+.theme-toggle-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    padding: 8px;
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 8px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: all 0.2s ease;
+    margin-right: 12px;
+}
+
+.theme-toggle-btn:hover {
+    background: var(--bg-hover);
+    border-color: var(--accent-primary);
+    color: var(--accent-primary);
+}
+
+/* ===== SCROLLBAR ===== */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--scrollbar-track);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+}
+
+/* ===== ДОПОЛНИТЕЛЬНЫЕ ЭЛЕМЕНТЫ ДЛЯ СВЕТЛОЙ ТЕМЫ ===== */
+
+/* Все label элементы */
+[data-theme="light"] label {
+    color: var(--text-tertiary);
+}
+
+/* Все заголовки внутри панелей */
+[data-theme="light"] .settings-panel h3,
+[data-theme="light"] .settings-panel h4,
+[data-theme="light"] .settings-content h3,
+[data-theme="light"] .settings-content h4 {
+    color: var(--text-primary);
+}
+
+/* Все описания и подсказки */
+[data-theme="light"] .hint,
+[data-theme="light"] .description,
+[data-theme="light"] .help-text,
+[data-theme="light"] small {
+    color: var(--text-muted);
+}
+
+/* Все input, select, textarea - принудительно */
+[data-theme="light"] input:not([type="color"]):not([type="range"]):not([type="checkbox"]):not([type="radio"]),
+[data-theme="light"] select,
+[data-theme="light"] textarea {
+    background: var(--bg-input) !important;
+    border-color: var(--border-secondary) !important;
+    color: var(--text-secondary) !important;
+}
+
+[data-theme="light"] input::placeholder,
+[data-theme="light"] textarea::placeholder {
+    color: var(--text-placeholder) !important;
+}
+
+[data-theme="light"] input:focus,
+[data-theme="light"] select:focus,
+[data-theme="light"] textarea:focus {
+    border-color: var(--border-focus) !important;
+    outline: none;
+}
+
+/* Все кнопки внутри настроек */
+[data-theme="light"] .settings-panel button:not(.btn-download):not(.btn-meeting):not(.btn-preview) {
+    color: var(--text-secondary);
+}
+
+/* Секции с границами */
+[data-theme="light"] .section,
+[data-theme="light"] .setting-section,
+[data-theme="light"] .options-section {
+    border-color: var(--border-secondary);
+}
+
+/* Разделители */
+[data-theme="light"] hr,
+[data-theme="light"] .divider {
+    border-color: var(--border-secondary);
+}
+
+/* Списки */
+[data-theme="light"] li {
+    color: var(--text-secondary);
+}
+
+/* SVG иконки в кнопках */
+[data-theme="light"] button svg,
+[data-theme="light"] .btn svg {
+    stroke: currentColor;
+}
+
+/* ===== СПЕЦИФИЧНЫЕ ЭЛЕМЕНТЫ НАСТРОЕК ===== */
+
+/* Позиция X/Y инпуты */
+[data-theme="light"] .position-inputs input,
+[data-theme="light"] .size-inputs input,
+[data-theme="light"] .coord-input {
+    background: var(--bg-input) !important;
+    color: var(--text-secondary) !important;
+    border-color: var(--border-secondary) !important;
+}
+
+/* Суффиксы px, %, ° */
+[data-theme="light"] .input-suffix,
+[data-theme="light"] .unit-label {
+    color: var(--text-muted);
+}
+
+/* Слайдеры с подписями */
+[data-theme="light"] .slider-label,
+[data-theme="light"] .range-label {
+    color: var(--text-tertiary);
+}
+
+[data-theme="light"] .slider-value,
+[data-theme="light"] .range-value {
+    color: var(--text-muted);
+}
+
+/* Выбор картинки/иконки с текстом "Без иконки" */
+[data-theme="light"] .no-icon-option,
+[data-theme="light"] .empty-option {
+    color: var(--text-muted);
+    background: var(--bg-secondary);
+    border-color: var(--border-secondary);
+}
+
+/* Загрузка своей картинки */
+[data-theme="light"] .upload-custom,
+[data-theme="light"] .custom-upload-btn {
+    color: var(--text-muted);
+    border-color: var(--border-dashed);
+    background: var(--bg-secondary);
+}
+
+[data-theme="light"] .upload-custom:hover,
+[data-theme="light"] .custom-upload-btn:hover {
+    border-color: var(--accent-primary);
+}
+
+/* ===== TRANSITIONS ===== */
+body,
+.blocks-library,
+.canvas-area,
+.canvas-header,
+.canvas-content,
+.settings-panel,
+.email-block,
+.block-content,
+.block-action-btn,
+.setting-input,
+.setting-textarea,
+.setting-select,
+.file-upload-btn,
+.banner-option,
+.icon-option,
+.column-drop-zone,
+.text-element-card,
+.theme-toggle-btn,
+.modal-content,
+.templates-panel,
+.template-item,
+.btn-burger,
+.btn-secondary,
+.btn-save-template,
+.color-setting-button,
+.expert-photo-settings {
+    transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
+}
+
+/* ===== EMAIL WRAPPER (сохраняем светлую тему для email превью) ===== */
+
+/* ===== СПЕЦИФИЧНЫЕ СЕКЦИИ НАСТРОЕК ===== */
+
+/* Секция ссылок в тексте */
+.link-settings,
+.links-section,
+.text-links-panel {
+    background: var(--bg-secondary);
+    border-color: var(--border-secondary);
+}
+
+.link-settings h4,
+.links-section h4,
+.text-links-panel h4 {
+    color: var(--text-primary);
+}
+
+.link-settings p,
+.links-section p,
+.text-links-panel p {
+    color: var(--text-muted);
+}
+
+.link-settings button,
+.links-section button,
+.text-links-panel button {
+    background: var(--bg-secondary);
+    border-color: var(--border-secondary);
+    color: var(--text-secondary);
+}
+
+.link-settings button:hover,
+.links-section button:hover,
+.text-links-panel button:hover {
+    border-color: var(--accent-primary);
+}
+
+/* Принудительные стили для светлой темы */
+[data-theme="light"] .block-content,
+[data-theme="light"] .block-content p,
+[data-theme="light"] .block-content span,
+[data-theme="light"] .block-content h1,
+[data-theme="light"] .block-content h2,
+[data-theme="light"] .block-content h3,
+[data-theme="light"] .block-content h4,
+[data-theme="light"] .block-content li,
+[data-theme="light"] .block-content td,
+[data-theme="light"] .block-content th,
+[data-theme="light"] .block-content table,
+[data-theme="light"] .block-content div:not(.email-wrapper):not(.email-wrapper *),
+[data-theme="light"] .list-item,
+[data-theme="light"] .list-item-text,
+[data-theme="light"] .list-item span,
+[data-theme="light"] .list-item div,
+[data-theme="light"] .list-item p,
+[data-theme="light"] .list-content,
+[data-theme="light"] .list-content span,
+[data-theme="light"] .list-content div {
+    color: var(--text-secondary) !important;
+}
+
+/* Placeholder блоки (Выберите разделитель, Загрузите изображение и т.д.) */
+[data-theme="light"] .block-content p[style*="background"],
+[data-theme="light"] .block-content div[style*="background"],
+[data-theme="light"] .block-content .placeholder-box,
+[data-theme="light"] .block-content .upload-placeholder {
+    background: var(--bg-hover) !important;
+    color: var(--text-muted) !important;
+    border: 1px dashed var(--border-secondary) !important;
+}
+
+/* Input и textarea внутри блоков - светлая тема */
+[data-theme="light"] .block-content input,
+[data-theme="light"] .block-content input[type="text"],
+[data-theme="light"] .block-content textarea {
+    color: var(--text-secondary) !important;
+    background: var(--block-content-bg) !important;
+    border-color: var(--border-secondary) !important;
+}
+
+[data-theme="light"] .block-content input::placeholder,
+[data-theme="light"] .block-content textarea::placeholder {
+    color: var(--text-placeholder) !important;
+}
+
+[data-theme="light"] .block-content .placeholder,
+[data-theme="light"] .block-content [contenteditable]:empty:before {
+    color: var(--text-placeholder) !important;
+}
+
+[data-theme="light"] .block-content [contenteditable] {
+    color: var(--text-secondary) !important;
+}
+
+/* Секция ссылок - принудительно */
+[data-theme="light"] .link-settings,
+[data-theme="light"] .links-section,
+[data-theme="light"] .text-links-panel,
+[data-theme="light"] [class*="link"] {
+    color: var(--text-secondary);
+}
+
+[data-theme="light"] .link-settings h4,
+[data-theme="light"] .links-section h4,
+[data-theme="light"] .text-links-panel h4,
+[data-theme="light"] .settings-panel h4 {
+    color: var(--text-primary) !important;
+}
+
+[data-theme="light"] .link-settings p,
+[data-theme="light"] .links-section p,
+[data-theme="light"] .text-links-panel p,
+[data-theme="light"] .settings-panel .description,
+[data-theme="light"] .settings-panel .hint {
+    color: var(--text-muted) !important;
+}
+
+[data-theme="light"] .link-settings button,
+[data-theme="light"] .links-section button,
+[data-theme="light"] .settings-panel .btn-link,
+[data-theme="light"] .settings-panel .btn-secondary {
+    background: var(--bg-secondary) !important;
+    border-color: var(--border-secondary) !important;
+    color: var(--text-secondary) !important;
+}
+
+/* ===== EMAIL WRAPPER (сохраняем светлую тему для email превью) ===== */
+.email-wrapper {
+    color-scheme: light only !important;
+}
+
+.email-wrapper * {
+    color-scheme: light !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    .email-wrapper,
+    .email-wrapper table,
+    .email-wrapper td,
+    .email-wrapper div,
+    .email-wrapper p,
+    .email-wrapper span {
+        background-color: #ffffff !important;
+    }
+}
+
+/* ===== HEADER ACTIONS ===== */
+/* контейнеры слева/справа */
+.canvas-header-actions-left,
+.canvas-header-actions-right {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.canvas-header-actions-left {
+  left: 16px;
+}
+
+.canvas-header-actions-right {
+  right: 16px;
+}
+
+/* убираем старый отступ справа, чтобы работал gap */
+.theme-toggle-btn {
+  margin-right: 0;
+}

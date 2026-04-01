@@ -1,0 +1,1150 @@
+<!DOCTYPE html>
+<html lang="ru" data-theme="dark">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Массовая рассылка — Email Builder</title>
+<style>
+:root {
+    --bg-primary: #0f172a;
+    --bg-secondary: #1e293b;
+    --bg-tertiary: #020617;
+    --bg-input: #1e293b;
+    --bg-hover: #334155;
+    --border-primary: #1f2937;
+    --border-secondary: #334155;
+    --border-focus: #f97316;
+    --text-primary: #f9fafb;
+    --text-secondary: #e5e7eb;
+    --text-muted: #9ca3af;
+    --text-placeholder: #64748b;
+    --accent-primary: #f97316;
+    --accent-primary-hover: #ea580c;
+    --accent-secondary: #3b82f6;
+    --accent-success: #10b981;
+    --accent-danger: #dc2626;
+    --accent-purple: #8b5cf6;
+    --accent-orange: #f97316;
+    --modal-overlay: rgba(0,0,0,0.8);
+    --modal-bg: #1e293b;
+    --shadow-md: 0 4px 6px rgba(0,0,0,0.4);
+    --shadow-lg: 0 10px 15px rgba(0,0,0,0.5);
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+    font-family: 'Segoe UI', system-ui, sans-serif;
+    background: var(--bg-primary);
+    color: var(--text-primary);
+    font-size: 14px;
+    height: 100vh;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+}
+
+/* ── ШАПКА ── */
+.topbar {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-secondary);
+    padding: 0 16px;
+    height: 48px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+.topbar-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+.topbar-sep { width: 1px; height: 20px; background: var(--border-secondary); }
+.topbar-step {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.topbar-step:hover { background: var(--bg-hover); }
+.topbar-step.active { color: var(--accent-primary); background: rgba(249,115,22,0.1); }
+.topbar-step.done { color: var(--accent-success); }
+.topbar-step .step-num {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    border: 1px solid currentColor;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 11px; font-weight: 700;
+    flex-shrink: 0;
+}
+.topbar-step.done .step-num { background: var(--accent-success); border-color: var(--accent-success); color: #fff; }
+.topbar-step.active .step-num { background: var(--accent-primary); border-color: var(--accent-primary); color: #fff; }
+.step-arrow { color: var(--border-secondary); font-size: 12px; }
+.topbar-spacer { flex: 1; }
+.btn {
+    padding: 6px 14px;
+    border-radius: 6px;
+    border: none;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn-primary { background: var(--accent-primary); color: #fff; }
+.btn-primary:hover:not(:disabled) { background: var(--accent-primary-hover); }
+.btn-secondary { background: var(--bg-hover); color: var(--text-secondary); }
+.btn-secondary:hover:not(:disabled) { background: #475569; }
+.btn-purple { background: var(--accent-purple); color: #fff; }
+.btn-purple:hover { background: #7c3aed; }
+.btn-success { background: var(--accent-success); color: #fff; }
+.btn-sm { padding: 4px 10px; font-size: 12px; }
+.btn-icon { padding: 4px 8px; background: transparent; color: var(--text-muted); border: 1px solid var(--border-secondary); border-radius: 5px; cursor: pointer; font-size: 12px; transition: all 0.15s; }
+.btn-icon:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+/* ── ОСНОВНОЙ КОНТЕНТ ── */
+.main { flex: 1; overflow: hidden; display: flex; }
+
+/* ══════════════════════════════════════════
+   ШАГ 1 — загрузка файла
+══════════════════════════════════════════ */
+.screen { display: none; width: 100%; height: 100%; overflow-y: auto; padding: 32px; }
+.screen.active { display: flex; flex-direction: column; }
+
+/* Шаг 1 */
+#screen1 { align-items: center; justify-content: center; }
+.upload-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 12px;
+    padding: 40px;
+    width: 560px;
+    max-width: 100%;
+}
+.upload-card h2 { font-size: 18px; font-weight: 600; margin-bottom: 24px; }
+
+.drop-zone {
+    border: 2px dashed var(--border-secondary);
+    border-radius: 10px;
+    padding: 40px 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color 0.2s, background 0.2s;
+    margin-bottom: 20px;
+}
+.drop-zone:hover, .drop-zone.drag-over {
+    border-color: var(--accent-primary);
+    background: rgba(249,115,22,0.05);
+}
+.drop-icon { font-size: 36px; margin-bottom: 10px; }
+.drop-title { font-size: 15px; font-weight: 500; margin-bottom: 6px; }
+.drop-sub { font-size: 12px; color: var(--text-muted); }
+.drop-formats { margin-top: 8px; }
+.format-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    background: var(--bg-hover);
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--accent-primary);
+    margin: 0 3px;
+}
+
+.file-loaded {
+    background: rgba(16,185,129,0.08);
+    border: 1px solid rgba(16,185,129,0.3);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 20px;
+}
+.file-loaded-icon { font-size: 20px; }
+.file-loaded-name { font-size: 13px; font-weight: 500; color: var(--accent-success); }
+.file-loaded-size { font-size: 11px; color: var(--text-muted); }
+
+.form-row { margin-bottom: 16px; }
+.form-label { font-size: 12px; color: var(--text-muted); margin-bottom: 6px; display: block; }
+.form-select, .form-input {
+    width: 100%;
+    background: var(--bg-input);
+    border: 1px solid var(--border-secondary);
+    border-radius: 6px;
+    color: var(--text-primary);
+    padding: 7px 10px;
+    font-size: 13px;
+    outline: none;
+    transition: border-color 0.15s;
+}
+.form-select:focus, .form-input:focus { border-color: var(--border-focus); }
+.form-select option { background: var(--bg-secondary); }
+
+.preview-table-wrap {
+    border: 1px solid var(--border-secondary);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 20px;
+}
+.preview-table-label {
+    padding: 8px 12px;
+    font-size: 11px;
+    color: var(--text-muted);
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.preview-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+.preview-table th {
+    background: var(--bg-hover);
+    padding: 6px 10px;
+    text-align: left;
+    font-weight: 600;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-secondary);
+    white-space: nowrap;
+}
+.preview-table td {
+    padding: 5px 10px;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+    white-space: nowrap;
+    max-width: 150px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.preview-table tr:last-child td { border-bottom: none; }
+.preview-table tbody tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* ══════════════════════════════════════════
+   ШАГ 2 — сопоставление
+══════════════════════════════════════════ */
+#screen2 { padding: 24px; flex-direction: row; gap: 20px; overflow: hidden; }
+
+.mapping-left {
+    width: 280px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.mapping-center { flex: 1; overflow-y: auto; }
+
+.panel {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 10px;
+    overflow: hidden;
+}
+.panel-header {
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.panel-body { padding: 12px; }
+
+.info-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 5px 0;
+    font-size: 12px;
+}
+.info-row-label { color: var(--text-muted); }
+.info-row-val { color: var(--text-secondary); font-weight: 500; }
+
+/* Email блок */
+.email-block {
+    background: rgba(59,130,246,0.08);
+    border: 1px solid rgba(59,130,246,0.3);
+    border-radius: 8px;
+    padding: 12px;
+}
+.email-block-label {
+    font-size: 11px;
+    color: var(--accent-secondary);
+    font-weight: 600;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.email-status {
+    font-size: 11px;
+    margin-top: 6px;
+    color: var(--text-muted);
+}
+.email-status.ok { color: var(--accent-success); }
+.email-status.warn { color: #f59e0b; }
+
+/* Плейсхолдеры список */
+.ph-list { display: flex; flex-direction: column; gap: 4px; }
+.ph-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    transition: background 0.15s;
+    font-size: 12px;
+}
+.ph-item:hover { background: var(--bg-hover); }
+.ph-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+.ph-dot.green { background: var(--accent-success); }
+.ph-dot.orange { background: #f59e0b; }
+.ph-dot.red { background: var(--accent-danger); }
+.ph-dot.blue { background: var(--accent-secondary); }
+.ph-name { flex: 1; color: var(--text-secondary); }
+.ph-count {
+    font-size: 10px;
+    color: var(--text-muted);
+    background: var(--bg-hover);
+    padding: 1px 5px;
+    border-radius: 10px;
+}
+
+/* Таблица сопоставления */
+.map-table { width: 100%; border-collapse: collapse; }
+.map-table th {
+    padding: 8px 12px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border-secondary);
+    background: var(--bg-primary);
+}
+.map-table td {
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-primary);
+    vertical-align: middle;
+}
+.map-table tr:last-child td { border-bottom: none; }
+.map-table tr:hover td { background: rgba(255,255,255,0.015); }
+
+.ph-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 3px 8px;
+    background: rgba(249,115,22,0.1);
+    border: 1px solid rgba(249,115,22,0.3);
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--accent-primary);
+    font-family: monospace;
+}
+.status-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 10px;
+    font-size: 11px;
+    font-weight: 500;
+}
+.status-green { background: rgba(16,185,129,0.15); color: var(--accent-success); }
+.status-orange { background: rgba(245,158,11,0.15); color: #f59e0b; }
+.status-red { background: rgba(220,38,38,0.15); color: var(--accent-danger); }
+.status-blue { background: rgba(59,130,246,0.15); color: var(--accent-secondary); }
+
+.uses-link { font-size: 11px; color: var(--accent-secondary); cursor: pointer; text-decoration: underline; }
+.uses-link:hover { color: var(--text-primary); }
+
+/* ══════════════════════════════════════════
+   ШАГ 3 — предпросмотр
+══════════════════════════════════════════ */
+#screen3 { flex-direction: row; gap: 0; padding: 0; overflow: hidden; }
+
+.preview-left {
+    width: 300px;
+    flex-shrink: 0;
+    border-right: 1px solid var(--border-secondary);
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+    padding: 16px;
+    gap: 12px;
+}
+.preview-right {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+.preview-nav {
+    background: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-secondary);
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-shrink: 0;
+}
+.nav-row-info { font-size: 13px; color: var(--text-muted); }
+.nav-row-info strong { color: var(--text-primary); }
+.preview-frame-wrap {
+    flex: 1;
+    overflow-y: auto;
+    padding: 20px;
+    background: var(--bg-primary);
+}
+.preview-frame {
+    background: #fff;
+    border-radius: 6px;
+    padding: 24px;
+    max-width: 600px;
+    margin: 0 auto;
+    color: #333;
+    font-size: 14px;
+    line-height: 1.6;
+    box-shadow: var(--shadow-lg);
+}
+.preview-frame h3 { color: #111; margin-bottom: 12px; }
+.preview-frame p { margin-bottom: 10px; }
+.ph-highlight {
+    background: rgba(249,115,22,0.15);
+    border: 1px dashed rgba(249,115,22,0.5);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--accent-primary);
+    font-weight: 500;
+}
+.ph-empty {
+    background: rgba(220,38,38,0.1);
+    border: 1px dashed rgba(220,38,38,0.4);
+    border-radius: 3px;
+    padding: 0 4px;
+    color: var(--accent-danger);
+}
+
+.row-status-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 8px;
+    padding: 10px 12px;
+}
+.row-email-val { font-size: 13px; font-weight: 500; color: var(--accent-secondary); word-break: break-all; }
+.row-warnings { margin-top: 8px; }
+.warn-item {
+    font-size: 11px;
+    color: #f59e0b;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 0;
+}
+
+/* Сводка */
+.summary-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 8px;
+    padding: 12px;
+}
+.summary-card h4 { font-size: 12px; font-weight: 600; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+.summary-stat {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 0;
+    font-size: 13px;
+}
+.summary-stat-label { color: var(--text-muted); }
+.summary-stat-val { font-weight: 600; }
+.summary-stat-val.green { color: var(--accent-success); }
+.summary-stat-val.red { color: var(--accent-danger); }
+.summary-stat-val.orange { color: #f59e0b; }
+
+/* ══════════════════════════════════════════
+   ШАГ 4 — отчёт
+══════════════════════════════════════════ */
+#screen4 { align-items: center; justify-content: flex-start; padding: 32px; }
+
+.report-card {
+    background: var(--bg-secondary);
+    border: 1px solid var(--border-secondary);
+    border-radius: 12px;
+    width: 100%;
+    max-width: 760px;
+    overflow: hidden;
+}
+.report-header {
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border-secondary);
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+.report-icon { font-size: 28px; }
+.report-title { font-size: 17px; font-weight: 600; }
+.report-subtitle { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+
+.report-stats {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    border-bottom: 1px solid var(--border-secondary);
+}
+.report-stat {
+    padding: 16px 20px;
+    border-right: 1px solid var(--border-secondary);
+    text-align: center;
+}
+.report-stat:last-child { border-right: none; }
+.report-stat-num { font-size: 26px; font-weight: 700; margin-bottom: 4px; }
+.report-stat-label { font-size: 11px; color: var(--text-muted); }
+
+.report-table-wrap { overflow-x: auto; }
+.report-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.report-table th {
+    padding: 9px 16px;
+    text-align: left;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    background: var(--bg-primary);
+    border-bottom: 1px solid var(--border-secondary);
+}
+.report-table td {
+    padding: 8px 16px;
+    border-bottom: 1px solid var(--border-primary);
+    color: var(--text-secondary);
+}
+.report-table tr:last-child td { border-bottom: none; }
+.report-table tr:hover td { background: rgba(255,255,255,0.02); }
+
+/* ── МОДАЛКА ── */
+.modal-overlay {
+    display: none;
+    position: fixed; inset: 0;
+    background: var(--modal-overlay);
+    z-index: 100;
+    align-items: center;
+    justify-content: center;
+}
+.modal-overlay.open { display: flex; }
+.modal {
+    background: var(--modal-bg);
+    border: 1px solid var(--border-secondary);
+    border-radius: 12px;
+    width: 480px;
+    max-width: 95vw;
+    box-shadow: var(--shadow-lg);
+}
+.modal-header {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+.modal-title { font-size: 15px; font-weight: 600; }
+.modal-close { background: none; border: none; color: var(--text-muted); font-size: 18px; cursor: pointer; line-height: 1; padding: 2px 6px; border-radius: 4px; }
+.modal-close:hover { background: var(--bg-hover); color: var(--text-primary); }
+.modal-body { padding: 20px; }
+.modal-footer {
+    padding: 14px 20px;
+    border-top: 1px solid var(--border-secondary);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+/* scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: var(--bg-secondary); }
+::-webkit-scrollbar-thumb { background: #475569; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+/* info tooltip */
+.tip {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 16px; height: 16px;
+    border-radius: 50%;
+    border: 1px solid var(--border-secondary);
+    font-size: 10px;
+    color: var(--text-muted);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+.tip:hover { border-color: var(--accent-secondary); color: var(--accent-secondary); }
+</style>
+</head>
+<body>
+
+<!-- ШАПКА -->
+<div class="topbar">
+    <span class="topbar-title">📧 Массовая рассылка</span>
+    <div class="topbar-sep"></div>
+
+    <div class="topbar-step done" onclick="goTo(1)" id="step1">
+        <span class="step-num">✓</span> Данные
+    </div>
+    <span class="step-arrow">›</span>
+    <div class="topbar-step active" onclick="goTo(2)" id="step2">
+        <span class="step-num">2</span> Сопоставление
+    </div>
+    <span class="step-arrow">›</span>
+    <div class="topbar-step" onclick="goTo(3)" id="step3">
+        <span class="step-num">3</span> Предпросмотр
+    </div>
+    <span class="step-arrow">›</span>
+    <div class="topbar-step" onclick="goTo(4)" id="step4">
+        <span class="step-num">4</span> Отчёт
+    </div>
+
+    <div class="topbar-spacer"></div>
+    <button class="btn btn-secondary btn-sm" onclick="closePrototype()">✕ Закрыть</button>
+</div>
+
+<div class="main">
+
+<!-- ══════════════════════════════════════════
+     ШАГ 1 — загрузка файла
+══════════════════════════════════════════ -->
+<div class="screen" id="screen1">
+    <div class="upload-card">
+        <h2>Источник данных</h2>
+
+        <!-- Файл уже загружен -->
+        <div class="file-loaded">
+            <div class="file-loaded-icon">📊</div>
+            <div>
+                <div class="file-loaded-name">список_сотрудников_март.xlsx</div>
+                <div class="file-loaded-size">3 листа · 128 строк · 47 KB</div>
+            </div>
+            <button class="btn-icon" style="margin-left:auto">↺</button>
+        </div>
+
+        <div class="form-row">
+            <label class="form-label">Лист</label>
+            <select class="form-select">
+                <option>Март 2026</option>
+                <option>Февраль 2026</option>
+                <option>Архив</option>
+            </select>
+        </div>
+
+        <div class="form-row">
+            <label class="form-label">Строка заголовков</label>
+            <input type="number" class="form-input" value="1" min="1" style="width:80px">
+        </div>
+
+        <div class="preview-table-wrap">
+            <div class="preview-table-label">Предпросмотр — первые 4 строки</div>
+            <div style="overflow-x:auto">
+            <table class="preview-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>ФИО</th>
+                        <th>Email</th>
+                        <th>Отдел</th>
+                        <th>Должность</th>
+                        <th>Дата</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr><td>1</td><td>Иванов Иван</td><td>i.ivanov@rt.ru</td><td>ИТ</td><td>Разработчик</td><td>01.03.2026</td></tr>
+                    <tr><td>2</td><td>Петрова Анна</td><td>a.petrova@rt.ru</td><td>HR</td><td>Менеджер</td><td>05.03.2026</td></tr>
+                    <tr><td>3</td><td>Сидоров Олег</td><td></td><td>Финансы</td><td>Аналитик</td><td>07.03.2026</td></tr>
+                    <tr><td>4</td><td>Козлова Мария</td><td>m.kozlova@rt.ru</td><td>PR</td><td>Специалист</td><td>10.03.2026</td></tr>
+                </tbody>
+            </table>
+            </div>
+        </div>
+
+        <!-- Зона загрузки нового файла -->
+        <div class="drop-zone" onclick="this.classList.toggle('drag-over')">
+            <div class="drop-icon">📂</div>
+            <div class="drop-title">Перетащите файл или нажмите для выбора</div>
+            <div class="drop-sub">Поддерживаемые форматы:</div>
+            <div class="drop-formats">
+                <span class="format-badge">.xlsx</span>
+                <span class="format-badge">.ods</span>
+            </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end">
+            <button class="btn btn-primary" onclick="goTo(2)">Далее →</button>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ШАГ 2 — сопоставление полей
+══════════════════════════════════════════ -->
+<div class="screen active" id="screen2">
+
+    <!-- Левая колонка -->
+    <div class="mapping-left">
+
+        <!-- Инфо о файле -->
+        <div class="panel">
+            <div class="panel-header">Источник данных</div>
+            <div class="panel-body" style="padding:10px 12px">
+                <div class="info-row">
+                    <span class="info-row-label">Файл</span>
+                    <span class="info-row-val" style="font-size:11px">список_март.xlsx</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-row-label">Лист</span>
+                    <span class="info-row-val">Март 2026</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-row-label">Строк данных</span>
+                    <span class="info-row-val">127</span>
+                </div>
+                <div class="info-row">
+                    <span class="info-row-label">Колонок</span>
+                    <span class="info-row-val">6</span>
+                </div>
+                <button class="btn btn-secondary btn-sm" style="width:100%;margin-top:8px" onclick="goTo(1)">↺ Изменить</button>
+            </div>
+        </div>
+
+        <!-- Email -->
+        <div class="email-block">
+            <div class="email-block-label">✉ Колонка email <span class="tip">?</span></div>
+            <select class="form-select" style="font-size:12px">
+                <option>Email</option>
+                <option>— не выбрано —</option>
+                <option>ФИО</option>
+            </select>
+            <div class="email-status ok">✓ 124 валидных · 3 пропущено</div>
+        </div>
+
+        <!-- Плейсхолдеры -->
+        <div class="panel" style="flex:1;overflow:hidden;display:flex;flex-direction:column">
+            <div class="panel-header">
+                Плейсхолдеры
+                <span style="font-size:11px;font-weight:400;color:var(--text-muted)">4 из 5</span>
+            </div>
+            <div class="panel-body" style="overflow-y:auto;flex:1">
+                <div class="ph-list">
+                    <div class="ph-item" onclick="highlightRow('ph-fio')">
+                        <span class="ph-dot green"></span>
+                        <span class="ph-name">ФИО</span>
+                        <span class="ph-count">2×</span>
+                    </div>
+                    <div class="ph-item" onclick="highlightRow('ph-dept')">
+                        <span class="ph-dot green"></span>
+                        <span class="ph-name">Отдел</span>
+                        <span class="ph-count">1×</span>
+                    </div>
+                    <div class="ph-item" onclick="highlightRow('ph-pos')">
+                        <span class="ph-dot orange"></span>
+                        <span class="ph-name">Должность</span>
+                        <span class="ph-count">1×</span>
+                    </div>
+                    <div class="ph-item" onclick="highlightRow('ph-date')">
+                        <span class="ph-dot green"></span>
+                        <span class="ph-name">Дата</span>
+                        <span class="ph-count">1×</span>
+                    </div>
+                    <div class="ph-item" onclick="highlightRow('ph-city')">
+                        <span class="ph-dot red"></span>
+                        <span class="ph-name">Город</span>
+                        <span class="ph-count">1×</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Центр: таблица сопоставления -->
+    <div class="mapping-center">
+        <div class="panel">
+            <div class="panel-header">
+                Таблица сопоставления
+                <span style="display:flex;gap:6px">
+                    <span class="status-badge status-green">4 сопоставлено</span>
+                    <span class="status-badge status-red">1 ошибка</span>
+                </span>
+            </div>
+            <table class="map-table">
+                <thead>
+                    <tr>
+                        <th style="width:160px">Плейсхолдер</th>
+                        <th>Колонка из файла</th>
+                        <th style="width:120px">Статус</th>
+                        <th style="width:80px">Мест</th>
+                        <th style="width:80px">Действия</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr id="ph-fio">
+                        <td><span class="ph-tag">{{ФИО}}</span></td>
+                        <td>
+                            <select class="form-select" style="font-size:12px">
+                                <option>ФИО</option>
+                                <option>Email</option>
+                                <option>Отдел</option>
+                                <option>— не выбрано —</option>
+                            </select>
+                        </td>
+                        <td><span class="status-badge status-green">✓ Совпадение</span></td>
+                        <td><span class="uses-link">2 места</span></td>
+                        <td><button class="btn-icon">✕</button></td>
+                    </tr>
+                    <tr id="ph-dept">
+                        <td><span class="ph-tag">{{Отдел}}</span></td>
+                        <td>
+                            <select class="form-select" style="font-size:12px">
+                                <option>Отдел</option>
+                                <option>ФИО</option>
+                                <option>Email</option>
+                                <option>— не выбрано —</option>
+                            </select>
+                        </td>
+                        <td><span class="status-badge status-green">✓ Совпадение</span></td>
+                        <td><span class="uses-link">1 место</span></td>
+                        <td><button class="btn-icon">✕</button></td>
+                    </tr>
+                    <tr id="ph-pos">
+                        <td><span class="ph-tag">{{Должность}}</span></td>
+                        <td>
+                            <select class="form-select" style="font-size:12px">
+                                <option>Должность</option>
+                                <option>ФИО</option>
+                                <option>— не выбрано —</option>
+                            </select>
+                        </td>
+                        <td><span class="status-badge status-orange">⚠ Частичное</span></td>
+                        <td><span class="uses-link">1 место</span></td>
+                        <td><button class="btn-icon">✕</button></td>
+                    </tr>
+                    <tr id="ph-date">
+                        <td><span class="ph-tag">{{Дата}}</span></td>
+                        <td>
+                            <select class="form-select" style="font-size:12px">
+                                <option>Дата</option>
+                                <option>ФИО</option>
+                                <option>— не выбрано —</option>
+                            </select>
+                        </td>
+                        <td><span class="status-badge status-green">✓ Совпадение</span></td>
+                        <td><span class="uses-link">1 место</span></td>
+                        <td><button class="btn-icon">✕</button></td>
+                    </tr>
+                    <tr id="ph-city" style="background:rgba(220,38,38,0.04)">
+                        <td><span class="ph-tag" style="border-color:rgba(220,38,38,0.4);background:rgba(220,38,38,0.1);color:var(--accent-danger)">{{Город}}</span></td>
+                        <td>
+                            <select class="form-select" style="font-size:12px;border-color:rgba(220,38,38,0.4)">
+                                <option>— не найдено —</option>
+                                <option>ФИО</option>
+                                <option>Отдел</option>
+                                <option>— не выбрано —</option>
+                            </select>
+                        </td>
+                        <td><span class="status-badge status-red">✗ Не сопоставлено</span></td>
+                        <td><span class="uses-link">1 место</span></td>
+                        <td>
+                            <button class="btn-icon" style="color:var(--accent-danger);border-color:rgba(220,38,38,0.3)">✕</button>
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+            <div style="padding:14px 16px;border-top:1px solid var(--border-secondary);display:flex;justify-content:space-between;align-items:center">
+                <span style="font-size:12px;color:var(--accent-danger)">
+                    ⚠ Несопоставленные плейсхолдеры блокируют отправку
+                </span>
+                <div style="display:flex;gap:8px">
+                    <button class="btn btn-secondary btn-sm" onclick="goTo(1)">← Назад</button>
+                    <button class="btn btn-primary btn-sm" onclick="goTo(3)">Предпросмотр →</button>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ШАГ 3 — предпросмотр и отправка
+══════════════════════════════════════════ -->
+<div class="screen" id="screen3">
+
+    <div class="preview-left">
+
+        <!-- Навигация по строкам -->
+        <div class="panel">
+            <div class="panel-header">Строки</div>
+            <div class="panel-body">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:10px">
+                    <button class="btn btn-secondary btn-sm" onclick="changeRow(-1)">‹</button>
+                    <span style="font-size:13px;flex:1;text-align:center">
+                        Строка <strong id="cur-row">1</strong> из <strong>127</strong>
+                    </span>
+                    <button class="btn btn-secondary btn-sm" onclick="changeRow(1)">›</button>
+                </div>
+                <div class="row-status-card">
+                    <div style="font-size:11px;color:var(--text-muted);margin-bottom:4px">Email получателя</div>
+                    <div class="row-email-val" id="preview-email">i.ivanov@rt.ru</div>
+                    <div class="row-warnings">
+                        <div class="warn-item">⚠ Поле «Город» пустое</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Сводка -->
+        <div class="summary-card">
+            <h4>Сводка рассылки</h4>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Всего строк</span>
+                <span class="summary-stat-val">127</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">К отправке</span>
+                <span class="summary-stat-val green">124</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Пропустить</span>
+                <span class="summary-stat-val orange">3</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Пустой email</span>
+                <span class="summary-stat-val red">1</span>
+            </div>
+            <div class="summary-stat">
+                <span class="summary-stat-label">Некорр. email</span>
+                <span class="summary-stat-val orange">2</span>
+            </div>
+        </div>
+
+        <button class="btn btn-success" onclick="openSendModal()" style="width:100%;padding:10px">
+            ✉ Запустить рассылку
+        </button>
+        <button class="btn btn-secondary btn-sm" onclick="goTo(2)" style="width:100%">← Назад к сопоставлению</button>
+    </div>
+
+    <div class="preview-right">
+        <div class="preview-nav">
+            <span class="nav-row-info">Письмо для строки <strong id="nav-row">1</strong>: <strong id="nav-email">i.ivanov@rt.ru</strong></span>
+            <div style="flex:1"></div>
+            <span style="font-size:12px;color:var(--text-muted)">Несопоставленные: </span>
+            <span class="status-badge status-orange" style="margin-left:4px">1 поле</span>
+        </div>
+        <div class="preview-frame-wrap">
+            <div class="preview-frame" id="preview-content">
+                <h3>Уважаемый(ая) <span class="ph-highlight">Иванов Иван</span>!</h3>
+                <p>Информируем вас о плановом обучении для сотрудников отдела <span class="ph-highlight">ИТ</span>.</p>
+                <p>Ваша должность: <span class="ph-highlight">Разработчик</span>.<br>
+                Дата мероприятия: <span class="ph-highlight">01.03.2026</span>.</p>
+                <p>Место проведения: <span class="ph-empty">[Город — не сопоставлено]</span>.</p>
+                <p>Просьба подтвердить участие до 20.03.2026.</p>
+                <p>С уважением,<br>Департамент управления знаниями</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ══════════════════════════════════════════
+     ШАГ 4 — отчёт
+══════════════════════════════════════════ -->
+<div class="screen" id="screen4">
+    <div class="report-card">
+        <div class="report-header">
+            <div class="report-icon">✅</div>
+            <div>
+                <div class="report-title">Рассылка завершена</div>
+                <div class="report-subtitle">Шаблон: «Плановое обучение март» · 14.03.2026, 15:42</div>
+            </div>
+            <div style="margin-left:auto;display:flex;gap:8px">
+                <button class="btn btn-secondary btn-sm">⬇ Экспорт CSV</button>
+                <button class="btn btn-secondary btn-sm" onclick="goTo(1)">Новая рассылка</button>
+            </div>
+        </div>
+
+        <div class="report-stats">
+            <div class="report-stat">
+                <div class="report-stat-num" style="color:var(--text-primary)">127</div>
+                <div class="report-stat-label">Всего строк</div>
+            </div>
+            <div class="report-stat">
+                <div class="report-stat-num" style="color:var(--accent-success)">121</div>
+                <div class="report-stat-label">Отправлено</div>
+            </div>
+            <div class="report-stat">
+                <div class="report-stat-num" style="color:#f59e0b">4</div>
+                <div class="report-stat-label">Пропущено</div>
+            </div>
+            <div class="report-stat">
+                <div class="report-stat-num" style="color:var(--accent-danger)">2</div>
+                <div class="report-stat-label">Ошибок</div>
+            </div>
+        </div>
+
+        <div class="report-table-wrap">
+            <table class="report-table">
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>ФИО</th>
+                        <th>Email</th>
+                        <th>Статус</th>
+                        <th>Комментарий</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>1</td><td>Иванов Иван</td><td>i.ivanov@rt.ru</td>
+                        <td><span class="status-badge status-green">✓ Отправлено</span></td>
+                        <td style="color:var(--text-muted);font-size:12px">—</td>
+                    </tr>
+                    <tr>
+                        <td>2</td><td>Петрова Анна</td><td>a.petrova@rt.ru</td>
+                        <td><span class="status-badge status-green">✓ Отправлено</span></td>
+                        <td style="color:var(--text-muted);font-size:12px">—</td>
+                    </tr>
+                    <tr>
+                        <td>3</td><td>Сидоров Олег</td><td>—</td>
+                        <td><span class="status-badge status-orange">⊘ Пропущено</span></td>
+                        <td style="color:#f59e0b;font-size:12px">Пустой email</td>
+                    </tr>
+                    <tr>
+                        <td>4</td><td>Козлова Мария</td><td>m.kozlova@rt.ru</td>
+                        <td><span class="status-badge status-green">✓ Отправлено</span></td>
+                        <td style="color:var(--text-muted);font-size:12px">—</td>
+                    </tr>
+                    <tr>
+                        <td>5</td><td>Новиков Алексей</td><td>novikov@bad</td>
+                        <td><span class="status-badge status-orange">⊘ Пропущено</span></td>
+                        <td style="color:#f59e0b;font-size:12px">Некорректный email</td>
+                    </tr>
+                    <tr>
+                        <td>6</td><td>Попова Елена</td><td>e.popova@rt.ru</td>
+                        <td><span class="status-badge status-red">✗ Ошибка</span></td>
+                        <td style="color:var(--accent-danger);font-size:12px">Ошибка подключения</td>
+                    </tr>
+                    <tr>
+                        <td style="color:var(--text-muted)" colspan="5">… ещё 121 строка</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+</div><!-- /main -->
+
+<!-- МОДАЛКА подтверждения отправки -->
+<div class="modal-overlay" id="send-modal">
+    <div class="modal">
+        <div class="modal-header">
+            <span class="modal-title">Запустить рассылку</span>
+            <button class="modal-close" onclick="closeSendModal()">×</button>
+        </div>
+        <div class="modal-body">
+            <div style="margin-bottom:16px;font-size:13px;color:var(--text-secondary);line-height:1.6">
+                Будет отправлено <strong style="color:var(--accent-success)">124 письма</strong>.
+                3 строки будут пропущены (невалидный или пустой email).
+            </div>
+            <div style="background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.3);border-radius:8px;padding:10px 14px;font-size:12px;color:#f59e0b">
+                ⚠ Поле «Город» не сопоставлено — в письмах останется пустым
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeSendModal()">Отмена</button>
+            <button class="btn btn-success" onclick="startSend()">✉ Отправить 124 письма</button>
+        </div>
+    </div>
+</div>
+
+<script>
+// Данные для предпросмотра (демо)
+const rows = [
+    { email: 'i.ivanov@rt.ru',    fio: 'Иванов Иван',    dept: 'ИТ',       pos: 'Разработчик',  date: '01.03.2026', warn: ['Поле «Город» пустое'] },
+    { email: 'a.petrova@rt.ru',   fio: 'Петрова Анна',   dept: 'HR',       pos: 'Менеджер',     date: '05.03.2026', warn: [] },
+    { email: '',                   fio: 'Сидоров Олег',   dept: 'Финансы',  pos: 'Аналитик',     date: '07.03.2026', warn: ['Пустой email — строка будет пропущена'] },
+    { email: 'm.kozlova@rt.ru',   fio: 'Козлова Мария',  dept: 'PR',       pos: 'Специалист',   date: '10.03.2026', warn: ['Поле «Город» пустое'] },
+];
+let curRow = 0;
+
+function goTo(n) {
+    document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+    document.getElementById('screen' + n).classList.add('active');
+
+    document.querySelectorAll('.topbar-step').forEach((s, i) => {
+        s.classList.remove('active', 'done');
+        if (i + 1 < n) s.classList.add('done');
+        if (i + 1 === n) s.classList.add('active');
+    });
+}
+
+function changeRow(dir) {
+    curRow = Math.max(0, Math.min(rows.length - 1, curRow + dir));
+    const r = rows[curRow];
+    document.getElementById('cur-row').textContent = curRow + 1;
+    document.getElementById('nav-row').textContent = curRow + 1;
+    document.getElementById('nav-email').textContent = r.email || '—';
+    document.getElementById('preview-email').textContent = r.email || '—';
+
+    const warns = document.querySelector('.row-warnings');
+    warns.innerHTML = r.warn.map(w => `<div class="warn-item">⚠ ${w}</div>`).join('');
+
+    document.getElementById('preview-content').innerHTML = `
+        <h3>Уважаемый(ая) <span class="ph-highlight">${r.fio}</span>!</h3>
+        <p>Информируем вас о плановом обучении для сотрудников отдела <span class="ph-highlight">${r.dept}</span>.</p>
+        <p>Ваша должность: <span class="ph-highlight">${r.pos}</span>.<br>
+        Дата мероприятия: <span class="ph-highlight">${r.date}</span>.</p>
+        <p>Место проведения: ${r.warn.some(w => w.includes('Город')) ? '<span class="ph-empty">[Город — не сопоставлено]</span>' : '<span class="ph-highlight">Москва</span>'}.</p>
+        <p>Просьба подтвердить участие до 20.03.2026.</p>
+        <p>С уважением,<br>Департамент управления знаниями</p>
+    `;
+}
+
+function highlightRow(id) {
+    document.querySelectorAll('.map-table tr').forEach(r => r.style.outline = '');
+    const row = document.getElementById(id);
+    if (row) {
+        row.style.outline = '2px solid var(--accent-primary)';
+        row.style.outlineOffset = '-2px';
+        setTimeout(() => { row.style.outline = ''; }, 1500);
+    }
+}
+
+function openSendModal() {
+    document.getElementById('send-modal').classList.add('open');
+}
+function closeSendModal() {
+    document.getElementById('send-modal').classList.remove('open');
+}
+function startSend() {
+    closeSendModal();
+    goTo(4);
+}
+function closePrototype() {
+    if (confirm('Закрыть прототип?')) window.close();
+}
+
+// Старт на шаге 2 для демо
+goTo(2);
+</script>
+</body>
+</html>

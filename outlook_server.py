@@ -7,9 +7,9 @@ from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
 import base64
-from outlook_sender import create_outlook_draft, convert_font_to_base64
+from outlook_sender import create_outlook_draft, convert_font_to_base64, create_outlook_meeting
 
-app = Flask(__name__, static_folder='.')
+app = Flask(__name__, static_folder='static')
 CORS(app)  # Разрешаем запросы из браузера
 
 # Базовый путь проекта
@@ -21,16 +21,8 @@ BASE_PATH = os.path.dirname(os.path.abspath(__file__))
 @app.route('/')
 def index():
     """Главная страница"""
-    return send_from_directory('.', 'index.html')
+    return send_from_directory('static', 'index.html')
 
-
-@app.route('/<path:filename>')
-def serve_static(filename):
-    """Раздача всех статических файлов (HTML, CSS, JS, изображений)"""
-    try:
-        return send_from_directory('.', filename)
-    except Exception as e:
-        return jsonify({'error': f'File not found: {filename}'}), 404
 
 
 # === API ENDPOINTS ===
@@ -86,7 +78,33 @@ def create_draft():
             'error': str(e)
         }), 500
 
-
+@app.route('/create-meeting', methods=['POST'])
+def create_meeting():
+    try:
+        data = request.get_json()
+        html = data.get('html', '')
+        subject = data.get('subject', 'Новая встреча')
+        
+        # Путь к шрифту (опционально)
+        font_path = os.path.join(os.path.dirname(__file__), 'fonts', 'RostelecomBasis-Regular.woff')
+        if not os.path.exists(font_path):
+            font_path = None
+        
+        success = create_outlook_meeting(
+            html_content=html,
+            subject=subject,
+            base_path=os.path.dirname(__file__),
+            font_path=font_path
+        )
+        
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Не удалось создать встречу'})
+            
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+    
 @app.route('/health', methods=['GET'])
 def health():
     """Проверка работоспособности сервера"""
@@ -331,6 +349,15 @@ def rename_template():
             'success': False,
             'error': str(e)
         }), 500
+    
+@app.route('/<path:filename>')
+def serve_static(filename):
+    """Раздача всех статических файлов (HTML, CSS, JS, изображений)"""
+    try:
+        return send_from_directory('static', filename)
+    except Exception as e:
+        return jsonify({'error': f'File not found: {filename}'}), 404
+    
 
 if __name__ == '__main__':
     print("=" * 60)

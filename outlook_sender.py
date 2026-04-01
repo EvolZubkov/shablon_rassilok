@@ -257,3 +257,102 @@ def create_outlook_draft(html_content, subject="", base_path=None, font_path=Non
         # Удаляем временные файлы через некоторое время
         # (не сразу, т.к. Outlook может их ещё читать)
         pass
+
+def create_outlook_meeting(html_content, subject="", base_path=None, font_path=None):
+    """
+    Создает встречу (приглашение) в Outlook с HTML-содержимым в теле
+    """
+    temp_files = []
+    
+    try:
+        print("\n" + "=" * 60)
+        print("📅 Создание встречи в Outlook...")
+        print("=" * 60)
+        
+        pythoncom.CoInitialize()
+        
+        print("🔗 Подключение к Outlook...")
+        outlook = win32.Dispatch("Outlook.Application")
+        
+        print("🖼️  Обработка изображений...")
+        
+        # 1) Локальные файлы → data:image/...;base64,...
+        html_with_images = process_local_images_in_html(html_content, base_path)
+        
+        # 2) Встраиваем шрифт
+        if font_path and os.path.exists(font_path):
+            print(f"🔤 Встраивание шрифта: {os.path.basename(font_path)}")
+            font_base64 = convert_font_to_base64(font_path)
+            font_ext = os.path.splitext(font_path)[1].lower().replace('.', '')
+            html_with_font = embed_font_in_html(html_with_images, font_base64, font_ext)
+        else:
+            print("⚠️  Шрифт не найден")
+            html_with_font = html_with_images
+
+        print("📅 Создание приглашения на встречу...")
+        
+        # olAppointmentItem = 1 для встречи
+        # Но для приглашения нужно создать MeetingItem через AppointmentItem
+        appointment = outlook.CreateItem(1)  # 1 = olAppointmentItem
+
+        # 3) КРИТИЧНО: data:image → CID вложения
+        print("🔗 Встраивание картинок как CID вложений...")
+        html_final, temp_files = embed_data_images_as_cid(appointment, html_with_font)
+
+        # 4) Устанавливаем параметры встречи
+        appointment.Subject = subject if subject else "Новая встреча"
+        
+        # Устанавливаем HTML-тело через RTFBody не работает для встреч,
+        # поэтому используем обычный Body + прикрепляем HTML как альтернативу
+        # Для встреч в Outlook лучше работает через свойство HTMLBody (если поддерживается)
+        
+        # Пробуем установить HTML напрямую
+        try:
+            appointment.HTMLBody = html_final
+        except AttributeError:
+            # Если HTMLBody не поддерживается для встреч, используем Body
+            # и добавляем HTML как вложение
+            print("⚠️  HTMLBody не поддерживается для встреч, используем альтернативный метод")
+            appointment.Body = "Подробности во вложении или в HTML-версии приглашения."
+            
+            # Сохраняем HTML во временный файл и прикрепляем
+            tmp_html_path = os.path.join(tempfile.gettempdir(), f"meeting_body_{uuid.uuid4().hex[:8]}.html")
+            with open(tmp_html_path, 'w', encoding='utf-8') as f:
+                f.write(html_final)
+            appointment.Attachments.Add(tmp_html_path)
+            temp_files.append(tmp_html_path)
+        
+        # Устанавливаем время по умолчанию (через 1 час, длительность 1 час)
+        from datetime import datetime, timedelta
+        start_time = datetime.now() + timedelta(hours=1)
+        # Округляем до ближайшего часа
+        start_time = start_time.replace(minute=0, second=0, microsecond=0)
+        
+        appointment.Start = start_time
+        appointment.Duration = 60  # минут
+        
+        # Делаем это приглашением на встречу (а не просто событием в календаре)
+        appointment.MeetingStatus = 1  # olMeeting = 1
+        
+        # ВАЖНО: Показываем встречу
+        appointment.Display()
+        
+        print("=" * 60)
+        print("✅ Встреча успешно создана и открыта в Outlook!")
+        print(f"✅ Встроено изображений: {len(temp_files)}")
+        print("💡 Добавьте участников и нажмите 'Отправить'")
+        print("=" * 60 + "\n")
+        
+        return True
+        
+    except Exception as e:
+        print("=" * 60)
+        print(f"❌ ОШИБКА при создании встречи: {e}")
+        import traceback
+        traceback.print_exc()
+        print("=" * 60 + "\n")
+        return False
+    
+    finally:
+        # Временные файлы удалятся позже
+        pass
