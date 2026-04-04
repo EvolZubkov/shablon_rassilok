@@ -32,14 +32,8 @@ if not exist requirements.txt (
     exit /b 1
 )
 
-if not exist build_admin.spec (
-    echo [ERROR] Файл build_admin.spec не найден
-    pause
-    exit /b 1
-)
-
-if not exist build_user.spec (
-    echo [ERROR] Файл build_user.spec не найден
+if not exist build.spec (
+    echo [ERROR] Файл build.spec не найден
     pause
     exit /b 1
 )
@@ -62,34 +56,41 @@ if errorlevel 1 (
 )
 echo        OK
 
-echo [3/5] Установка Python пакетов...
-docker exec %CONTAINER_NAME% bash -lc "cd /app && python3 -m virtualenv /tmp/venv && /tmp/venv/bin/python -m pip install --upgrade pip setuptools wheel && /tmp/venv/bin/python -m pip install -r requirements.txt pyinstaller"
+echo [3/4] Синхронизация версии из pyproject.toml...
+docker exec %CONTAINER_NAME% bash -c "cd /app && python3 sync_version.py"
 if errorlevel 1 (
-    echo [ERROR] Ошибка установки Python пакетов
+    echo [ERROR] Не удалось синхронизировать версию
     goto error
 )
 echo        OK
 
-echo [4/5] Сборка Admin...
-docker exec %CONTAINER_NAME% bash -lc "cd /app && /tmp/venv/bin/pyinstaller build_admin.spec --noconfirm --distpath dist/linux --workpath build/admin --clean"
+echo [4/4] Сборка EmailBuilder...
+docker exec %CONTAINER_NAME% bash -c "cd /app && pyinstaller build.spec --noconfirm --distpath dist/linux --workpath build/app --clean"
 if errorlevel 1 (
-    echo [ERROR] Admin build failed
+    echo [ERROR] Build failed
     goto error
 )
 echo        OK
 
-echo [5/5] Сборка User...
-docker exec %CONTAINER_NAME% bash -lc "cd /app && /tmp/venv/bin/pyinstaller build_user.spec --noconfirm --distpath dist/linux --workpath build/user --clean"
+echo [5/5] chmod +x, конвертация иконки, создание установщика...
+docker exec %CONTAINER_NAME% bash -c "chmod +x /app/dist/linux/EmailBuilder"
 if errorlevel 1 (
-    echo [ERROR] User build failed
+    echo [ERROR] Не удалось выставить права на исполнение
     goto error
 )
-echo        OK
 
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 -c \"from PIL import Image; img=Image.open('/app/icon.ico'); img = img.convert('RGBA'); img.thumbnail((48,48)); img.save('/app/dist/linux/icon.png','PNG'); print('icon.png written')\" || echo '[WARN] icon conversion failed'"
 if exist config.ini (
     if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
     copy /y config.ini "%DIST_DIR%\config.ini" >nul
 )
+
+docker exec %CONTAINER_NAME% bash -c "bash /app/make_installer.sh /app/dist/linux"
+if errorlevel 1 (
+    echo [ERROR] Не удалось создать установщик
+    goto error
+)
+echo        OK
 
 goto success
 
@@ -108,8 +109,15 @@ call :cleanup
 echo.
 echo ============================================
 echo   Done!
-echo   %DIST_DIR%\EmailBuilderAdmin
-echo   %DIST_DIR%\EmailBuilderUser
+echo   %DIST_DIR%\EmailBuilder.sh
+echo.
+echo   Передать пользователю:
+echo     EmailBuilder.sh
+echo     config.ini
+echo     .lic  (только для администраторов)
+echo.
+echo   Запуск на ALT Linux:
+echo     bash EmailBuilder.sh
 echo ============================================
 echo.
 pause

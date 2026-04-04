@@ -1,25 +1,92 @@
+# Dockerfile.alt-p10-builder
+#
+# Build environment for Email Builder on ALT Linux p10.
+# Used exclusively by build_linux_alt.bat — not an application image.
+#
+# Rendering engine
+# ----------------
+# The Linux binary bundles PyQt5 + PyQtWebEngine (Chromium) via pip wheels.
+# The Chromium engine is included inside the wheel itself — no webkit2gtk or
+# any other browser package is needed at build time or on the target machine.
+#
+# At runtime the app opens a native Qt5 QWebEngineView window directly.
+# The target machine requires only standard desktop X11 / Wayland libraries
+# (libX11, libGL, libfontconfig, libdbus-1, libnss3, libatk, libglib2) which
+# are present on any graphical AltLinux p10 desktop — no sudo, no extras.
+#
+# Build (from project root on a Windows host):
+#   docker build -t emailbuilder-alt-p10 -f Dockerfile.alt-p10-builder .
+#   (build_linux_alt.bat drives the full pipeline automatically)
+#
+# Why pyenv instead of the system python3?
+# ----------------------------------------
+# PyInstaller 6.x requires a Python shared library (libpython3.x.so.1.0) to
+# bootstrap the frozen executable.  The system python3 in alt:p10 is compiled
+# WITHOUT --enable-shared, so this library does not exist on the image.
+# pyenv compiles Python from source with PYTHON_CONFIGURE_OPTS="--enable-shared"
+# which produces libpython3.9.so.1.0 and makes the PyInstaller build possible.
+
 FROM alt:p10
 
-ENV LANG=C
-ENV LC_ALL=C
-ENV PIP_DISABLE_PIP_VERSION_CHECK=1
-ENV PYTHONDONTWRITEBYTECODE=1
-
-RUN apt-get update && \
+# ── System packages needed only at BUILD time ─────────────────────────────────
+# gcc / gcc-c++ / make  : compiler toolchain — needed to build Python via pyenv
+#                         and as a fallback for pip packages without manylinux wheels
+# libffi-devel          : _ctypes Python module (mandatory) + cffi → cryptography
+# openssl-devel         : _ssl Python module (mandatory) + cryptography
+#                         (ALT Linux RPM name; Debian equivalent: libssl-dev)
+# libxml2-devel / libxslt-devel : lxml (source-build fallback)
+# zlib-devel            : zlib Python module + various C extensions
+# bzip2-devel           : bz2 Python module
+# readline-devel        : readline Python module
+# libsqlite3-devel      : sqlite3 Python module
+# xz                    : decompresses Python source tarball (.tar.xz) for pyenv
+# binutils              : strip, objcopy — used by PyInstaller on ELF binaries
+# patchelf              : RPATH patching — required by PyInstaller on Linux
+# curl / git            : pyenv installer script + fetching Python source tarballs
+#
+# NOT installed:
+#   python3 / python3-module-pip  : pyenv provides its own Python + pip
+#   python3-module-virtualenv     : not needed — we use python3 -m venv (stdlib)
+#   python3-modules-tkinter / tk  : splash and error dialogs use PyQt5 now
+RUN apt-get update -y && \
     apt-get install -y \
-        python3 \
-        python3-devel \
-        python3-module-pip \
-        python3-module-virtualenv \
         gcc \
         gcc-c++ \
-        binutils \
         make \
+        libffi-devel \
+        openssl-devel \
+        libxml2-devel \
+        libxslt-devel \
+        zlib-devel \
+        bzip2-devel \
+        readline-devel \
+        libsqlite3-devel \
+        xz \
+        binutils \
+        patchelf \
+        curl \
         git \
-        findutils \
-        file && \
-    apt-get clean
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── pyenv + Python 3.9 with --enable-shared ───────────────────────────────────
+# PATH is set via ENV so every subsequent RUN layer and the CMD shell see the
+# pyenv Python and pip without any extra sourcing.
+ENV PYENV_ROOT="/root/.pyenv"
+ENV PATH="${PYENV_ROOT}/bin:${PYENV_ROOT}/shims:${PATH}"
+
+RUN curl -fsSL https://pyenv.run | bash \
+    && PYTHON_CONFIGURE_OPTS="--enable-shared" pyenv install 3.9.18 \
+    && pyenv global 3.9.18 \
+    && python3 -m pip install --upgrade pip
 
 WORKDIR /app
 
-CMD ["/bin/bash"]
+# ── Pre-install Python dependencies (cached layer) ───────────────────────────
+# Pillow is intentionally excluded: it must not be bundled into the binary.
+# Install it separately at build time only when needed (icon conversion step).
+COPY requirements.txt .
+RUN grep -iv pillow requirements.txt | python3 -m pip install --no-cache-dir -r /dev/stdin
+
+# build_linux_alt.bat mounts the project root at /app and runs pyinstaller.
+CMD ["bash"]
