@@ -53,9 +53,7 @@ async function loadTemplatesAndCategories() {
         const templatesData = await TemplatesAPI.getList();
 
         // Берём только общие шаблоны (не пресеты)
-        UserAppState.templates = (templatesData.shared || []).filter(t => {
-            return !t.name.startsWith('🧩'); // Исключаем пресеты
-        });
+        UserAppState.templates = (templatesData.shared || []).filter(t => !t.isPreset);
 
         // Загружаем категории
         UserAppState.categories = await TemplatesAPI.getCategories();
@@ -87,15 +85,14 @@ async function loadCardPreviews(templates) {
     const CARD_HEIGHT = 200;
 
     for (const template of templates) {
-        const card = document.querySelector(`.template-card[data-filename="${template.filename}"]`);
+        const card = document.querySelector(`.template-card[data-id="${template.id}"]`);
         if (!card) continue;
 
         const previewContainer = card.querySelector('.template-card-preview');
         if (!previewContainer) continue;
 
         try {
-            // Загружаем шаблон
-            const templateData = await TemplatesAPI.load(template.filename, template.type);
+            const templateData = await TemplatesAPI.load(template.id, template.type);
             if (!templateData || !templateData.blocks) continue;
 
             // Генерируем email HTML (временно подменяем AppState.blocks)
@@ -155,7 +152,7 @@ async function loadCardPreviews(templates) {
             doc.close();
 
         } catch (err) {
-            console.warn('[PREVIEW] Error for', template.filename, err);
+            console.warn('[PREVIEW] Error for', template.id, err);
             const overlayErr = previewContainer.querySelector('.template-card-overlay');
             previewContainer.innerHTML = `
                 <div class="no-preview">
@@ -239,13 +236,13 @@ function renderTemplateCards() {
 
     // Рендерим карточки
     grid.innerHTML = filtered.map(template => `
-        <div class="template-card" data-filename="${template.filename}" data-type="${template.type}">
-            <div class="template-card-preview" data-filename="${template.filename}" data-type="${template.type}">
+        <div class="template-card" data-id="${template.id}" data-type="${template.type}">
+            <div class="template-card-preview" data-id="${template.id}" data-type="${template.type}">
                 <div class="preview-loading-mini">
                     <div class="spinner-mini"></div>
                 </div>
                 <div class="template-card-overlay">
-                    <button type="button" class="btn-template-preview" data-filename="${template.filename}" data-type="${template.type}">
+                    <button type="button" class="btn-template-preview" data-id="${template.id}" data-type="${template.type}">
                         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                             <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
                             <circle cx="12" cy="12" r="3"></circle>
@@ -267,22 +264,15 @@ function renderTemplateCards() {
     // Обработчики кликов на карточки (открыть редактор)
     grid.querySelectorAll('.template-card').forEach(card => {
         card.addEventListener('click', (e) => {
-            // Не открываем если кликнули на кнопку просмотра
             if (e.target.closest('.btn-template-preview')) return;
-
-            const filename = card.dataset.filename;
-            const type = card.dataset.type;
-            openTemplate(filename, type);
+            openTemplate(card.dataset.id, card.dataset.type);
         });
     });
 
-    // Обработчики кнопок просмотра
     grid.querySelectorAll('.btn-template-preview').forEach(btn => {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
-            const filename = btn.dataset.filename;
-            const type = btn.dataset.type;
-            previewTemplate(filename, type);
+            previewTemplate(btn.dataset.id, btn.dataset.type);
         });
     });
 }
@@ -316,13 +306,13 @@ function normalizeBlocksText(blocks) {
 /**
  * Открыть шаблон для редактирования
  */
-async function openTemplate(filename, type) {
-    console.log('[USER APP] Opening template:', filename);
+async function openTemplate(id, type) {
+    console.log('[USER APP] Opening template:', id);
 
     showLoading(true);
 
     try {
-        const templateData = await TemplatesAPI.load(filename, type);
+        const templateData = await TemplatesAPI.load(id, type);
 
         if (templateData && templateData.blocks) {
             UserAppState.currentTemplate = templateData;
@@ -504,9 +494,9 @@ async function saveAsPersonal() {
     if (!name) return;
 
     try {
-        const success = await TemplatesAPI.save(name, UserAppState.blocks, 'personal', '', null);
+        const savedId = await TemplatesAPI.save(name, UserAppState.blocks, 'personal', '', null);
 
-        if (success) {
+        if (savedId) {
             alert('✅ Шаблон сохранён!');
         }
     } catch (error) {
@@ -518,8 +508,8 @@ async function saveAsPersonal() {
 /**
  * Просмотр шаблона без входа в редактор
  */
-async function previewTemplate(filename, type) {
-    console.log('[USER APP] Previewing template:', filename);
+async function previewTemplate(id, type) {
+    console.log('[USER APP] Previewing template:', id);
 
     const modal = document.getElementById('template-preview-modal');
     const content = document.getElementById('template-preview-content');
@@ -528,31 +518,26 @@ async function previewTemplate(filename, type) {
 
     if (!modal || !content) return;
 
-    // Показываем модалку с загрузкой
     modal.style.display = 'flex';
     content.innerHTML = '<div class="preview-loading"><div class="spinner"></div><p>Загрузка...</p></div>';
 
     try {
-        // Загружаем шаблон
-        const templateData = await TemplatesAPI.load(filename, type);
+        const templateData = await TemplatesAPI.load(id, type);
 
         if (!templateData || !templateData.blocks) {
             content.innerHTML = '<div class="preview-error">Ошибка загрузки шаблона</div>';
             return;
         }
 
-        // Устанавливаем заголовок
         if (title) {
             title.textContent = templateData.name || 'Шаблон';
         }
 
-        // Сохраняем данные для кнопки "Открыть"
         if (openBtn) {
-            openBtn.dataset.filename = filename;
+            openBtn.dataset.id = id;
             openBtn.dataset.type = type;
         }
 
-        // Рендерим превью
         await renderTemplatePreview(content, templateData.blocks);
 
     } catch (error) {
@@ -604,11 +589,8 @@ function openTemplateFromPreview() {
     const openBtn = document.getElementById('btn-open-template');
     if (!openBtn) return;
 
-    const filename = openBtn.dataset.filename;
-    const type = openBtn.dataset.type;
-
     closeTemplatePreview();
-    openTemplate(filename, type);
+    openTemplate(openBtn.dataset.id, openBtn.dataset.type);
 }
 function closeBulkMail() {
     document.getElementById('modal-bulk-mail').style.display = 'none';

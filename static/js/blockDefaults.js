@@ -2,19 +2,9 @@
 
 function getDefaultSettings(type) {
     const settings = DEFAULT_SETTINGS[type];
-    
-    if (!settings) {
-        return {};
-    }
-    
-    // Создаем копию настроек и вычисляем функции
-    const result = {};
-    for (let key in settings) {
-        const value = settings[key];
-        result[key] = typeof value === 'function' ? value() : value;
-    }
-    
-    return result;
+    if (!settings) return {};
+    // Deep copy prevents shared mutable state (arrays/objects) between block instances
+    return JSON.parse(JSON.stringify(settings));
 }
 
 function getBlockTypeName(type) {

@@ -27,7 +27,12 @@ function init() {
     } else {
         console.error('❌ TemplatesUI не найден! Проверьте подключение templatesUI.js');
     }
-    
+
+    // Инициализация панели личных ресурсов
+    if (typeof UserResources !== 'undefined') {
+        UserResources.init();
+    }
+
     console.log('✓ Email Builder готов к работе');
 }
 

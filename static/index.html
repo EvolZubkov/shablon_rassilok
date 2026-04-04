@@ -141,6 +141,16 @@
         Сохранить шаблон
       </button>
 
+      <button id="btn-user-resources" type="button" class="btn-save-template btn-user-resources-open" title="Ресурсы">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <rect x="3" y="3" width="7" height="7"></rect>
+          <rect x="14" y="3" width="7" height="7"></rect>
+          <rect x="14" y="14" width="7" height="7"></rect>
+          <rect x="3" y="14" width="7" height="7"></rect>
+        </svg>
+        Ресурсы
+      </button>
+
     </aside>
 
     <!-- Центральная панель - Конструктор -->
@@ -149,7 +159,9 @@
         <button id="btn-toggle-templates" class="btn-burger" title="Библиотека шаблонов">Шаблоны</button>
         </button>
         <h2>Конструктор письма</h2>
-        <button id="btn-preview" class="btn-preview">Превью</button>
+        <div class="canvas-header-actions">
+          <button id="btn-preview" type="button" class="btn-preview">Превью</button>
+        </div>
       </div>
 
       <div id="canvas" class="canvas-content">
@@ -220,6 +232,18 @@
   <!-- Затемнение фона -->
   <div id="templates-overlay" class="templates-overlay"></div>
 
+  <!-- Панель личных ресурсов -->
+  <div id="user-resources-panel" class="user-resources-panel" aria-label="Ресурсы">
+    <div class="ur-panel-header">
+      <h3>Ресурсы</h3>
+      <button id="user-resources-close" type="button" class="ur-close-btn" title="Закрыть">&times;</button>
+    </div>
+    <div id="user-resources-body" class="ur-panel-body">
+      <!-- Содержимое генерируется в userResources.js -->
+    </div>
+  </div>
+  <div id="user-resources-overlay" class="user-resources-overlay"></div>
+
   <!-- Подключение модулей в правильном порядке -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
@@ -278,26 +302,47 @@
   <script src="js/user/exchangeModals.js"></script>
 
 
-  <!-- 8. Инициализация приложения -->
+  <!-- 8. Личные ресурсы -->
+  <script src="js/userResources.js"></script>
+
+  <!-- 9. Инициализация приложения -->
   <script src="js/main.js"></script>
   <!-- <script src="js/admin-bulk-mail.js"></script> -->
-  <!-- Завершаем процесс при закрытии вкладки -->
+  <!-- Переключатель режима: фиксированная позиция, виден только при can_switch -->
+  <div id="mode-switch-widget" class="mode-switch-widget" hidden>
+    <label class="mode-switch-track" title="Переключить режим">
+      <input type="checkbox" id="mode-switch-checkbox" checked>
+      <span class="mode-switch-thumb"></span>
+    </label>
+    <span class="mode-switch-text" id="mode-switch-label">Администратор</span>
+  </div>
+
   <script>
-
-    function switchToUser() {
-      window.location.href = '/user';
-    }
-
-    function shutdownApp() {
-      if (confirm('Закрыть приложение?')) {
-        fetch('/api/shutdown', { method: 'POST' }).finally(() => {
-          window.close();
-        });
+    (function () {
+      async function initModeSwitcher() {
+        try {
+          const r = await fetch('/api/mode');
+          const data = await r.json();
+          if (!data.can_switch) return;
+          const widget = document.getElementById('mode-switch-widget');
+          widget.hidden = false;
+          // Текущий режим — admin, чекбокс уже checked
+          document.getElementById('mode-switch-checkbox').addEventListener('change', async function () {
+            await fetch('/api/mode', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode: 'user' }),
+            });
+            window.location.href = '/user';
+          });
+        } catch (_) {}
       }
-    }
+      document.addEventListener('DOMContentLoaded', initModeSwitcher);
+    })();
+
     // Heartbeat — пингуем сервер каждые 5 секунд
     setInterval(() => {
-      fetch('/api/heartbeat', { method: 'POST' }).catch(() => { });
+      fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
     }, 5000);
   </script>
 </body>
