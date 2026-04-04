@@ -1,5 +1,5 @@
 // blockPreview.js - Рендеринг превью блоков для canvas
-// Определяет, является ли цвет светлым
+
 function isLightColorPreview(hexColor) {
     const hex = (hexColor || '#000000').replace('#', '');
     const r = parseInt(hex.substr(0, 2), 16);
@@ -8,6 +8,7 @@ function isLightColorPreview(hexColor) {
     const brightness = (r * 299 + g * 587 + b * 114) / 1000;
     return brightness > 128;
 }
+
 function resolveTextFontFamily(s) {
     if (!s) return "inherit";
     const type = s.fontFamily || 'default';
@@ -17,86 +18,124 @@ function resolveTextFontFamily(s) {
     }
 
     switch (type) {
-        case 'rt-regular':
-            return "'RostelecomBasis-Regular', Arial, sans-serif";
-        case 'rt-medium':
-            return "'RostelecomBasis-Medium', Arial, sans-serif";
-        case 'rt-bold':
-            return "'RostelecomBasis-Bold', Arial, sans-serif";
-        case 'rt-light':
-            return "'RostelecomBasis-Light', Arial, sans-serif";
-        default:
-            return EMAIL_STYLES ? EMAIL_STYLES.FONT_FAMILY : "Arial, sans-serif";
+        case 'rt-regular': return "'RostelecomBasis-Regular', Arial, sans-serif";
+        case 'rt-medium':  return "'RostelecomBasis-Medium', Arial, sans-serif";
+        case 'rt-bold':    return "'RostelecomBasis-Bold', Arial, sans-serif";
+        case 'rt-light':   return "'RostelecomBasis-Light', Arial, sans-serif";
+        default: return EMAIL_STYLES ? EMAIL_STYLES.FONT_FAMILY : "Arial, sans-serif";
     }
 }
 
-function formatTextWithLinks(raw) {
-    if (!raw) return '';
-
-    let html = raw;
-
-    // 1) Markdown-ссылки [текст](url)
-    html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
-        '<a href="$2" style="color:#7700ff; text-decoration:underline;">$1</a>'
-    );
-
-    // 2) Email → mailto
-    html = html.replace(/(^|\s)([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi,
-        '$1<a href="mailto:$2" style="color:#7700ff; text-decoration:underline;">$2</a>'
-    );
-
-    // 3) Обычные ссылки http(s)
-    html = html.replace(/(^|\s)(https?:\/\/[^\s<]+)/gi,
-        '$1<a href="$2" style="color:#7700ff; text-decoration:underline;">$2</a>'
-    );
-
-    // 4) Абзацы и переносы строк
-    const paragraphs = html.split(/\n\s*\n/);
-
-    html = paragraphs
-        .map((p, i) => {
-            const margin = i === paragraphs.length - 1 ? '0' : '0 0 0.55em 0';
-            return `<p style="margin:${margin};">${p.replace(/\n/g, '<br>')}</p>`;
-        })
-        .join('');
-
-    return html;
-}
+// ⚠️ formatTextWithLinks УДАЛЕНА — используем TextSanitizer.render()
 
 function renderBlockPreviewReal(block) {
     const s = block.settings;
 
     switch (block.type) {
-        case 'banner':
-            return renderBannerPreview(s);
-        case 'text':
-            return renderTextPreview(s);
-        case 'heading':
-            return renderHeadingPreview(s);
-        case 'button':
-            return renderButtonPreview(s);
-        case 'list':
-            return renderListPreview(s);
-        case 'expert':
-            return renderExpertPreview(s);
-        case 'important':
-            return renderImportantPreview(s);
-        case 'divider':
-            return renderDividerPreview(s);
-        case 'image':
-            return renderImagePreview(s);
-        case 'spacer':
-            return renderSpacerPreview(s);
-        default:
-            return '<p>Неизвестный блок</p>';
+        case 'banner':    return renderBannerPreview(s);
+        case 'text':      return renderTextPreview(s);
+        case 'heading':   return renderHeadingPreview(s);
+        case 'button':    return renderButtonPreview(s);
+        case 'list':      return renderListPreview(s);
+        case 'expert':    return renderExpertPreview(s);
+        case 'important': return renderImportantPreview(s);
+        case 'divider':   return renderDividerPreview(s);
+        case 'image':     return renderImagePreview(s);
+        case 'spacer':    return renderSpacerPreview(s);
+        default:          return '<p>Неизвестный блок</p>';
     }
 }
 
+// ↓ ИЗМЕНЕНА — теперь использует TextSanitizer.render()
+function renderTextPreview(s) {
+    const fontFamily = resolveTextFontFamily(s);
+
+    // s.content уже simple HTML — просто рендерим через TextSanitizer.render()
+    const textHTML = TextSanitizer.render(s.content || '');
+
+    return `
+        <div style="
+            font-size:${s.fontSize}px;
+            line-height:${s.lineHeight};
+            text-align:${s.align};
+            color:${s.color};
+            font-family:${fontFamily};
+            padding:8px;
+        ">
+            ${textHTML}
+        </div>
+    `;
+}
+
+// ↓ ИЗМЕНЕНА — items тоже через TextSanitizer.render()
+function renderListPreview(s) {
+    const bulletSizePrev = s.bulletSize || 20;
+    const bulletGapPrev = s.bulletGap ?? 10;
+    const fontSizePrev = s.fontSize || 14;
+    const lineHeightPrev = s.lineHeight || 1.0;
+    const cellWidthPrev = bulletSizePrev + bulletGapPrev + 2;
+    const isNumbered = s.listStyle === 'numbered';
+
+    return `
+        <div style="padding: 8px;">
+            <table style="width: 100%;">
+                ${(s.items || []).map((item, index) => {
+                    // item может быть plain text или simple HTML
+                    const formatted = TextSanitizer.render(
+                        typeof item === 'string' && item.startsWith('<')
+                            ? item
+                            : TextSanitizer.sanitize(item || '', true)
+                    );
+
+                    let bulletHTML;
+
+                    if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
+                        bulletHTML = `<img src="${s.renderedBullets[index]}" style="display:block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;">`;
+                    } else {
+                        const bulletSrcPrev = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || '');
+                        const numberFontSize = Math.max(10, Math.round(bulletSizePrev * 0.3));
+
+                        const baseBullet = bulletSrcPrev
+                            ? `<img src="${bulletSrcPrev}" style="display:block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;">`
+                            : `<span style="display:inline-block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;border-radius:999px;background-color:#a855f7;"></span>`;
+
+                        if (isNumbered) {
+                            const num = index + 1;
+                            const numLabel = num < 10 ? '0' + num : String(num);
+                            bulletHTML = `
+                                <div style="position:relative;width:${bulletSizePrev}px;height:${bulletSizePrev}px;display:flex;align-items:center;justify-content:center;">
+                                    ${baseBullet}
+                                    <div style="position:absolute;left:0;top:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;font-size:${numberFontSize}px;font-weight:600;color:#ffffff;">
+                                        ${numLabel}
+                                    </div>
+                                </div>
+                            `;
+                        } else {
+                            bulletHTML = baseBullet;
+                        }
+                    }
+
+                    return `
+                        <tr>
+                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: middle;">
+                                ${bulletHTML}
+                            </td>
+                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPrev}; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0;">
+                                ${formatted}
+                            </td>
+                        </tr>
+                    `;
+                }).join('')}
+            </table>
+        </div>
+    `;
+}
+
+// Все остальные функции остаются БЕЗ ИЗМЕНЕНИЙ
 function renderBannerPreview(s) {
     const src = s.renderedBanner;
 
     if (!src) {
-        // Показываем заглушку если баннер ещё не отрендерен
         const leftColor = s.leftBlockColor || '#1e293b';
         const hasRightImage = s.rightImage || s.rightImageCustom;
         const hasLogo = s.logo || s.logoCustom;
@@ -121,25 +160,6 @@ function renderBannerPreview(s) {
     `;
 }
 
-function renderTextPreview(s) {
-    const fontFamily = resolveTextFontFamily(s);
-    const textHTML = formatTextWithLinks(s.content || '');
-
-    return `
-        <div style="
-            font-size:${s.fontSize}px;
-            line-height:${s.lineHeight};
-            text-align:${s.align};
-            color:${s.color};
-            font-family:${fontFamily};
-            padding:8px;
-        ">
-            ${textHTML}
-        </div>
-    `;
-}
-
-
 function renderHeadingPreview(s) {
     return `
         <h3 style="font-size: ${s.size}px; 
@@ -163,40 +183,18 @@ function normalizeButtonText(text) {
 
 function getButtonAutoStyle(settings = {}) {
     const normalizedText = normalizeButtonText(settings.text);
-
     const isMif = normalizedText === 'миф';
     const isAlpina = normalizedText === 'альпина';
 
-    const color = isMif
-        ? '#FFB608'
-        : isAlpina
-            ? '#A078FF'
-            : (settings.color || '#f97316');
+    const color = isMif ? '#FFB608' : isAlpina ? '#A078FF' : (settings.color || '#f97316');
+    const icon = isMif ? 'button-icons/Миф.png' : isAlpina ? 'button-icons/Альпина.png' : (settings.icon || '');
 
-    const icon = isMif
-        ? 'button-icons/Миф.png'
-        : isAlpina
-            ? 'button-icons/Альпина.png'
-            : (settings.icon || '');
-
-    return {
-        isMif,
-        isAlpina,
-        isAuto: isMif || isAlpina,
-        color,
-        icon
-    };
+    return { isMif, isAlpina, isAuto: isMif || isAlpina, color, icon };
 }
 
 function renderButtonPreview(s) {
     const scale = s.size || 1;
-
-    const baseHeight = 40;
-    const basePaddingY = 12;
-    const basePaddingX = 24;
-    const baseRadius = 6;
-    const baseFont = 14;
-
+    const baseHeight = 40, basePaddingY = 12, basePaddingX = 24, baseRadius = 6, baseFont = 14;
     const buttonHeightPrev = baseHeight * scale;
     const paddingY = basePaddingY * scale;
     const paddingX = basePaddingX * scale;
@@ -206,13 +204,9 @@ function renderButtonPreview(s) {
     const autoStyle = getButtonAutoStyle(s);
     const previewColor = autoStyle.color;
     const previewIcon = autoStyle.icon;
-
     const hasIconPrev = !!(previewIcon && previewIcon !== 'none' && previewIcon.length > 0);
     const alignPrev = s.align || 'center';
-
-    const textColor = autoStyle.isAuto
-        ? '#ffffff'
-        : (isLightColorPreview(previewColor) ? '#3F3E4B' : '#ffffff');
+    const textColor = autoStyle.isAuto ? '#ffffff' : (isLightColorPreview(previewColor) ? '#3F3E4B' : '#ffffff');
 
     const iconBlockPrev = hasIconPrev ? `
         <div style="display:flex; align-items:center; justify-content:center; height:${buttonHeightPrev}px;">
@@ -228,13 +222,9 @@ function renderButtonPreview(s) {
                     target="_blank"
                     onclick="event.stopPropagation();"
                     style="display: inline-flex; align-items: center; justify-content: center;
-                          background: ${previewColor};
-                          color: ${textColor};
-                          padding: ${paddingY}px ${paddingX}px;
-                          border-radius: ${radius}px;
-                          text-decoration: none;
-                          font-weight: 600;
-                          font-size: ${fontSize}px;">
+                          background: ${previewColor}; color: ${textColor};
+                          padding: ${paddingY}px ${paddingX}px; border-radius: ${radius}px;
+                          text-decoration: none; font-weight: 600; font-size: ${fontSize}px;">
                     ${s.text || 'Кнопка'}
                 </a>
             </div>
@@ -242,106 +232,30 @@ function renderButtonPreview(s) {
     `;
 }
 
-
-function renderListPreview(s) {
-    const bulletSizePrev = s.bulletSize || 20;
-    const bulletGapPrev = s.bulletGap ?? 10;
-    const fontSizePrev = s.fontSize || 14;
-    const lineHeightPrev = s.lineHeight || 1.0;
-    const cellWidthPrev = bulletSizePrev + bulletGapPrev + 2;
-
-    const isNumbered = s.listStyle === 'numbered';
-
-    return `
-        <div style="padding: 8px;">
-            <table style="width: 100%;">
-                ${(s.items || []).map((item, index) => {
-        const formatted = formatTextWithLinks(item || '');
-
-        let bulletHTML;
-
-        // Если нумерованный список и есть отрендеренные буллеты - используем их
-        if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
-            bulletHTML = `<img src="${s.renderedBullets[index]}" style="display:block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;">`;
-        } else {
-            // Иначе генерируем на лету
-            const bulletSrcPrev = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || '');
-            const numberFontSize = Math.max(10, Math.round(bulletSizePrev * 0.3));
-
-            const baseBullet = bulletSrcPrev
-                ? `<img src="${bulletSrcPrev}" style="display:block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;">`
-                : `<span style="display:inline-block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;border-radius:999px;background-color:#a855f7;"></span>`;
-
-            if (isNumbered) {
-                const num = index + 1;
-                const numLabel = num < 10 ? '0' + num : String(num);
-
-                bulletHTML = `
-                                <div style="position:relative;width:${bulletSizePrev}px;height:${bulletSizePrev}px;display:flex;align-items:center;justify-content:center;">
-                                    ${baseBullet}
-                                    <div style="
-                                        position:absolute;left:0;top:0;right:0;bottom:0;
-                                        display:flex;align-items:center;justify-content:center;
-                                        font-size:${numberFontSize}px;font-weight:600;color:#ffffff;
-                                    ">
-                                        ${numLabel}
-                                    </div>
-                                </div>
-                            `;
-            } else {
-                bulletHTML = baseBullet;
-            }
-        }
-
-        return `
-                        <tr>
-                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: middle;">
-                                ${bulletHTML}
-                            </td>
-                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPrev}; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0;">
-                                ${formatted}
-                            </td>
-                        </tr>
-                    `;
-    }).join('')}
-            </table>
-        </div>
-    `;
-}
 function renderExpertPreview(s) {
     const isLite = (s.variant || 'full') === 'lite';
-    // Если есть отрендеренная версия - используем её!
+
     if (s.renderedExpert) {
         const bg = s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : 'transparent';
         const w = s.renderedExpertWidth || 600;
-
         const align = s.align || 'left';
-        const justify =
-            align === 'center' ? 'center' :
-                align === 'right' ? 'flex-end' :
-                    'flex-start';
+        const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
 
         return `
-        <div style="background: ${bg}; border-radius: 6px; padding: 8px; display:flex; justify-content:${justify};">
-            <img src="${s.renderedExpert}"
-                 style="display:block; width:100%; max-width:${w}px; height:auto;">
-        </div>
-    `;
+            <div style="background: ${bg}; border-radius: 6px; padding: 8px; display:flex; justify-content:${justify};">
+                <img src="${s.renderedExpert}" style="display:block; width:100%; max-width:${w}px; height:auto;">
+            </div>
+        `;
     }
 
-
-    // Fallback: если не отрендерено - показываем CSS версию
     const badgeHTML = s.badgeIcon ? `
-        <div style="position: absolute; bottom: 5px; right: -10px; width: 45px; height: 45px; display: flex; align-items: center; justify-content:${justify};">
+        <div style="position: absolute; bottom: 5px; right: -10px; width: 45px; height: 45px;">
             <img src="${s.badgeIcon}" style="width: 100%; height: 100%; display: block;">
         </div>
     ` : '';
 
-    const bg = s.bgColor && s.bgColor !== 'transparent'
-        ? s.bgColor
-        : 'transparent';
+    const bg = s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : 'transparent';
 
-    // Вертикальный layout
     if (s.verticalLayout) {
         return `
             <div style="display: flex; flex-direction: column; align-items: center; padding: 16px; background: ${bg}; border-radius: 6px;">
@@ -353,12 +267,8 @@ function renderExpertPreview(s) {
                 </div>
                 ${isLite ? '' : `
                     <div style="width: 100%; color: ${s.textColor}; font-size: 13px; line-height: 1.6; text-align: left;">
-                        <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${s.nameColor};">
-                            ${s.name || 'Имя эксперта'}
-                        </div>
-                        <div style="margin-bottom: 8px; color: ${s.titleColor}; font-size: 12px;">
-                            ${s.title || 'Должность'}
-                        </div>
+                        <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${s.nameColor};">${s.name || 'Имя эксперта'}</div>
+                        <div style="margin-bottom: 8px; color: ${s.titleColor}; font-size: 12px;">${s.title || 'Должность'}</div>
                         <div style="text-align: left;">${s.bio || 'Описание'}</div>
                     </div>
                 `}
@@ -366,7 +276,6 @@ function renderExpertPreview(s) {
         `;
     }
 
-    // Горизонтальный layout (по умолчанию)
     return `
         <div style="display: flex; gap: 16px; padding: 12px; background: ${bg}; border-radius: 6px;">
             <div style="position: relative; width: 100px; height: 100px; flex-shrink: 0;">
@@ -376,12 +285,8 @@ function renderExpertPreview(s) {
                 ${badgeHTML}
             </div>
             <div style="flex: 1; color: ${s.textColor}; font-size: 13px; line-height: 1.6;">
-                <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${s.nameColor};">
-                    ${s.name || 'Имя эксперта'}
-                </div>
-                <div style="margin-bottom: 8px; color: ${s.titleColor}; font-size: 12px;">
-                    ${s.title || 'Должность'}
-                </div>
+                <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${s.nameColor};">${s.name || 'Имя эксперта'}</div>
+                <div style="margin-bottom: 8px; color: ${s.titleColor}; font-size: 12px;">${s.title || 'Должность'}</div>
                 <div>${s.bio || 'Описание'}</div>
             </div>
         </div>
@@ -392,7 +297,6 @@ function renderImportantPreview(s) {
     const iconSrc = s.renderedIcon || s.icon;
     const fontSize = s.fontSize ?? 14;
     const lineHeight = s.lineHeight ?? 1;
-    const borderColor = s.borderColor || '#a855f7';
 
     const iconHTML = iconSrc ? `
         <div style="flex-shrink: 0; width: 60px; padding-right: 12px;">
@@ -402,8 +306,7 @@ function renderImportantPreview(s) {
 
     return `
         <div style="display: flex; align-items: center; gap: 12px; padding: 16px 0;
-                    color: ${s.textColor}; 
-                    font-size: ${fontSize}px; line-height: ${lineHeight};">
+                    color: ${s.textColor}; font-size: ${fontSize}px; line-height: ${lineHeight};">
             ${iconHTML}
             <div style="flex: 1;">
                 ${(s.text || '').replace(/\n/g, '<br>')}
@@ -411,6 +314,7 @@ function renderImportantPreview(s) {
         </div>
     `;
 }
+
 function renderDividerPreview(s) {
     const imageSrc = s.customImage || s.image;
 
@@ -432,7 +336,6 @@ function renderImagePreview(s) {
         return '<p style="padding: 40px; text-align: center; color: #9ca3af; background: #374151; border-radius: 4px;">Загрузите изображение</p>';
     }
 
-    // Получаем border-radius
     let borderRadius;
     if (s.borderRadiusMode === 'each') {
         borderRadius = `${s.borderRadiusTL || 0}px ${s.borderRadiusTR || 0}px ${s.borderRadiusBR || 0}px ${s.borderRadiusBL || 0}px`;
@@ -440,7 +343,6 @@ function renderImagePreview(s) {
         borderRadius = `${s.borderRadiusAll || 0}px`;
     }
 
-    // Если есть отрендеренная версия, показываем её
     if (s.renderedImage && s.renderedWidth) {
         return `
             <div style="padding: 8px; text-align: ${s.align || 'center'};">
@@ -449,13 +351,13 @@ function renderImagePreview(s) {
         `;
     }
 
-    // Fallback
     return `
         <div style="padding: 8px; text-align: ${s.align || 'center'};">
             <img src="${src}" alt="${s.alt || ''}" style="max-width: 100%; width: ${s.width}; border-radius: ${borderRadius}; display: inline-block;">
         </div>
     `;
 }
+
 function renderSpacerPreview(s) {
     return `<div style="height: ${s.height}px; background: repeating-linear-gradient(90deg, #374151 0, #374151 1px, transparent 1px, transparent 10px); opacity: 0.3;"></div>`;
 }

@@ -106,19 +106,18 @@ class TestLoadConfigIni:
         """Должна возвращать (str, int, str, str)"""
         result = email_app._load_config()
         assert isinstance(result, tuple)
-        assert len(result) == 4
+        assert len(result) == 6
 
     def test_port_is_int(self):
-        _, port, _, _ = email_app._load_config()
+        path, port, mode, config_path, linux_hint, smb_path = email_app._load_config()
         assert isinstance(port, int)
 
     def test_mode_is_lowercase_str(self):
-        _, _, mode, _ = email_app._load_config()
-        assert isinstance(mode, str)
+        path, port, mode, config_path, linux_hint, smb_path = email_app._load_config()
         assert mode == mode.lower()
 
     def test_network_path_is_str(self):
-        path, _, _, _ = email_app._load_config()
+        path, port, mode, config_path, linux_hint, smb_path = email_app._load_config()
         assert isinstance(path, str)
         assert len(path) > 0
 

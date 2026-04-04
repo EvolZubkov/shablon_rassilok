@@ -1918,3 +1918,54 @@ body {
 [data-theme="light"] .exc-input--select {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
 }
+
+.exc-attachments {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.exc-attachments-list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 4px;
+}
+
+.exc-attachment-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 4px 8px;
+    background: #1e293b;
+    border-radius: 4px;
+    font-size: 12px;
+}
+
+.exc-attachment-name {
+    flex: 1;
+    color: #e5e7eb;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.exc-attachment-size {
+    color: #64748b;
+    flex-shrink: 0;
+}
+
+.exc-attachment-remove {
+    background: none;
+    border: none;
+    color: #ef4444;
+    cursor: pointer;
+    padding: 0 4px;
+    font-size: 14px;
+    flex-shrink: 0;
+}
+
+.exc-btn--sm {
+    padding: 4px 10px;
+    font-size: 12px;
+}

@@ -427,8 +427,10 @@ function renderUserText(block) {
                 font-family:${fontFamily};
                 padding:16px 20px;
                 outline:none;
+                -webkit-text-fill-color: inherit;
+                caret-color: #f97316;;
              ">
-            ${formatTextForEditing(s.content || 'Введите текст...')}
+            ${TextSanitizer.render(s.content || 'Введите текст...')}
         </div>
     `;
 }
@@ -688,58 +690,12 @@ function renderUserSpacer(block) {
 /**
  * Форматирование текста для редактирования (конвертация markdown в HTML)
  */
-function formatTextForEditing(text) {
-    if (!text) return '';
-
-    let html = text;
-
-    // Bold **text**
-    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
-
-    // Italic *text*
-    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
-
-    // Links [text](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#7700ff;">$1</a>');
-
-    // Line breaks
-    html = html.replace(/\n/g, '<br>');
-
-    return html;
+function formatTextForEditing(content) {
+    if (!content) return '';
+    // s.content уже simple HTML — просто возвращаем через render для стилей ссылок
+    return TextSanitizer.render(content);
 }
 
-/**
- * Конвертация HTML обратно в markdown
- */
-function htmlToMarkdown(html) {
-    if (!html) return '';
-
-    let text = html;
-
-    // Strong -> **
-    text = text.replace(/<strong>([^<]+)<\/strong>/gi, '**$1**');
-    text = text.replace(/<b>([^<]+)<\/b>/gi, '**$1**');
-
-    // Em -> *
-    text = text.replace(/<em>([^<]+)<\/em>/gi, '*$1*');
-    text = text.replace(/<i>([^<]+)<\/i>/gi, '*$1*');
-
-    // Links -> [text](url)
-    text = text.replace(/<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/gi, '[$2]($1)');
-
-    // BR -> \n
-    text = text.replace(/<br\s*\/?>/gi, '\n');
-
-    // Remove other tags
-    text = text.replace(/<[^>]+>/g, '');
-
-    // Decode HTML entities
-    const textarea = document.createElement('textarea');
-    textarea.innerHTML = text;
-    text = textarea.value;
-
-    return text;
-}
 
 /**
  * Инициализация inline-редактирования
@@ -748,19 +704,101 @@ function initInlineEditing() {
     const canvas = document.getElementById('user-canvas');
     if (!canvas) return;
 
-    // Обработка изменений в contenteditable
     canvas.querySelectorAll('.editable-text').forEach(el => {
+
         el.addEventListener('blur', (e) => {
             saveTextChanges(e.target);
         });
 
         el.addEventListener('focus', (e) => {
-            // Показываем toolbar
             showTextToolbar(e.target);
+            const blockId = parseInt(e.target.dataset.blockId);
+            const block = findBlockById(UserAppState.blocks, blockId);
+            if (block) {
+                // Обновляем innerHTML contenteditable с новым отформатированным текстом
+                e.target.innerHTML = TextSanitizer.render(block.settings.content || '');
+                // Ставим курсор в конец
+                const range = document.createRange();
+                const sel = window.getSelection();
+                range.selectNodeContents(e.target);
+                range.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(range);
+            }
+        });
+
+        el.addEventListener('keydown', (e) => {
+            if (e.key !== 'Enter') return;
+            e.preventDefault();
+            document.execCommand('insertLineBreak');
+        });
+
+        el.addEventListener('input', (e) => {
+            const target = e.target;
+            target.querySelectorAll('span[style], font[color], font[style]').forEach(node => {
+                const parent = node.parentNode;
+                if (!parent) return;
+                while (node.firstChild) {
+                    parent.insertBefore(node.firstChild, node);
+                }
+                parent.removeChild(node);
+            });
+        });
+
+        el.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const clipboardData = e.clipboardData || window.clipboardData;
+
+            let pastedHTML = clipboardData.getData('text/html');
+            let cleanHTML;
+
+            if (pastedHTML && pastedHTML.trim()) {
+                cleanHTML = TextSanitizer.sanitize(pastedHTML, false);
+                if (!cleanHTML.trim()) {
+                    const pastedText = clipboardData.getData('text/plain');
+                    const normalized = pastedText
+                        .replace(/\r\n/g, '\n')
+                        .replace(/\r/g, '\n')
+                        .replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
+                    cleanHTML = TextSanitizer.sanitize(normalized, true);
+                }
+            } else {
+                const pastedText = clipboardData.getData('text/plain');
+                const normalized = pastedText
+                    .replace(/\r\n/g, '\n')
+                    .replace(/\r/g, '\n')
+                    .replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
+                cleanHTML = TextSanitizer.sanitize(normalized, true);
+            }
+
+            // Вставляем в позицию курсора
+            const selection = window.getSelection();
+            if (!selection.rangeCount) return;
+            selection.deleteFromDocument();
+            const range = selection.getRangeAt(0);
+            const fragment = range.createContextualFragment(cleanHTML);
+            range.insertNode(fragment);
+            selection.collapseToEnd();
+
+            // Сохраняем и обновляем отображение
+            saveTextChanges(e.target);
+
+            // Обновляем innerHTML с отформатированным текстом
+            const blockId = parseInt(e.target.dataset.blockId);
+            const block = findBlockById(UserAppState.blocks, blockId);
+            if (block) {
+                e.target.innerHTML = TextSanitizer.render(block.settings.content || '');
+                // Курсор в конец
+                const r = document.createRange();
+                const sel = window.getSelection();
+                r.selectNodeContents(e.target);
+                r.collapse(false);
+                sel.removeAllRanges();
+                sel.addRange(r);
+            }
         });
     });
 
-    // Клик на кнопку - открываем редактор
     canvas.querySelectorAll('.editable-button').forEach(el => {
         el.addEventListener('click', (e) => {
             e.preventDefault();
@@ -769,7 +807,6 @@ function initInlineEditing() {
         });
     });
 
-    // Клик на картинку - открываем выбор
     canvas.querySelectorAll('.editable-image').forEach(el => {
         el.addEventListener('click', (e) => {
             const blockId = parseInt(el.dataset.blockId);
@@ -777,7 +814,6 @@ function initInlineEditing() {
         });
     });
 
-    // Клик на баннер - открываем редактор баннера
     canvas.querySelectorAll('.editable-banner').forEach(el => {
         el.addEventListener('click', (e) => {
             const blockId = parseInt(el.dataset.blockId);
@@ -785,10 +821,7 @@ function initInlineEditing() {
         });
     });
 
-    // Клик на список - открываем редактор списка
     canvas.querySelectorAll('.editable-list').forEach(el => {
-        // Одиночный клик в любой области — открываем редактор
-        // Исключение: клик попал в редактируемый текст пункта
         el.addEventListener('click', (e) => {
             if (!e.target.closest('.editable-text')) {
                 const blockId = parseInt(el.dataset.blockId);
@@ -797,7 +830,6 @@ function initInlineEditing() {
         });
     });
 
-    // Клик на разделитель - открываем выбор
     canvas.querySelectorAll('.editable-divider').forEach(el => {
         el.addEventListener('click', (e) => {
             const blockId = parseInt(el.dataset.blockId);
@@ -805,7 +837,6 @@ function initInlineEditing() {
         });
     });
 
-    // Клик на эксперта - открываем редактор
     canvas.querySelectorAll('.editable-expert').forEach(el => {
         el.addEventListener('click', (e) => {
             const blockId = parseInt(el.dataset.blockId);
@@ -813,14 +844,12 @@ function initInlineEditing() {
         });
     });
 
-    // Скрываем toolbar при клике вне текста
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.editable-text') && !e.target.closest('.text-toolbar')) {
             hideTextToolbar();
         }
     });
 
-    // Клик на Important — открыть выбор иконки (если клик не по тексту)
     canvas.querySelectorAll('.editable-important').forEach(el => {
         el.addEventListener('click', (e) => {
             if (e.target.closest('.editable-text')) return;
@@ -878,7 +907,8 @@ function saveTextChanges(element) {
     const block = findBlockById(UserAppState.blocks, blockId);
     if (!block) return;
 
-    const newValue = htmlToMarkdown(element.innerHTML);
+    // Санитизируем HTML из contenteditable → simple HTML
+    const newValue = TextSanitizer.sanitize(element.innerHTML, false);
 
     const oldValue = field === 'items' && itemIndex !== undefined
         ? (block.settings.items || [])[parseInt(itemIndex)]
@@ -886,11 +916,9 @@ function saveTextChanges(element) {
     if (newValue !== oldValue) pushUndoState();
 
     if (field === 'items' && itemIndex !== undefined) {
-        // Для списка - обновляем конкретный элемент
         if (!block.settings.items) block.settings.items = [];
         block.settings.items[parseInt(itemIndex)] = newValue;
     } else {
-        // Для обычных полей
         block.settings[field] = newValue;
     }
 

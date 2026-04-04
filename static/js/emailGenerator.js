@@ -120,72 +120,6 @@ function resolveTextFontFamily(s) {
 
 // ===== ФОРМАТИРОВАНИЕ ТЕКСТА =====
 
-/**
- * Форматирует текст с поддержкой ссылок, жирного текста и переносов
- */
-function formatTextWithLinks(raw) {
-    if (!raw) return '';
-
-    let html = String(raw);
-
-    // 0. Экранируем HTML (кроме того, что сами создадим)
-    html = html
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;');
-
-    // 1. Обработка жирного текста **текст**
-    html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
-
-    // 2. Markdown-ссылки: [текст](url)
-    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, (match, text, urlRaw) => {
-        const urlTrim = urlRaw.trim();
-        let href;
-
-        if (/^mailto:/i.test(urlTrim)) {
-            href = urlTrim;
-        } else if (/^https?:\/\//i.test(urlTrim)) {
-            href = urlTrim;
-        } else if (/^[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}$/i.test(urlTrim)) {
-            href = 'mailto:' + urlTrim;
-        } else {
-            href = 'https://' + urlTrim;
-        }
-
-        const safeHref = sanitizeUrl(href);
-        return `<a href="${safeHref}" style="color:${DEFAULT_COLORS.LINK}; text-decoration:underline;">${text}</a>`;
-    });
-
-    // 3. Авто email → mailto
-    html = html.replace(
-        /(^|\s)([A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,})/gi,
-        `$1<a href="mailto:$2" style="color:${DEFAULT_COLORS.LINK}; text-decoration:underline;">$2</a>`
-    );
-
-    // 4. Авто http/https ссылки
-    html = html.replace(
-        /(^|\s)(https?:\/\/[^\s&lt;]+)/gi,
-        `$1<a href="$2" style="color:${DEFAULT_COLORS.LINK}; text-decoration:underline;">$2</a>`
-    );
-
-    // 5. Авто «голые» домены (example.ru, www.example.ru)
-    html = html.replace(
-        /(^|\s)((?:www\.)?[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?![^&lt;]*&gt;)/gi,
-        `$1<a href="https://$2" style="color:${DEFAULT_COLORS.LINK}; text-decoration:underline;">$2</a>`
-    );
-
-    // 6. Абзацы и переносы строк
-    const paragraphs = html.split(/\n\n+/);
-    html = paragraphs
-        .map((p, i) => {
-            const margin = i === paragraphs.length - 1 ? '0' : '0 0 0.55em 0';
-            return `<p style="margin:${margin};">${p.replace(/\n/g, ' ')}</p>`;
-        })
-        .join('');
-
-    return html;
-}
-
 // ===== ГЛАВНАЯ ФУНКЦИЯ ГЕНЕРАЦИИ =====
 
 /**
@@ -387,7 +321,7 @@ function generateBannerHTML(s) {
 function generateTextHTML(s) {
     if (!s) return '';
 
-    const textHTML = formatTextWithLinks(s.content || '');
+    const textHTML = TextSanitizer.render(s.content || '', DEFAULT_COLORS.LINK);
     const fontFamily = resolveTextFontFamily(s);
     const adaptedColor = adaptColorForWhiteBackground(s.color);
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
@@ -477,7 +411,12 @@ function generateListHTML(s) {
     const isNumbered = s.listStyle === 'numbered';
 
     const listItems = (s.items || []).map((item, index) => {
-        const formatted = formatTextWithLinks(item || '');
+        const formatted = TextSanitizer.render(
+            typeof item === 'string' && item.trim().startsWith('<')
+                ? item
+                : TextSanitizer.sanitize(item || '', true),
+            DEFAULT_COLORS.LINK
+        );
 
         let bulletHTML;
 
@@ -578,7 +517,7 @@ function generateImportantHTML(s) {
     const lineHeight = s.lineHeight ?? 1;
     const borderColor = s.borderColor || DEFAULT_COLORS.BORDER;
     const adaptedColor = adaptColorForWhiteBackground(s.textColor);
-    const textContent = formatTextWithLinks(s.text || '');
+    const textContent = TextSanitizer.render(s.text || '', DEFAULT_COLORS.LINK);
 
     const iconHTML = iconSrc ? `
     <td valign="top"

@@ -402,6 +402,7 @@ body {
 }
 
 .user-canvas .editable-text {
+  caret-color: #f97316;
   cursor: text;
 }
 

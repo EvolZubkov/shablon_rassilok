@@ -3,10 +3,65 @@
 function renderTextSettings(container, block) {
     const s = block.settings;
 
-    // Сам текст
-    container.appendChild(
-        createSettingTextarea('Содержимое', s.content, block.id, 'content', 6)
-    );
+    // Конвертируем s.content (simple HTML) → plain text для textarea
+    const plainTextValue = TextSanitizer.toPlainText(s.content || '');
+
+    const textarea = createSettingTextarea('Содержимое', plainTextValue, block.id, 'content', 6);
+    container.appendChild(textarea);
+
+    // Перехватываем изменения — конвертируем plain text → simple HTML при сохранении
+    const ta = textarea.querySelector('textarea');
+    if (ta) {
+        // Убираем стандартный oninput/onchange который мог быть назначен в createSettingTextarea
+        ta.addEventListener('change', (e) => {
+            const simpleHTML = TextSanitizer.sanitize(e.target.value, true);
+            updateBlockSetting(block.id, 'content', simpleHTML);
+        });
+
+        ta.addEventListener('input', (e) => {
+            const simpleHTML = TextSanitizer.sanitize(e.target.value, true);
+            updateBlockSetting(block.id, 'content', simpleHTML);
+            renderCanvas();
+        });
+
+        // Paste — перехватываем вставку
+        ta.addEventListener('paste', (e) => {
+            e.preventDefault();
+            const clipboardData = e.clipboardData || window.clipboardData;
+
+            // Пробуем взять HTML из буфера
+            let pastedHTML = clipboardData.getData('text/html');
+            let result;
+
+            if (pastedHTML && pastedHTML.trim()) {
+                result = TextSanitizer.sanitize(pastedHTML, false);
+                const plain = TextSanitizer.toPlainText(result);
+                // Если после очистки Word-HTML ничего не осталось — берём plain text
+                if (!plain.trim()) {
+                    const pastedText = clipboardData.getData('text/plain');
+                    // Word разделяет абзацы одиночным \n — нормализуем в \n\n
+                    const normalized = pastedText
+                        .replace(/\r\n/g, '\n')
+                        .replace(/\r/g, '\n')
+                        // Одиночный \n между непустыми строками → двойной
+                        .replace(/([^\n])\n([^\n])/g, '$1\n\n$2');
+                    result = TextSanitizer.sanitize(normalized, true);
+                    ta.value = insertAtCursor(ta, TextSanitizer.toPlainText(result));
+                } else {
+                    ta.value = insertAtCursor(ta, plain);
+                }
+            } else {
+                // Plain text — вставляем как есть
+                const pastedText = clipboardData.getData('text/plain');
+                ta.value = insertAtCursor(ta, pastedText);
+                result = TextSanitizer.sanitize(ta.value, true);
+            }
+
+            updateBlockSetting(block.id, 'content', result);
+            renderCanvas();
+        });
+    }
+
     // Панель форматирования
     const formatGroup = document.createElement('div');
     formatGroup.className = 'setting-group';
@@ -26,38 +81,35 @@ function renderTextSettings(container, block) {
     btnBold.style.cssText = 'padding: 6px 12px; background: #334155; border: 1px solid #475569; border-radius: 4px; color: #e5e7eb; cursor: pointer; font-weight: bold;';
 
     btnBold.addEventListener('click', () => {
-        const textarea = container.querySelector(`textarea[data-block-id="${block.id}"][data-setting-key="content"]`);
+        const ta = container.querySelector(
+            `textarea[data-block-id="${block.id}"][data-setting-key="content"]`
+        );
+        if (!ta) return;
 
-        if (!textarea) return;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
+        const selected = ta.value.substring(start, end);
 
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
-        const selectedText = textarea.value.substring(start, end);
-
-        if (selectedText) {
-            // Оборачиваем каждую строку отдельно в **текст** для markdown жирного
-            const lines = selectedText.split('\n');
-            const boldLines = lines.map(line => {
-                // Пропускаем пустые строки
-                if (line.trim() === '') return line;
-                return `**${line}**`;
-            }).join('\n');
-
-            const newText = textarea.value.substring(0, start) +
-                boldLines +
-                textarea.value.substring(end);
-
-            textarea.value = newText;
-
-            // Обновляем блок
-            updateBlockSetting(block.id, 'content', newText);
-
-            // Устанавливаем курсор после вставки
-            textarea.focus();
-            textarea.setSelectionRange(end + 4, end + 4);
-        } else {
+        if (!selected) {
             Toast.warning('Выделите текст, который нужно сделать жирным');
+            return;
         }
+
+        // Оборачиваем в **...** в plain text (sanitize потом конвертирует в <strong>)
+        const lines = selected.split('\n');
+        const boldLines = lines.map(line =>
+            line.trim() === '' ? line : `**${line}**`
+        ).join('\n');
+
+        const newPlain = ta.value.substring(0, start) + boldLines + ta.value.substring(end);
+        ta.value = newPlain;
+
+        const simpleHTML = TextSanitizer.sanitize(newPlain, true);
+        updateBlockSetting(block.id, 'content', simpleHTML);
+        renderCanvas();
+
+        ta.focus();
+        ta.setSelectionRange(start + 2, end + 2);
     });
 
     formatToolbar.appendChild(btnBold);
@@ -81,7 +133,6 @@ function renderTextSettings(container, block) {
         )
     );
 
-    // Свой шрифт (CSS-имя) — показываем только если выбран "custom"
     if ((s.fontFamily || 'default') === 'custom') {
         container.appendChild(
             createSettingInput(
@@ -93,8 +144,10 @@ function renderTextSettings(container, block) {
         );
     }
 
-    // Размер / межстрочный / выравнивание
-    container.appendChild(createSettingFontSize('Размер шрифта', s.fontSize, block.id, 'fontSize', [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24]));
+    container.appendChild(
+        createSettingFontSize('Размер шрифта', s.fontSize, block.id, 'fontSize',
+            [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24])
+    );
     container.appendChild(
         createSettingRange('Межстрочный интервал', s.lineHeight, block.id, 'lineHeight', 1, 2.5, 0.1)
     );
@@ -102,8 +155,14 @@ function renderTextSettings(container, block) {
         createSettingSelect('Выравнивание', s.align, block.id, 'align', SELECT_OPTIONS.align)
     );
 
-    // Панель "Ссылки"
     container.appendChild(createTextLinkToolbar(block));
+}
+
+// Вставка текста в позицию курсора textarea
+function insertAtCursor(ta, text) {
+    const start = ta.selectionStart;
+    const end = ta.selectionEnd;
+    return ta.value.substring(0, start) + text + ta.value.substring(end);
 }
 
 function createTextLinkToolbar(block) {
@@ -126,36 +185,34 @@ function createTextLinkToolbar(block) {
     btn.style.cssText = 'width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #4b5563; background: none; color: #e5e7eb; font-size: 12px; cursor: pointer;';
 
     btn.addEventListener('click', () => {
-        const textarea = document.querySelector(
+        const ta = document.querySelector(
             `.setting-textarea[data-block-id="${block.id}"][data-setting-key="content"]`
         );
-        if (!textarea) return;
+        if (!ta) return;
 
-        const start = textarea.selectionStart;
-        const end = textarea.selectionEnd;
+        const start = ta.selectionStart;
+        const end = ta.selectionEnd;
 
         if (start === end) {
             Toast.warning('Сначала выделите текст в поле "Содержимое".');
             return;
         }
 
-        const selected = textarea.value.slice(start, end);
+        const selected = ta.value.slice(start, end);
         const url = prompt('Введите ссылку (https://… или mailto:…):');
         if (!url) return;
 
-        const before = textarea.value.slice(0, start);
-        const after = textarea.value.slice(end);
-
-        // Маркап вида [текст](url)
+        // Вставляем markdown-ссылку в plain text
         const replacement = `[${selected}](${url})`;
-        const newValue = before + replacement + after;
+        const newPlain = ta.value.slice(0, start) + replacement + ta.value.slice(end);
+        ta.value = newPlain;
 
-        textarea.value = newValue;
-        updateBlockSetting(block.id, 'content', newValue);
+        // Конвертируем весь plain text → simple HTML
+        const simpleHTML = TextSanitizer.sanitize(newPlain, true);
+        updateBlockSetting(block.id, 'content', simpleHTML);
+        renderCanvas();
     });
 
     group.appendChild(btn);
     return group;
 }
-
-

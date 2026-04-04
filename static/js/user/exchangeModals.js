@@ -167,6 +167,20 @@ const ExchangeModals = (() => {
                 <input id="email-bcc" type="text" class="exc-input" placeholder="bcc@rt.ru">
               </div>
 
+              <div class="exc-field">
+                <label class="exc-label">Вложения</label>
+                <div class="exc-attachments">
+                  <button type="button" class="exc-btn exc-btn--secondary exc-btn--sm"
+                          onclick="ExchangeModals.pickAttachments('email-attachments-input')">
+                    Добавить файлы
+                  </button>
+                  <input id="email-attachments-input" type="file" multiple
+                         style="display:none;"
+                         onchange="ExchangeModals.onAttachmentsChange(this, 'email-attachments-list')">
+                  <div id="email-attachments-list" class="exc-attachments-list"></div>
+                </div>
+              </div>
+
             </div>
             <div class="exc-footer">
               <button class="exc-btn exc-btn--secondary" onclick="ExchangeModals.closeEmail()">Отмена</button>
@@ -221,6 +235,20 @@ const ExchangeModals = (() => {
                   <span class="exc-hint"> (адреса скрыты)</span>
                 </label>
                 <input id="meeting-bcc" type="text" class="exc-input" placeholder="bcc@rt.ru">
+              </div>
+
+              <div class="exc-field">
+                <label class="exc-label">Вложения</label>
+                <div class="exc-attachments">
+                  <button type="button" class="exc-btn exc-btn--secondary exc-btn--sm"
+                          onclick="ExchangeModals.pickAttachments('meeting-attachments-input')">
+                    Добавить файлы
+                  </button>
+                  <input id="meeting-attachments-input" type="file" multiple
+                         style="display:none;"
+                         onchange="ExchangeModals.onAttachmentsChange(this, 'meeting-attachments-list')">
+                  <div id="meeting-attachments-list" class="exc-attachments-list"></div>
+                </div>
               </div>
 
               <div class="exc-field">
@@ -383,7 +411,12 @@ const ExchangeModals = (() => {
         _open('exchange-email-modal');
     }
 
-    function closeEmail() { _close('exchange-email-modal'); }
+    function closeEmail() {
+        _close('exchange-email-modal');
+        _attachments.email = [];
+        const list = _q('email-attachments-list');
+        if (list) list.innerHTML = '';
+    }
 
     // ─── Send Meeting: открыть ────────────────────────────────────────────────
 
@@ -418,7 +451,12 @@ const ExchangeModals = (() => {
         _open('exchange-meeting-modal');
     }
 
-    function closeMeeting() { _close('exchange-meeting-modal'); }
+     function closeMeeting() {
+        _close('exchange-meeting-modal');
+        _attachments.meeting = [];
+        const list = _q('meeting-attachments-list');
+        if (list) list.innerHTML = '';
+    }
 
     // ─── Заполнить select отправителей ───────────────────────────────────────
 
@@ -473,11 +511,13 @@ const ExchangeModals = (() => {
         _setLoading('email-send-btn', true, 'Отправить');
         try {
             const html = await _generateHtml();
+            const attachments = await _filesToBase64(_attachments.email);
             const r = await fetch('/api/send/email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ subject, to, cc, bcc,
-                                       from_email: fromEmail, html_body: html })
+                                       from_email: fromEmail, html_body: html,
+                                       attachments })
             });
             const data = await r.json();
             if (data.success) {
@@ -537,13 +577,14 @@ const ExchangeModals = (() => {
         _setLoading('meeting-send-btn', true, 'Создать встречу');
         try {
             const html = await _generateHtml();
+            const attachments = await _filesToBase64(_attachments.meeting);
             const r = await fetch('/api/send/meeting', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     subject, to, bcc, from_email: fromEmail,
                     location, start_dt: startDt, end_dt: endDt,
-                    html_body: html
+                    html_body: html, attachments
                 })
             });
             const data = await r.json();
@@ -580,6 +621,61 @@ const ExchangeModals = (() => {
         }
         // Admin версия — AppState уже содержит актуальные блоки
         return await generateEmailHTML();
+    }
+
+    // ─── Вложения ─────────────────────────────────────────────────────────────
+
+    // Хранилище файлов
+    const _attachments = { email: [], meeting: [] };
+
+    function pickAttachments(inputId) {
+        const input = _q(inputId);
+        if (input) input.click();
+    }
+
+    function onAttachmentsChange(input, listId) {
+        const key = listId.includes('email') ? 'email' : 'meeting';
+        const newFiles = Array.from(input.files);
+        _attachments[key] = [..._attachments[key], ...newFiles];
+        _renderAttachmentsList(listId, key);
+        input.value = ''; // сбрасываем чтобы можно было добавить тот же файл
+    }
+
+    function _renderAttachmentsList(listId, key) {
+        const list = _q(listId);
+        if (!list) return;
+        list.innerHTML = _attachments[key].map((file, i) => `
+            <div class="exc-attachment-item">
+                <span class="exc-attachment-name">📄 ${file.name}</span>
+                <span class="exc-attachment-size">${_formatSize(file.size)}</span>
+                <button type="button" class="exc-attachment-remove"
+                        onclick="ExchangeModals.removeAttachment('${key}', ${i}, '${listId}')">✕</button>
+            </div>
+        `).join('');
+    }
+
+    function removeAttachment(key, index, listId) {
+        _attachments[key].splice(index, 1);
+        _renderAttachmentsList(listId, key);
+    }
+
+    function _formatSize(bytes) {
+        if (bytes < 1024) return bytes + ' Б';
+        if (bytes < 1024 * 1024) return Math.round(bytes / 1024) + ' КБ';
+        return (bytes / (1024 * 1024)).toFixed(1) + ' МБ';
+    }
+
+    async function _filesToBase64(files) {
+        return Promise.all(files.map(file => new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = e => resolve({
+                name: file.name,
+                content: e.target.result.split(',')[1], // только base64 без заголовка
+                mime_type: file.type || 'application/octet-stream'
+            });
+            reader.onerror = reject;
+            reader.readAsDataURL(file);
+        })));
     }
 
     // ─── Инициализация ───────────────────────────────────────────────────────
@@ -629,6 +725,9 @@ const ExchangeModals = (() => {
         testConnection,
         sendEmail,
         sendMeeting,
+        pickAttachments,        
+        onAttachmentsChange,    
+        removeAttachment,
     };
 
 })();

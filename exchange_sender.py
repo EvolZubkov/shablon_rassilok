@@ -156,7 +156,8 @@ def _convert_data_images_to_cid(html_body: str):
 
 
 def exchange_send_email(account: 'Account', subject: str, html_body: str,
-                        to: list, cc: list = None, bcc: list = None) -> None:
+                        to: list, cc: list = None, bcc: list = None,
+                        attachments: list = None) -> None:
     """
     Отправляет HTML-письмо через Exchange.
     Args:
@@ -172,7 +173,7 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
     if to:  validate_recipients(to)
     if cc:  validate_recipients(cc)
     if bcc: validate_recipients(bcc)
-
+    attachments_raw = attachments or []
     try:
         html_with_cid, attachments = _convert_data_images_to_cid(html_body)
         msg = Message(
@@ -185,6 +186,18 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
         )
         for att in attachments:
             msg.attach(att)
+        # Прикрепляем пользовательские файлы
+        for file_data in (attachments_raw or []):
+            try:
+                raw = base64.b64decode(file_data['content'])
+                file_att = FileAttachment(
+                    name=file_data['name'],
+                    content_type=file_data.get('mime_type', 'application/octet-stream'),
+                    content=raw,
+                )
+                msg.attach(file_att)
+            except Exception as e:
+                print(f'⚠️  Вложение {file_data.get("name")}: {e}')
         msg.send()
     except Exception as e:
         _wrap_exchange_error(e)
@@ -195,7 +208,8 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
 def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
                           to: list, cc: list = None, bcc: list = None,
                           location: str = '', start_dt: datetime.datetime = None,
-                          end_dt: datetime.datetime = None) -> None:
+                          end_dt: datetime.datetime = None,
+                          attachments: list = None) -> None:
     """
     Создаёт встречу через EWS с попыткой встроить inline CID-картинки.
     """
@@ -209,6 +223,8 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
     validate_recipients(to)
     if cc:
         validate_recipients(cc)
+
+    user_attachments = attachments or []  # ← сохраняем до перезаписи
 
     try:
         import pytz
@@ -227,10 +243,9 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
         )
 
         # 1. Конвертируем data:image -> cid:
-        html_with_cid, attachments = _convert_data_images_to_cid(html_body)
+        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)  # ← переименовано
 
         # 2. Создаём встречу
-        # required_attendees не может быть пустым — если to пуст, bcc идут как required
         required = to if to else bcc
         item = CalendarItem(
             account=account,
@@ -247,14 +262,27 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
         # 3. Сохраняем без рассылки, чтобы появился item.id
         item.save(send_meeting_invitations='SendToNone')
 
-        # 4. Добавляем inline-вложения
-        for att in attachments:
+        # 4. Добавляем inline-вложения (картинки из письма)
+        for att in inline_atts:
             item.attach(att)
 
-        # 5. Ещё раз явно проставляем body
+        # 5. Добавляем пользовательские файлы
+        for file_data in user_attachments:  # ← исправлено
+            try:
+                raw = base64.b64decode(file_data['content'])
+                file_att = FileAttachment(
+                    name=file_data['name'],
+                    content_type=file_data.get('mime_type', 'application/octet-stream'),
+                    content=raw,
+                )
+                item.attach(file_att)
+            except Exception as e:
+                print(f'⚠️  Вложение {file_data.get("name")}: {e}')
+
+        # 6. Ещё раз явно проставляем body
         item.body = HTMLBody(html_with_cid)
 
-        # 6. Отправляем приглашения вместе с телом и вложениями
+        # 7. Отправляем приглашения вместе с телом и вложениями
         item._update(
             update_fieldnames=['body'],
             message_disposition='SaveOnly',
