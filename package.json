@@ -1,6 +1,6 @@
 {
   "name": "email-builder",
-  "version": "1.0.0",
+  "version": "1.0.4",
   "private": true,
   "scripts": {
     "test": "jest tests/app.test.js --no-coverage",
