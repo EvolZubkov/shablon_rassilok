@@ -3,6 +3,8 @@ Email Builder - Desktop Application
 Главный файл приложения с системой кеширования и управлением ресурсами
 """
 
+from _version import __version__
+
 from flask import abort
 import sys
 import os
@@ -19,9 +21,23 @@ import hashlib
 from datetime import datetime
 from flask import Flask, send_from_directory, request, jsonify
 from werkzeug.utils import secure_filename
+import atexit
+import signal
 import base64
-import threading
-import time
+
+# On Linux, probe IPv6 kernel support before the first QApplication is
+# created.  If AF_INET6 is unavailable (e.g. ipv6.disable=1 in the kernel
+# command line or the ipv6 module is not loaded), pass --disable-ipv6 to
+# the embedded Chromium engine so it does not attempt ::1 connections and
+# log EAFNOSUPPORT(97) on every heartbeat fetch.
+if sys.platform.startswith('linux'):
+    import socket as _sock_probe
+    try:
+        _s6 = _sock_probe.socket(_sock_probe.AF_INET6, _sock_probe.SOCK_STREAM)
+        _s6.close()
+    except OSError:
+        sys.argv.append('--disable-ipv6')
+    del _sock_probe
 
 
 # ============================================================================
@@ -37,7 +53,6 @@ def _load_config():
         [app]
         network_path = \\\\server\\share\\email-builder
         port = 8080
-        mode = admin
     """
     import configparser
 
@@ -90,34 +105,103 @@ def _load_config():
     return (
         get('network_path'),
         int(get('port')),
-        os.environ.get('APP_MODE', cfg.get(
-            section, 'mode', fallback='admin')).lower(),
         config_path,
         cfg.get(section, 'network_path_linux_hint', fallback='email-builder'),
         cfg.get(section, 'network_path_smb', fallback=None),
+        cfg.get(section, 'network_path_linux_resolved', fallback=None),
     )
 
 
 try:
-    NETWORK_RESOURCES_PATH, PORT, APP_MODE, _CONFIG_PATH, _LINUX_HINT, _SMB_PATH = _load_config()
+    NETWORK_RESOURCES_PATH, PORT, _CONFIG_PATH, _LINUX_HINT, _SMB_PATH, _LINUX_RESOLVED = _load_config()
 except RuntimeError as _cfg_err:
     try:
-        import tkinter as _tk
-        from tkinter import messagebox as _mb
-        _root = _tk.Tk()
-        _root.withdraw()
-        _mb.showerror('Email Builder — ошибка конфигурации', str(_cfg_err))
-        _root.destroy()
+        from PyQt5.QtWidgets import QApplication, QMessageBox
+        _app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, 'Email Builder — ошибка конфигурации', str(_cfg_err))
     except Exception:
         pass
     sys.exit(1)
+
+
+def _resolve_app_mode():
+    """
+    Determines the startup mode by validating the ``.lic`` token file.
+
+    Hash source
+        The expected SHA-256 hash is read from ``.admin_hash`` — a file
+        embedded into the executable at build time via ``build.spec``.
+        In dev mode it is read from the project root.
+
+    ``.lic`` location
+        Must be placed next to the ``.exe`` (or next to ``app.py`` in dev).
+        Filename is exactly ``.lic`` — no stem, only extension.
+
+    Resolution rules:
+
+    * No ``.lic`` found                  → ``'user'``, silently.
+    * ``.lic`` found, no ``.admin_hash`` → ``'user'``, silently
+                                           (build without admin support).
+    * ``.lic`` found, hash matches       → ``'admin'``.
+    * ``.lic`` found, hash mismatch      → ``'user'``,
+                                           sets ``_INVALID_TOKEN = True``.
+
+    :returns: ``'admin'`` or ``'user'``
+    """
+    import hashlib
+
+    global _INVALID_TOKEN
+
+    # Directory where .lic lives (next to the exe or next to app.py in dev)
+    if getattr(sys, 'frozen', False):
+        exe_dir    = os.path.dirname(sys.executable)
+        bundle_dir = sys._MEIPASS
+    else:
+        exe_dir = bundle_dir = os.path.dirname(os.path.abspath(__file__))
+
+    lic_path  = os.path.join(exe_dir,    '.lic')
+    hash_path = os.path.join(bundle_dir, '.admin_hash')
+
+    if not os.path.exists(lic_path):
+        return 'user'
+
+    if not os.path.exists(hash_path):
+        # Built without admin support — silently ignore .lic
+        return 'user'
+
+    try:
+        secret        = open(lic_path,  'r', encoding='utf-8').read().strip()
+        expected_hash = open(hash_path, 'r', encoding='utf-8').read().strip().lower()
+        actual_hash   = hashlib.sha256(secret.encode('utf-8')).hexdigest()
+        if actual_hash == expected_hash:
+            return 'admin'
+        print('[license] token mismatch — running in user mode')
+        _INVALID_TOKEN = True
+        return 'user'
+    except Exception as _e:
+        print(f'[license] read error: {_e}')
+        _INVALID_TOKEN = True
+        return 'user'
+
+
+_INVALID_TOKEN   = False
+_ADMIN_VALIDATED = False
+APP_MODE = _resolve_app_mode()
+_ADMIN_VALIDATED = (APP_MODE == 'admin')
 
 # Определяем базовые пути в зависимости от режима запуска
 if getattr(sys, 'frozen', False):
     # Режим .exe (PyInstaller)
     BUILTIN_DIR = sys._MEIPASS
     EXE_DIR = os.path.dirname(sys.executable)
-    CACHE_BASE = os.path.join(os.environ['LOCALAPPDATA'], 'EmailBuilder')
+    
+    # CACHE_BASE = os.path.join(os.environ['LOCALAPPDATA'], 'EmailBuilder')
+    if sys.platform == 'win32':
+        _app_data = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
+    else:
+        _app_data = os.environ.get('XDG_DATA_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'share')
+
+    CACHE_BASE = os.path.join(_app_data, 'EmailBuilder')
     CACHE_DIR = os.path.join(CACHE_BASE, 'cache')
 else:
     # Режим разработки
@@ -146,6 +230,10 @@ else:
 app = Flask(__name__,
             static_folder=STATIC_DIR,
             template_folder=STATIC_DIR)
+
+# Qt application instance shared between the splash screen and the main window.
+# Created once in show_splash() and reused in _run_webview_or_browser().
+_qt_app = None
 
 # Время последнего пинга
 _last_heartbeat = time.time()
@@ -216,19 +304,41 @@ def set_cache_version(version):
 
 
 def check_network_access():
-    """Проверить доступность сетевого ресурса"""
-    return os.path.exists(NETWORK_RESOURCES_PATH)
+    """Checks that NETWORK_RESOURCES_PATH exists and is a valid resource repo."""
+    ok, _ = _validate_resource_repo(NETWORK_RESOURCES_PATH)
+    return ok
+
+
+def _validate_resource_repo(path):
+    """
+    Checks whether *path* contains a valid Email Builder resource repository.
+
+    A valid repository must have:
+        * ``version.txt``    — version marker at the root
+        * ``static/``        — resources directory
+
+    :param path: Absolute path to check.
+    :returns: ``(True, '')`` if valid,
+              ``(False, reason)`` if the directory exists but is not a repo,
+              ``(False, reason)`` if the directory does not exist.
+    """
+    if not path or not os.path.exists(path):
+        return False, 'Путь не существует'
+    if not os.path.isdir(path):
+        return False, 'Путь не является директорией'
+    if not os.path.exists(os.path.join(path, 'version.txt')):
+        return False, 'Не найден файл version.txt — это не репозиторий ресурсов'
+    if not os.path.isdir(os.path.join(path, 'static')):
+        return False, 'Не найдена папка static/ — репозиторий неполный'
+    return True, ''
 
 
 def show_error_dialog(title, message):
     """Показать messagebox с ошибкой. Работает и в .exe без консоли."""
     try:
-        import tkinter as _tk
-        from tkinter import messagebox as _mb
-        _root = _tk.Tk()
-        _root.withdraw()
-        _mb.showerror(title, message)
-        _root.destroy()
+        from PyQt5.QtWidgets import QApplication, QMessageBox
+        _app = QApplication.instance() or QApplication(sys.argv)
+        QMessageBox.critical(None, title, message)
     except Exception:
         pass
 
@@ -240,226 +350,505 @@ R0lGODlhdgF2Aff3AAsBAgxpzQ8DAhAFBRUGAxYKCRcIBRgMCxlDgxtwzxwNCh0MBh8PDB8RDyIQCiMU
 
 
 def show_splash(main_logic):
-    try:
-        import tkinter as tk
-        from PIL import Image, ImageTk, ImageSequence
-        import io, base64, math
+    """
+    Show a borderless startup splash with an animated GIF using PyQt5.
 
-        gif_data = base64.b64decode(_SPLASH_GIF_B64.strip())
+    Runs ``main_logic(close_fn, update_status_fn)`` in a background QThread.
+    ``close_fn`` signals the splash to close; ``update_status_fn(text)`` updates
+    the status label from any thread.  Blocks the caller via a local QEventLoop
+    (not QApplication.exec_()) so that the caller can open a QMainWindow
+    afterwards and call QApplication.exec_() for the main event loop.
+    """
+    try:
+        from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
+        from PyQt5.QtCore import (
+            Qt, QEventLoop, QThread, pyqtSignal, QBuffer, QIODevice, QByteArray,
+        )
+        from PyQt5.QtGui import QMovie, QIcon, QFont
+
+        global _qt_app
+        if not QApplication.instance():
+            # Must be set before QApplication() is created.
+            # Required on Linux for QWebEngineView to share the OpenGL context
+            # with Chromium's GPU process; harmless on Windows.
+            QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        _qt_app = QApplication.instance() or QApplication(sys.argv)
 
         W, H = 320, 320
 
-        # ====== НАСТРОЙКИ ВНЕШНЕГО ВИДА ======
-        STATUS_FONT_SIZE = 16
-        STATUS_Y_OFFSET = 24
+        # Borderless, always-on-top splash window with transparent background
+        splash = QWidget(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        splash.setAttribute(Qt.WA_TranslucentBackground)
+        splash.setFixedSize(W, H)
 
-        SPIN_OFFSET = 30
-        SPIN_RECT_W = 20
-        SPIN_RECT_H = 7
-        SPIN_MARGIN_RIGHT = 30
-        SPIN_MARGIN_TOP = 30
-        SPIN_SPEED_MS = 50
-        SPIN_N = 12
-        # =====================================
+        screen_geo = _qt_app.primaryScreen().geometry()
+        splash.move(
+            (screen_geo.width()  - W) // 2,
+            (screen_geo.height() - H) // 2,
+        )
 
-        root = tk.Tk()
-        root.title('Email Builder')
-        root.resizable(False, False)
-        root.overrideredirect(True)
-        sw = root.winfo_screenwidth()
-        sh = root.winfo_screenheight()
-        root.geometry(f'{W}x{H}+{(sw - W) // 2}+{(sh - H) // 2}')
-        root.configure(bg='#010101')
-        root.wm_attributes('-transparentcolor', '#010101')
+        # Rounded dark background via stylesheet
+        splash.setStyleSheet('''
+            QWidget#splashRoot {
+                background-color: rgba(10, 10, 10, 235);
+                border-radius: 16px;
+            }
+        ''')
+        splash.setObjectName('splashRoot')
 
-           
+        layout = QVBoxLayout(splash)
+        layout.setContentsMargins(0, 8, 0, 12)
+        layout.setSpacing(4)
+
+        # Animated GIF label (takes most of the window height)
+        gif_label = QLabel()
+        gif_label.setAlignment(Qt.AlignCenter)
+        gif_label.setFixedSize(W, H - 64)
+        gif_label.setStyleSheet('background: transparent;')
+
+        try:
+            gif_data = base64.b64decode(_SPLASH_GIF_B64.strip())
+            _buf = QBuffer()
+            _buf.setData(QByteArray(gif_data))
+            _buf.open(QIODevice.ReadOnly)
+            movie = QMovie()
+            movie.setDevice(_buf)
+            movie.setScaledSize(gif_label.size())
+            gif_label.setMovie(movie)
+            movie.start()
+            # Keep references alive for the duration of the splash
+            gif_label._buf   = _buf
+            gif_label._movie = movie
+        except Exception:
+            gif_label.setText('Email Builder')
+            gif_label.setStyleSheet(
+                'color: white; font-size: 22px; background: transparent;'
+            )
+
+        layout.addWidget(gif_label)
+
+        # App title
+        title_lbl = QLabel('Email Builder')
+        title_lbl.setAlignment(Qt.AlignCenter)
+        title_lbl.setFont(QFont('Segoe UI', 14, QFont.Bold))
+        title_lbl.setStyleSheet('color: white; background: transparent;')
+        title_lbl.setFixedHeight(22)
+        layout.addWidget(title_lbl)
+
+        # Status text updated from the worker thread
+        status_lbl = QLabel('Запуск...')
+        status_lbl.setAlignment(Qt.AlignCenter)
+        status_lbl.setFont(QFont('Segoe UI', 11))
+        status_lbl.setStyleSheet('color: rgba(255,255,255,200); background: transparent;')
+        status_lbl.setFixedHeight(20)
+        layout.addWidget(status_lbl)
+
         try:
             if getattr(sys, 'frozen', False):
                 ico = os.path.join(sys._MEIPASS, 'icon.ico')
             else:
                 ico = os.path.join(os.path.dirname(__file__), 'icon.ico')
             if os.path.exists(ico):
-                root.iconbitmap(ico)
+                splash.setWindowIcon(QIcon(ico))
         except Exception:
             pass
 
-        # Кадры ПОСЛЕ tk.Tk()
-        # Маска скругления — один раз
-        from PIL import ImageDraw
-        corner_mask = Image.new('L', (W, H), 0)
-        draw = ImageDraw.Draw(corner_mask)
-        draw.rounded_rectangle([0, 0, W-1, H-1], radius=16, fill=255)
+        loop = QEventLoop()
 
-        img = Image.open(io.BytesIO(gif_data))
-        frames = []
-        durations = []
-        for frame in ImageSequence.Iterator(img):
-            f = frame.copy().convert('RGBA').resize((W, H), Image.LANCZOS)
-            f.putalpha(corner_mask)  # ← скругляем углы каждого кадра
-            frames.append(ImageTk.PhotoImage(f))
-            durations.append(frame.info.get('duration', 60))
+        class _Worker(QThread):
+            """Background initialisation thread."""
+            done           = pyqtSignal()
+            status_changed = pyqtSignal(str)
 
-        canvas = tk.Canvas(root, width=W, height=H,
-                           bg='#010101', highlightthickness=0)
-        canvas.pack()
+            def run(self):
+                try:
+                    main_logic(self.done.emit, self.status_changed.emit)
+                except Exception as exc:
+                    print(f'[splash worker] {exc}')
+                    self.done.emit()
 
+        _worker = _Worker()
+        _worker.done.connect(lambda: (splash.close(), loop.quit()))
+        _worker.status_changed.connect(status_lbl.setText)
+        _worker.start()
 
-        gif_item = canvas.create_image(W // 2, H // 2, anchor='center')
-
-        # Название — внизу по центру, над статусом
-        canvas.create_text(
-            W // 2, H - STATUS_Y_OFFSET - 38,
-            text='Email Builder',
-            fill='white',
-            font=('Segoe UI', 24, 'bold'),
-            anchor='center'
-        )
-
-        # Статус чуть ниже
-        status_id = canvas.create_text(
-            W // 2, H - STATUS_Y_OFFSET,
-            text='Запуск...',
-            fill="#ffffff",  # чуть приглушённый
-            font=('Segoe UI', STATUS_FONT_SIZE),
-            anchor='center'
-        )
-
-        # Центр спиннера
-        SPIN_X = W - SPIN_MARGIN_RIGHT - SPIN_OFFSET - SPIN_RECT_W // 2
-        SPIN_Y = SPIN_MARGIN_TOP + SPIN_OFFSET + SPIN_RECT_H // 2
-
-        # 16 скруглённых прямоугольников по кругу
-        # Скругление через create_rectangle с параметром нет в tk,
-        # рисуем через PIL — создаём ImageTk спрайты нужного цвета
-        # и размещаем как image-объекты на canvas
-
-        CORNER_R = 5  # радиус скругления px
-
-        def make_rect_image(alpha):
-            """Создаёт скруглённый прямоугольник как RGBA PIL Image"""
-            from PIL import ImageDraw
-            # Размер с запасом для поворота
-            size = max(SPIN_RECT_W, SPIN_RECT_H) * 3
-            img_r = Image.new('RGBA', (size, size), (0, 0, 0, 0))
-            draw = ImageDraw.Draw(img_r)
-            ox = (size - SPIN_RECT_W) // 2
-            oy = (size - SPIN_RECT_H) // 2
-            draw.rounded_rectangle(
-                [ox, oy, ox + SPIN_RECT_W, oy + SPIN_RECT_H],
-                radius=CORNER_R,
-                fill=(255, 255, 255, alpha)
-            )
-            return img_r
-
-        # Генерируем спрайты для каждого уровня прозрачности
-        # От почти прозрачного (хвост) до белого (голова)
-        alpha_levels = []
-        for i in range(SPIN_N):
-            # i=0 — хвост (прозрачный), i=N-1 — голова (белый)
-            a = int(255 * (i + 1) / SPIN_N)
-            alpha_levels.append(a)
-
-        # Создаём повёрнутые спрайты для каждой позиции
-        rect_images = []   # [позиция][уровень_яркости] = PhotoImage
-        rect_items = []    # canvas items
-
-        for i in range(SPIN_N):
-            deg = i * 360 / SPIN_N
-            # Базовый спрайт (белый непрозрачный) повёрнутый на нужный угол
-            base = make_rect_image(255)
-            rotated = base.rotate(-deg, expand=False, resample=Image.BICUBIC)
-
-            # Набор спрайтов с разной прозрачностью для этой позиции
-            sprites = []
-            for a in alpha_levels:
-                sp = rotated.copy()
-                r_ch, g_ch, b_ch, a_ch = sp.split()
-                # Применяем alpha
-                new_a = a_ch.point(lambda x: int(x * a / 255))
-                sp = Image.merge('RGBA', (r_ch, g_ch, b_ch, new_a))
-                sprites.append(ImageTk.PhotoImage(sp))
-            rect_images.append(sprites)
-
-            # Позиция на canvas
-            rad = math.radians(deg)
-            cx = int(SPIN_X + math.cos(rad) * SPIN_OFFSET)
-            cy = int(SPIN_Y + math.sin(rad) * SPIN_OFFSET)
-            item = canvas.create_image(cx, cy, anchor='center',
-                                       state='hidden')
-            rect_items.append((item, sprites))
-
-        _state = {
-            'frame': 0,
-            'spin_step': 0,
-            'running': True,
-        }
-
-        def play_gif():
-            if not _state['running']:
-                return
-            i = _state['frame']
-            if i < len(frames):
-                canvas.itemconfig(gif_item, image=frames[i])
-                _state['frame'] += 1
-                root.after(durations[i], play_gif)
-            else:
-                # Показываем спиннер
-                for item, sprites in rect_items:
-                    canvas.itemconfig(item, state='normal')
-                spin()
-
-        def spin():
-            if not _state['running']:
-                return
-            step = _state['spin_step']
-            for i, (item, sprites) in enumerate(rect_items):
-                # Индекс яркости: голова у текущего step, хвост сзади
-                brightness_idx = (i - step) % SPIN_N
-                canvas.itemconfig(item, image=sprites[brightness_idx])
-            _state['spin_step'] = (step + 1) % SPIN_N
-            root.after(SPIN_SPEED_MS, spin)
-
-        root.after(80, play_gif)
-
-        def update_status(text):
-            try:
-                root.after(0, lambda: canvas.itemconfig(status_id, text=text))
-            except Exception:
-                pass
-
-        def close():
-            _state['running'] = False
-            try:
-                root.after(0, lambda: _safe_destroy(root))
-            except Exception:
-                pass
-
-        def _safe_destroy(r):
-            try:
-                r.quit()
-                r.destroy()
-            except Exception:
-                pass
-
-        def worker():
-            try:
-                main_logic(close, update_status)
-            except Exception as e:
-                print(f'[splash worker] {e}')
-                close()
-
-        threading.Thread(target=worker, daemon=True).start()
-        root.mainloop()
+        splash.show()
+        loop.exec_()
 
     except Exception as e:
         print(f'[show_splash] {e}')
         main_logic(lambda: None, lambda text: None)
 
 
-def find_or_mount_linux_path(smb_path, hint='email-builder', status_callback=None):
+def _save_resolved_linux_path(path):
+    """Saves the resolved local path of the network share to config.ini."""
+    import configparser
+    cfg = configparser.ConfigParser()
+    cfg.read(_CONFIG_PATH, encoding='utf-8')
+    if 'app' not in cfg:
+        cfg['app'] = {}
+    cfg['app']['network_path_linux_resolved'] = path
+    with open(_CONFIG_PATH, 'w', encoding='utf-8') as f:
+        cfg.write(f)
+
+
+def _save_network_path(path):
+    """Saves the resolved network resource path to config.ini (platform-aware)."""
+    import configparser
+    cfg = configparser.ConfigParser()
+    cfg.read(_CONFIG_PATH, encoding='utf-8')
+    if 'app' not in cfg:
+        cfg['app'] = {}
+    if sys.platform == 'win32':
+        cfg['app']['network_path_win'] = path
+    else:
+        cfg['app']['network_path_linux_resolved'] = path
+    with open(_CONFIG_PATH, 'w', encoding='utf-8') as f:
+        cfg.write(f)
+
+
+def _search_for_resource(mode, hint, smb_path, status_cb=None):
     """
-    Ищет смонтированную SMB папку на Linux.
-    Перебирает kio-fuse, gvfs, /mnt, /media, затем пробует kioclient5.
+    Searches for the resource directory.
+
+    :param mode: ``'network'`` scans mounted network shares/drives;
+                 ``'local'`` scans fixed local drives.
+    :param hint: Folder name to locate (e.g. ``'email-builder'``).
+    :param smb_path: SMB URL used on Linux for kio/gvfs mount attempts.
+    :param status_cb: Optional callable(str) for progress messages.
+    :returns: Absolute path string if found, otherwise ``None``.
+    """
+    def status(msg):
+        print(msg)
+        if status_cb:
+            status_cb(msg)
+
+    if sys.platform != 'win32':
+        return find_or_mount_linux_path(smb_path, hint=hint,
+                                        status_callback=status_cb)
+
+    # Windows ----------------------------------------------------------------
+    if mode == 'network':
+        status('Поиск на подключённых сетевых ресурсах...')
+        import subprocess
+        checked = set()
+
+        # Strategy 1: paths reported by "net use"
+        try:
+            flags = getattr(subprocess, 'CREATE_NO_WINDOW', 0)
+            out = subprocess.check_output(
+                ['net', 'use'], text=True, stderr=subprocess.DEVNULL,
+                creationflags=flags,
+            )
+            for line in out.splitlines():
+                for part in line.split():
+                    if part.startswith('\\\\') and part not in checked:
+                        checked.add(part)
+                        candidate = os.path.join(part, hint)
+                        if os.path.exists(candidate):
+                            status(f'Найдено: {candidate}')
+                            return candidate
+        except Exception as _e:
+            print(f'[search] net use: {_e}')
+
+        # Strategy 2: drive letters of type DRIVE_REMOTE (4)
+        try:
+            import ctypes
+            for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                drive = f'{letter}:\\'
+                if ctypes.windll.kernel32.GetDriveTypeW(drive) == 4:
+                    if drive not in checked:
+                        checked.add(drive)
+                        for root, dirs, _ in os.walk(drive):
+                            if hint in dirs:
+                                found = os.path.join(root, hint)
+                                status(f'Найдено: {found}')
+                                return found
+                            if root[len(drive):].count(os.sep) >= 4:
+                                dirs.clear()
+        except Exception as _e:
+            print(f'[search] drive scan: {_e}')
+
+    else:  # local
+        status('Поиск в локальных папках...')
+        try:
+            import ctypes
+            for letter in 'ABCDEFGHIJKLMNOPQRSTUVWXYZ':
+                drive = f'{letter}:\\'
+                if ctypes.windll.kernel32.GetDriveTypeW(drive) in (3, 6):
+                    for root, dirs, _ in os.walk(drive):
+                        if hint in dirs:
+                            found = os.path.join(root, hint)
+                            status(f'Найдено: {found}')
+                            return found
+                        if root[len(drive):].count(os.sep) >= 5:
+                            dirs.clear()
+        except Exception as _e:
+            print(f'[search] local scan: {_e}')
+
+    status('Ресурс не найден')
+    return None
+
+
+def _init_new_resource_catalog(path):
+    """
+    Initialises an empty resource catalog at *path*.
+
+    Creates the ``static/`` subdirectory, a ``version.txt`` marker, and
+    copies the built-in ``config.json`` template when available.
+    Admin-only feature.
+
+    :param path: Absolute path for the new catalog root.
+    :returns: ``True`` on success, ``False`` on error.
+    """
+    import time as _time
+    try:
+        os.makedirs(os.path.join(path, 'static'), exist_ok=True)
+        version = _time.strftime('%Y%m%d.1')
+        with open(os.path.join(path, 'version.txt'), 'w', encoding='utf-8') as _f:
+            _f.write(version)
+        builtin_cfg = os.path.join(BUILTIN_DIR, 'static', 'config.json')
+        dst_cfg = os.path.join(path, 'static', 'config.json')
+        if os.path.exists(builtin_cfg):
+            import shutil as _sh
+            _sh.copy2(builtin_cfg, dst_cfg)
+        else:
+            with open(dst_cfg, 'w', encoding='utf-8') as _f:
+                _f.write('{}')
+        print(f'✓ Новый каталог ресурсов создан: {path} (версия {version})')
+        return True
+    except Exception as _e:
+        print(f'❌ Ошибка создания каталога: {_e}')
+        return False
+
+
+def _show_resource_finder_dialog(is_admin, reason=''):
+    """
+    Modal Qt dialog shown when the configured resource path is inaccessible
+    or does not contain a valid resource repository.
+
+    Provides:
+
+    * A path input field pre-filled with the current ``NETWORK_RESOURCES_PATH``.
+    * A "Verify path" button that validates the path as a resource repository.
+    * A search-mode toggle ("Network" / "Local") with an explanatory note.
+    * A "Search" button that scans available shares/drives in a background thread.
+    * A "Create new" button (admin-only) that initialises a fresh resource catalog.
+
+    :param is_admin: When ``True``, the "Create new" button is shown.
+    :param reason: Human-readable explanation of why the current path failed.
+    :returns: Accepted path string, or ``None`` if the user cancelled.
+    """
+    from PyQt5.QtWidgets import (
+        QApplication, QDialog, QVBoxLayout, QHBoxLayout, QLabel,
+        QLineEdit, QPushButton, QRadioButton, QButtonGroup, QGroupBox,
+        QProgressBar, QFrame,
+    )
+    from PyQt5.QtCore import Qt, QThread, pyqtSignal
+    from PyQt5.QtGui import QFont
+
+    class _SearchWorker(QThread):
+        status_update = pyqtSignal(str)
+        result_ready  = pyqtSignal(str)
+
+        def __init__(self, mode, hint, smb_path):
+            super().__init__()
+            self._mode     = mode
+            self._hint     = hint
+            self._smb_path = smb_path
+
+        def run(self):
+            found = _search_for_resource(
+                self._mode, self._hint, self._smb_path,
+                status_cb=lambda m: self.status_update.emit(m),
+            )
+            self.result_ready.emit(found or '')
+
+    qt_app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841
+
+    dlg = QDialog()
+    dlg.setWindowTitle('Email Builder — поиск ресурсов')
+    dlg.setMinimumWidth(580)
+    dlg.setModal(True)
+
+    layout = QVBoxLayout(dlg)
+    layout.setSpacing(10)
+
+    # Info -------------------------------------------------------------------
+    reason_text = f'<br><i style="color:#b45309">{reason}</i>' if reason else ''
+    info_lbl = QLabel(
+        f'Репозиторий ресурсов не обнаружен по пути:<br>'
+        f'<b>{NETWORK_RESOURCES_PATH}</b>'
+        f'{reason_text}<br><br>'
+        f'Укажите корректный путь вручную или воспользуйтесь автоматическим поиском.'
+    )
+    info_lbl.setTextFormat(Qt.RichText)
+    info_lbl.setWordWrap(True)
+    layout.addWidget(info_lbl)
+
+    sep = QFrame()
+    sep.setFrameShape(QFrame.HLine)
+    sep.setFrameShadow(QFrame.Sunken)
+    layout.addWidget(sep)
+
+    # Path input -------------------------------------------------------------
+    layout.addWidget(QLabel('Путь к каталогу ресурсов:'))
+    path_edit = QLineEdit(NETWORK_RESOURCES_PATH or '')
+    if sys.platform == 'win32':
+        path_edit.setPlaceholderText(r'\\server\share\email-builder')
+    else:
+        path_edit.setPlaceholderText('/mnt/share/email-builder')
+    layout.addWidget(path_edit)
+
+    # Verify row -------------------------------------------------------------
+    verify_row = QHBoxLayout()
+    btn_verify    = QPushButton('Проверить путь')
+    verify_status = QLabel('')
+    verify_row.addWidget(btn_verify)
+    verify_row.addWidget(verify_status)
+    verify_row.addStretch()
+    layout.addLayout(verify_row)
+
+    # Search mode ------------------------------------------------------------
+    mode_box    = QGroupBox('Режим поиска')
+    mode_layout = QHBoxLayout(mode_box)
+    rb_network  = QRadioButton('В сети')
+    rb_local    = QRadioButton('Локально')
+    rb_network.setChecked(True)
+    btn_grp = QButtonGroup(dlg)
+    btn_grp.addButton(rb_network)
+    btn_grp.addButton(rb_local)
+    mode_layout.addWidget(rb_network)
+    mode_layout.addWidget(rb_local)
+    note_lbl = QLabel(
+        'Поиск «В сети» сканирует только уже подключённые сетевые ресурсы.'
+    )
+    note_lbl.setFont(QFont('Segoe UI', 8))
+    note_lbl.setWordWrap(True)
+    mode_layout.addWidget(note_lbl, stretch=1)
+    layout.addWidget(mode_box)
+
+    # Search button + progress -----------------------------------------------
+    btn_search    = QPushButton('Выполнить поиск')
+    search_status = QLabel('')
+    search_status.setWordWrap(True)
+    progress = QProgressBar()
+    progress.setRange(0, 0)
+    progress.setVisible(False)
+    layout.addWidget(btn_search)
+    layout.addWidget(search_status)
+    layout.addWidget(progress)
+
+    # Bottom buttons ---------------------------------------------------------
+    btn_row    = QHBoxLayout()
+    btn_ok     = QPushButton('Применить')
+    btn_cancel = QPushButton('Отмена')
+    btn_ok.setEnabled(False)
+    btn_row.addStretch()
+    if is_admin:
+        btn_create = QPushButton('Создать новый')
+        btn_row.addWidget(btn_create)
+    btn_row.addWidget(btn_ok)
+    btn_row.addWidget(btn_cancel)
+    layout.addLayout(btn_row)
+
+    _worker = [None]
+    _result  = [None]
+
+    # Verify -----------------------------------------------------------------
+    def _do_verify():
+        p = path_edit.text().strip()
+        ok, reason_v = _validate_resource_repo(p)
+        if ok:
+            verify_status.setText('✓ Репозиторий найден')
+            verify_status.setStyleSheet('color: green')
+            btn_ok.setEnabled(True)
+        else:
+            verify_status.setText(f'✗ {reason_v}')
+            verify_status.setStyleSheet('color: #b45309')
+            btn_ok.setEnabled(False)
+
+    btn_verify.clicked.connect(_do_verify)
+    path_edit.textChanged.connect(lambda _: (
+        verify_status.setText(''),
+        btn_ok.setEnabled(False),
+    ))
+
+    # Search -----------------------------------------------------------------
+    def _do_search():
+        mode = 'network' if rb_network.isChecked() else 'local'
+        btn_search.setEnabled(False)
+        progress.setVisible(True)
+        search_status.setStyleSheet('')
+        search_status.setText('Поиск...')
+
+        w = _SearchWorker(mode, _LINUX_HINT, _SMB_PATH)
+
+        def _on_status(msg):
+            search_status.setText(msg)
+
+        def _on_done(found):
+            progress.setVisible(False)
+            btn_search.setEnabled(True)
+            if found:
+                ok, reason_v = _validate_resource_repo(found)
+                if ok:
+                    path_edit.setText(found)
+                    search_status.setText(f'Найдено: {found}')
+                    search_status.setStyleSheet('color: green')
+                    btn_ok.setEnabled(True)
+                else:
+                    search_status.setText(f'Найден каталог, но это не репозиторий: {reason_v}')
+                    search_status.setStyleSheet('color: #b45309')
+            else:
+                search_status.setText('Репозиторий не найден. Укажите путь вручную.')
+                search_status.setStyleSheet('color: red')
+
+        w.status_update.connect(_on_status)
+        w.result_ready.connect(_on_done)
+        _worker[0] = w
+        w.start()
+
+    btn_search.clicked.connect(_do_search)
+
+    # Create new (admin only) ------------------------------------------------
+    if is_admin:
+        def _do_create():
+            p = path_edit.text().strip()
+            if not p:
+                verify_status.setText('Введите путь')
+                verify_status.setStyleSheet('color: red')
+                return
+            if _init_new_resource_catalog(p):
+                verify_status.setText('✓ Каталог создан')
+                verify_status.setStyleSheet('color: green')
+                btn_ok.setEnabled(True)
+            else:
+                verify_status.setText('✗ Не удалось создать каталог')
+                verify_status.setStyleSheet('color: red')
+
+        btn_create.clicked.connect(_do_create)
+
+    # Accept / Cancel --------------------------------------------------------
+    def _do_accept():
+        _result[0] = path_edit.text().strip()
+        dlg.accept()
+
+    btn_ok.clicked.connect(_do_accept)
+    btn_cancel.clicked.connect(dlg.reject)
+
+    dlg.exec_()
+    return _result[0]
+
+
+def find_or_mount_linux_path(smb_path, hint='email-builder', status_callback=None,
+                              resolved_path=None):
+    """
+    Searches for a mounted SMB share on Linux.
+    First checks ``resolved_path`` from the previous run (config cache).
+    Falls back to scanning kio-fuse, gvfs, /mnt, /media, then kioclient5.
     """
     import glob
     import subprocess
@@ -468,6 +857,11 @@ def find_or_mount_linux_path(smb_path, hint='email-builder', status_callback=Non
         print(msg)
         if status_callback:
             status_callback(msg)
+
+    # Strategy 0: previously resolved path stored in config
+    if resolved_path and os.path.exists(resolved_path):
+        status('✓ Папка найдена (кеш конфига)')
+        return resolved_path
 
     uid = os.getuid()
 
@@ -1013,6 +1407,17 @@ def static_files(path):
         if any(path.startswith(p) for p in admin_js_prefixes):
             abort(404)
 
+    # Общие ресурсы по явному URL /cache/{category}/{file}
+    if path.startswith('cache/'):
+        actual = path[len('cache/'):]
+        cache_file = os.path.join(CACHE_DIR, actual)
+        if os.path.exists(cache_file):
+            return send_from_directory(CACHE_DIR, actual)
+        network_file = os.path.join(NETWORK_RESOURCES_PATH, 'static', actual)
+        if os.path.exists(network_file):
+            return send_from_directory(os.path.join(NETWORK_RESOURCES_PATH, 'static'), actual)
+        return 'File not found', 404
+
     # Картинки сначала ищем в кеше
     if path.startswith(('icons/', 'expert-badges/', 'bullets/', 'button-icons/', 'images/', 'banner-logos/', 'banner-backgrounds/', 'banner-icons/', 'dividers/', 'fonts/')):
         # Пробуем кеш
@@ -1036,9 +1441,10 @@ def static_files(path):
 
 @app.route('/api/config', methods=['GET'])
 def get_config():
-    """API endpoint для получения конфигурации (config.json)"""
+    """API endpoint для получения конфигурации (config.json) с пользовательскими ресурсами."""
     try:
         config = load_config()
+        config = _merge_user_resources_into_config(config)
         return jsonify({'success': True, 'config': config})
     except Exception as e:
         app.logger.error("get_config error: %s", e, exc_info=True)
@@ -1105,18 +1511,547 @@ def update_apply():
 
 
 # ============================================================================
+# USER RESOURCES API
+# ============================================================================
+
+#: Categories that map to config.json array keys on the client side.
+USER_RESOURCE_CATEGORIES = [
+    'icons',
+    'expert-badges',
+    'bullets',
+    'button-icons',
+    'dividers',
+    'banner-backgrounds',
+    'banner-logos',
+    'banner-icons',
+    'images',
+]
+
+#: Allowed image file extensions for upload.
+_ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}
+
+
+def get_user_resources_dir() -> str:
+    """
+    Returns the path to the personal user resources directory.
+
+    Resources are stored locally so they are available offline and
+    are private to the OS user account.
+
+    Path: ``CACHE_BASE/user-resources/``
+    """
+    path = os.path.join(CACHE_BASE, 'user-resources')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _user_resource_url(category: str, filename: str) -> str:
+    """Build the URL for serving a user-owned resource file."""
+    return f'/api/user-resources/file/{category}/{filename}'
+
+
+def _merge_user_resources_into_config(config: dict) -> dict:
+    """
+    Append user-owned resource items to the corresponding arrays in *config*.
+
+    Each appended item has the ``userOwned`` flag set to ``True`` so the
+    frontend can render a visual indicator.
+    """
+    base = get_user_resources_dir()
+
+    # Mapping: filesystem category folder → config key path (dot-separated)
+    category_to_key = {
+        'icons':            'icons.important',
+        'expert-badges':    'expertBadges',
+        'bullets':          'bullets',
+        'button-icons':     'buttonIcons',
+        'dividers':         'dividers',
+        'banner-backgrounds': 'bannerBackgrounds',
+        'banner-logos':     'bannerLogos',
+        'banner-icons':     'bannerIcons',
+        'images':           'images',
+    }
+
+    for category, key_path in category_to_key.items():
+        cat_dir = os.path.join(base, category)
+        if not os.path.isdir(cat_dir):
+            continue
+
+        user_items = []
+        for fname in sorted(os.listdir(cat_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+                continue
+            user_items.append({
+                'src': _user_resource_url(category, fname),
+                'label': os.path.splitext(fname)[0],
+                'id': f'user-{category}-{fname}',
+                'userOwned': True,
+            })
+
+        if not user_items:
+            continue
+
+        # Navigate / create the nested path in config
+        keys = key_path.split('.')
+        node = config
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        leaf_key = keys[-1]
+        existing = node.get(leaf_key)
+        if not isinstance(existing, list):
+            existing = []
+        node[leaf_key] = existing + user_items
+
+    return config
+
+
+@app.route('/api/user-resources', methods=['GET'])
+def user_resources_list():
+    """
+    List all user-owned resources grouped by category.
+
+    Response: ``{success, resources: {category: [{filename, url, label}]}}``
+    """
+    try:
+        base = get_user_resources_dir()
+        result = {}
+        for category in USER_RESOURCE_CATEGORIES:
+            cat_dir = os.path.join(base, category)
+            if not os.path.isdir(cat_dir):
+                result[category] = []
+                continue
+            items = []
+            for fname in sorted(os.listdir(cat_dir)):
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+                    continue
+                items.append({
+                    'filename': fname,
+                    'url': _user_resource_url(category, fname),
+                    'label': os.path.splitext(fname)[0],
+                })
+            result[category] = items
+        return jsonify({'success': True, 'resources': result})
+    except Exception as e:
+        app.logger.error('user_resources_list error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/user-resources/file/<category>/<filename>', methods=['GET'])
+def user_resources_serve(category, filename):
+    """Serve a single user-owned resource file."""
+    if category not in USER_RESOURCE_CATEGORIES:
+        abort(404)
+    safe = secure_filename(filename)
+    if not safe:
+        abort(404)
+    cat_dir = os.path.join(get_user_resources_dir(), category)
+    return send_from_directory(cat_dir, safe)
+
+
+@app.route('/api/user-resources/upload', methods=['POST'])
+def user_resources_upload():
+    """
+    Upload a file to a user resource category.
+
+    Form fields: ``category`` (string), ``file`` (multipart file).
+
+    Response: ``{success, filename, url}``
+    """
+    try:
+        category = request.form.get('category', '').strip()
+        if category not in USER_RESOURCE_CATEGORIES:
+            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
+
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Файл не передан'}), 400
+
+        f = request.files['file']
+        if not f.filename:
+            return jsonify({'success': False, 'error': 'Имя файла пустое'}), 400
+
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+            return jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400
+
+        safe = secure_filename(f.filename)
+        cat_dir = os.path.join(get_user_resources_dir(), category)
+        os.makedirs(cat_dir, exist_ok=True)
+        dest = os.path.join(cat_dir, safe)
+        f.save(dest)
+
+        return jsonify({
+            'success': True,
+            'filename': safe,
+            'url': _user_resource_url(category, safe),
+        })
+    except Exception as e:
+        app.logger.error('user_resources_upload error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/user-resources/delete', methods=['DELETE'])
+def user_resources_delete():
+    """
+    Delete a user-owned resource file.
+
+    Query params: ``category``, ``filename``.
+
+    Response: ``{success}``
+    """
+    try:
+        category = request.args.get('category', '').strip()
+        filename  = request.args.get('filename', '').strip()
+
+        if category not in USER_RESOURCE_CATEGORIES:
+            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
+
+        safe = secure_filename(filename)
+        if not safe:
+            return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
+
+        path = os.path.join(get_user_resources_dir(), category, safe)
+        if os.path.isfile(path):
+            os.remove(path)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.error('user_resources_delete error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/user-resources/publish', methods=['POST'])
+def user_resources_publish():
+    """
+    Publish a user-owned resource to the shared network repository (admin only).
+
+    Copies the file to ``NETWORK_RESOURCES_PATH/static/{category}/`` and
+    appends a matching entry to ``config.json`` if not already present.
+
+    JSON body: ``{category, filename}``
+
+    Response: ``{success}``
+    """
+    try:
+        if APP_MODE != 'admin':
+            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+        data     = request.get_json(force=True) or {}
+        category = data.get('category', '').strip()
+        filename  = data.get('filename', '').strip()
+
+        if category not in USER_RESOURCE_CATEGORIES:
+            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
+
+        safe = secure_filename(filename)
+        if not safe:
+            return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
+
+        src_path = os.path.join(get_user_resources_dir(), category, safe)
+        if not os.path.isfile(src_path):
+            return jsonify({'success': False, 'error': 'Файл не найден'}), 404
+
+        dest_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, safe)
+        shutil.copy2(src_path, dest_path)
+
+        pub_url = f'/cache/{category}/{safe}'
+        _append_to_config_json(category, safe, pub_url)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.error('user_resources_publish error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+# ============================================================================
+# SHARED RESOURCES API  (admin-only write; read is open for listing)
+# ============================================================================
+
+@app.route('/api/shared-resources', methods=['GET'])
+def shared_resources_list():
+    """
+    List all files in the shared network resource repository, grouped by category.
+
+    Response: ``{success, resources: {category: [{filename, url, label}]}}``
+    """
+    try:
+        result = {}
+        for category in USER_RESOURCE_CATEGORIES:
+            cat_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
+            if not os.path.isdir(cat_dir):
+                result[category] = []
+                continue
+            items = []
+            for fname in sorted(os.listdir(cat_dir)):
+                ext = os.path.splitext(fname)[1].lower()
+                if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+                    continue
+                items.append({
+                    'filename': fname,
+                    'url': f'/cache/{category}/{fname}',
+                    'label': os.path.splitext(fname)[0],
+                })
+            result[category] = items
+        return jsonify({'success': True, 'resources': result})
+    except Exception as e:
+        app.logger.error('shared_resources_list error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/shared-resources/upload', methods=['POST'])
+def shared_resources_upload():
+    """
+    Upload a file directly to the shared network resource repository (admin only).
+
+    Also appends an entry to ``config.json`` if not already present.
+
+    Form fields: ``category`` (string), ``file`` (multipart file).
+
+    Response: ``{success, filename, url}``
+    """
+    try:
+        if APP_MODE != 'admin':
+            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+        category = request.form.get('category', '').strip()
+        if category not in USER_RESOURCE_CATEGORIES:
+            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
+
+        if 'file' not in request.files:
+            return jsonify({'success': False, 'error': 'Файл не передан'}), 400
+
+        f = request.files['file']
+        if not f.filename:
+            return jsonify({'success': False, 'error': 'Имя файла пустое'}), 400
+
+        ext = os.path.splitext(f.filename)[1].lower()
+        if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+            return jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400
+
+        safe = secure_filename(f.filename)
+        dest_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
+        os.makedirs(dest_dir, exist_ok=True)
+        dest_path = os.path.join(dest_dir, safe)
+        f.save(dest_path)
+
+        pub_url = f'/cache/{category}/{safe}'
+
+        # Update config.json
+        _append_to_config_json(category, safe, pub_url)
+
+        return jsonify({'success': True, 'filename': safe, 'url': pub_url})
+    except Exception as e:
+        app.logger.error('shared_resources_upload error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/shared-resources/delete', methods=['DELETE'])
+def shared_resources_delete():
+    """
+    Delete a file from the shared network resource repository (admin only).
+
+    Also removes the matching entry from ``config.json``.
+
+    Query params: ``category``, ``filename``.
+
+    Response: ``{success}``
+    """
+    try:
+        if APP_MODE != 'admin':
+            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+        category = request.args.get('category', '').strip()
+        filename  = request.args.get('filename', '').strip()
+
+        if category not in USER_RESOURCE_CATEGORIES:
+            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
+
+        safe = secure_filename(filename)
+        if not safe:
+            return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
+
+        path = os.path.join(NETWORK_RESOURCES_PATH, 'static', category, safe)
+        if os.path.isfile(path):
+            os.remove(path)
+
+        # Remove from config.json
+        pub_url = f'/cache/{category}/{safe}'
+        _remove_from_config_json(category, pub_url)
+
+        return jsonify({'success': True})
+    except Exception as e:
+        app.logger.error('shared_resources_delete error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+def _append_to_config_json(category: str, filename: str, pub_url: str) -> None:
+    """Add an entry to the shared ``config.json`` if not already present."""
+    config_path = os.path.join(NETWORK_RESOURCES_PATH, 'static', 'config.json')
+    if not os.path.isfile(config_path):
+        return
+    _cat_key_map = {
+        'icons':              ('icons', 'important'),
+        'expert-badges':      ('expertBadges',),
+        'bullets':            ('bullets',),
+        'button-icons':       ('buttonIcons',),
+        'dividers':           ('dividers',),
+        'banner-backgrounds': ('bannerBackgrounds',),
+        'banner-logos':       ('bannerLogos',),
+        'banner-icons':       ('bannerIcons',),
+        'images':             ('images',),
+    }
+    try:
+        with open(config_path, 'r', encoding='utf-8') as fp:
+            cfg = json.load(fp)
+    except Exception:
+        cfg = {}
+    keys = _cat_key_map.get(category, (category,))
+    node = cfg
+    for k in keys[:-1]:
+        node = node.setdefault(k, {})
+    leaf = keys[-1]
+    arr = node.get(leaf)
+    if not isinstance(arr, list):
+        arr = []
+    if not any(isinstance(i, dict) and i.get('src') == pub_url for i in arr):
+        arr.append({'src': pub_url, 'label': os.path.splitext(filename)[0]})
+        node[leaf] = arr
+        with open(config_path, 'w', encoding='utf-8') as fp:
+            json.dump(cfg, fp, ensure_ascii=False, indent=2)
+
+
+def _remove_from_config_json(category: str, pub_url: str) -> None:
+    """Remove the entry matching *pub_url* from the shared ``config.json``."""
+    config_path = os.path.join(NETWORK_RESOURCES_PATH, 'static', 'config.json')
+    if not os.path.isfile(config_path):
+        return
+    _cat_key_map = {
+        'icons':              ('icons', 'important'),
+        'expert-badges':      ('expertBadges',),
+        'bullets':            ('bullets',),
+        'button-icons':       ('buttonIcons',),
+        'dividers':           ('dividers',),
+        'banner-backgrounds': ('bannerBackgrounds',),
+        'banner-logos':       ('bannerLogos',),
+        'banner-icons':       ('bannerIcons',),
+        'images':             ('images',),
+    }
+    try:
+        with open(config_path, 'r', encoding='utf-8') as fp:
+            cfg = json.load(fp)
+    except Exception:
+        return
+    keys = _cat_key_map.get(category, (category,))
+    node = cfg
+    for k in keys[:-1]:
+        node = node.get(k, {})
+        if not isinstance(node, dict):
+            return
+    leaf = keys[-1]
+    arr = node.get(leaf)
+    if isinstance(arr, list):
+        new_arr = [i for i in arr if not (isinstance(i, dict) and i.get('src') == pub_url)]
+        if len(new_arr) != len(arr):
+            node[leaf] = new_arr
+            with open(config_path, 'w', encoding='utf-8') as fp:
+                json.dump(cfg, fp, ensure_ascii=False, indent=2)
+
+
+# ============================================================================
 # TEMPLATES API
 # ============================================================================
 
 
 def get_templates_dir():
-    """Получить путь к папке templates"""
+    """Returns the path to the shared templates directory (network resource)."""
     return os.path.join(NETWORK_RESOURCES_PATH, 'templates')
 
 
+def get_personal_templates_dir():
+    """
+    Returns the path to the personal templates directory (local, per-user).
+
+    Personal templates are stored locally so they are:
+    * available offline (no network required)
+    * private to the OS user account
+    * never written to the shared network resource
+
+    Path: ``CACHE_BASE/templates/``
+    """
+    path = os.path.join(CACHE_BASE, 'templates')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
 def get_user_from_system():
-    """Получить имя текущего пользователя Windows"""
-    return os.environ.get('USERNAME', 'unknown').lower()
+    """Returns the current OS username, lowercased."""
+    if sys.platform == 'win32':
+        return os.environ.get('USERNAME', 'unknown').lower()
+    return os.environ.get('USER', os.environ.get('LOGNAME', 'unknown')).lower()
+
+
+def _template_base_dir(template_type):
+    """Return the filesystem directory for a given template type."""
+    templates_dir = get_templates_dir()
+    if template_type == 'shared':
+        return os.path.join(templates_dir, 'shared')
+    return get_personal_templates_dir()
+
+
+def _validate_template_id(tid):
+    """Return True if tid is a safe, non-traversal string usable as a lookup key."""
+    if not tid or len(tid) > 200:
+        return False
+    if '/' in tid or '\\' in tid or '..' in tid:
+        return False
+    return True
+
+
+def _find_template_by_id(base_dir, template_id):
+    """
+    Locate a template file by its ``id`` field.
+
+    Search strategy:
+    1. Scan every ``.json`` in *base_dir* and match ``data['id'] == template_id``.
+    2. Fallback for legacy templates that have no ``id`` field: treat *template_id*
+       as the filename stem and look for ``{template_id}.json``.
+
+    Returns ``(filepath, data)`` or ``(None, None)`` if not found.
+    """
+    if not os.path.isdir(base_dir):
+        return None, None
+
+    # Primary scan — match by id field
+    for fname in sorted(os.listdir(base_dir)):
+        if not fname.endswith('.json'):
+            continue
+        fpath = os.path.join(base_dir, fname)
+        try:
+            with open(fpath, 'r', encoding='utf-8') as f:
+                data = json.load(f)
+            if data.get('id') == template_id:
+                return fpath, data
+        except Exception:
+            continue
+
+    # Fallback — legacy templates without id field: filename stem was used as id
+    fallback_fname = template_id + '.json'
+    safe = secure_filename(fallback_fname)
+    if safe == fallback_fname:  # no sanitization needed — safe to use as path
+        fpath = os.path.join(base_dir, safe)
+        if os.path.abspath(fpath).startswith(os.path.abspath(base_dir) + os.sep):
+            if os.path.exists(fpath):
+                try:
+                    with open(fpath, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                    return fpath, data
+                except Exception:
+                    pass
+
+    return None, None
 
 
 @app.route('/api/templates/list', methods=['GET'])
@@ -1127,7 +2062,7 @@ def templates_list():
         current_user = get_user_from_system()
 
         shared_dir = os.path.join(templates_dir, 'shared')
-        user_dir = os.path.join(templates_dir, 'users', current_user)
+        user_dir = get_personal_templates_dir()
 
         result = {
             'shared': [],
@@ -1142,6 +2077,7 @@ def templates_list():
                         with open(filepath, 'r', encoding='utf-8') as f:
                             template = json.load(f)
                             result['shared'].append({
+                                'id': template.get('id') or os.path.splitext(filename)[0],
                                 'name': template.get('name', filename),
                                 'filename': filename,
                                 'created': template.get('created', ''),
@@ -1162,6 +2098,7 @@ def templates_list():
                         with open(filepath, 'r', encoding='utf-8') as f:
                             template = json.load(f)
                             result['personal'].append({
+                                'id': template.get('id') or os.path.splitext(filename)[0],
                                 'name': template.get('name', filename),
                                 'filename': filename,
                                 'created': template.get('created', ''),
@@ -1183,39 +2120,22 @@ def templates_list():
 
 @app.route('/api/templates/load', methods=['GET'])
 def templates_load():
-    """Загрузить шаблон"""
+    """Load a template by id."""
     try:
-        raw_filename = (request.args.get('filename') or '').strip()
-        template_type = request.args.get('type', 'personal')
-        current_user = get_user_from_system()
+        template_id = (request.args.get('id') or '').strip()
+        template_type = (request.args.get('type') or 'personal').strip().lower()
 
-        # Валидация: filename обязателен
-        if not raw_filename:
-            return jsonify({'success': False, 'error': 'Не указано имя файла'}), 400
+        if not _validate_template_id(template_id):
+            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
 
-        # Безопасное имя файла (убирает ../, абсолютные пути, спецсимволы)
-        filename = secure_filename(raw_filename)
-        if not filename or not filename.endswith('.json'):
-            return jsonify({'success': False, 'error': 'Недопустимое имя файла'}), 400
+        if APP_MODE == 'user' and template_type == 'shared':
+            pass  # reading shared is allowed in user mode
 
-        templates_dir = get_templates_dir()
+        base_dir = _template_base_dir(template_type)
+        filepath, template = _find_template_by_id(base_dir, template_id)
 
-        if template_type == 'shared':
-            base_dir = os.path.join(templates_dir, 'shared')
-        else:
-            base_dir = os.path.join(templates_dir, 'users', current_user)
-
-        filepath = os.path.join(base_dir, filename)
-
-        # Защита от path traversal: итоговый путь должен быть внутри base_dir
-        if not os.path.abspath(filepath).startswith(os.path.abspath(base_dir) + os.sep):
-            return jsonify({'success': False, 'error': 'Доступ запрещён'}), 403
-
-        if not os.path.exists(filepath):
+        if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        with open(filepath, 'r', encoding='utf-8') as f:
-            template = json.load(f)
 
         return jsonify({'success': True, 'template': template})
 
@@ -1249,7 +2169,7 @@ def templates_save():
         if template_type == 'shared':
             save_dir = os.path.join(templates_dir, 'shared')
         else:
-            save_dir = os.path.join(templates_dir, 'users', current_user)
+            save_dir = get_personal_templates_dir()
 
         os.makedirs(save_dir, exist_ok=True)
 
@@ -1277,52 +2197,70 @@ def templates_save():
         print(
             f"✓ Шаблон сохранён: {filename} ({template_type}, категория: {category or 'без категории'})")
 
-        return jsonify({'success': True, 'filename': filename})
+        return jsonify({'success': True, 'filename': filename, 'id': template['id']})
 
     except Exception as e:
         app.logger.error("templates_save error: %s", e, exc_info=True)
         return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
 
 
-@app.route('/api/templates/delete', methods=['DELETE'])
-def templates_delete():
-    """Удалить шаблон"""
+@app.route('/api/templates/update', methods=['PUT'])
+def templates_update():
+    """Update blocks (and optionally preview) of an existing template, located by id."""
     try:
-        raw_filename = (request.args.get('filename') or '').strip()
-        template_type = request.args.get('type', 'personal')
-        template_type = str(template_type).strip().lower()
-        current_user = get_user_from_system()
+        data = request.json or {}
+        template_id = (data.get('id') or '').strip()
+        template_type = str(data.get('type', 'personal')).strip().lower()
+        blocks = data.get('blocks')
+        preview = data.get('preview', None)
 
-        # Валидация: filename обязателен
-        if not raw_filename:
-            return jsonify({'success': False, 'error': 'Не указано имя файла'}), 400
-
-        filename = secure_filename(raw_filename)
-        if not filename or not filename.endswith('.json'):
-            return jsonify({'success': False, 'error': 'Недопустимое имя файла'}), 400
+        if not _validate_template_id(template_id) or blocks is None:
+            return jsonify({'success': False, 'error': 'Нет данных'}), 400
 
         if APP_MODE == 'user' and template_type == 'shared':
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
-        templates_dir = get_templates_dir()
+        base_dir = _template_base_dir(template_type)
+        filepath, template = _find_template_by_id(base_dir, template_id)
+        if filepath is None:
+            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
-        if template_type == 'shared':
-            base_dir = os.path.join(templates_dir, 'shared')
-        else:
-            base_dir = os.path.join(templates_dir, 'users', current_user)
+        template['blocks'] = blocks
+        template['updated'] = datetime.now().isoformat()
+        if preview is not None:
+            template['preview'] = preview
 
-        filepath = os.path.join(base_dir, filename)
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(template, f, ensure_ascii=False, indent=2)
 
-        # Защита от path traversal
-        if not os.path.abspath(filepath).startswith(os.path.abspath(base_dir) + os.sep):
-            return jsonify({'success': False, 'error': 'Доступ запрещён'}), 403
+        print(f"✓ Шаблон обновлён: {os.path.basename(filepath)}")
+        return jsonify({'success': True})
 
-        if not os.path.exists(filepath):
+    except Exception as e:
+        app.logger.error("templates_update error: %s", e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/templates/delete', methods=['DELETE'])
+def templates_delete():
+    """Delete a template located by id."""
+    try:
+        template_id = (request.args.get('id') or '').strip()
+        template_type = (request.args.get('type') or 'personal').strip().lower()
+
+        if not _validate_template_id(template_id):
+            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
+
+        if APP_MODE == 'user' and template_type == 'shared':
+            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+        base_dir = _template_base_dir(template_type)
+        filepath, _ = _find_template_by_id(base_dir, template_id)
+        if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
         os.remove(filepath)
-        print(f"✓ Шаблон удалён: {filename}")
-
+        print(f"✓ Шаблон удалён: {os.path.basename(filepath)}")
         return jsonify({'success': True})
 
     except Exception as e:
@@ -1332,23 +2270,15 @@ def templates_delete():
 
 @app.route('/api/templates/rename', methods=['PUT'])
 def templates_rename():
-    """Переименовать шаблон"""
+    """Rename a template in-place (updates the name field, file stays at the same path)."""
     try:
         data = request.json or {}
-        raw_filename = (data.get('filename') or '').strip()
+        template_id = (data.get('id') or '').strip()
         new_name = (data.get('newName') or '').strip()
-        template_type = data.get('type', 'personal')
-        template_type = str(template_type).strip().lower()
-        current_user = get_user_from_system()
+        template_type = str(data.get('type', 'personal')).strip().lower()
 
-        # Валидация filename
-        if not raw_filename:
-            return jsonify({'success': False, 'error': 'Не указано имя файла'}), 400
-        filename = secure_filename(raw_filename)
-        if not filename or not filename.endswith('.json'):
-            return jsonify({'success': False, 'error': 'Недопустимое имя файла'}), 400
-
-        # Валидация нового имени
+        if not _validate_template_id(template_id):
+            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
         if not new_name:
             return jsonify({'success': False, 'error': 'Название не может быть пустым'}), 400
         if len(new_name) > 200:
@@ -1357,44 +2287,18 @@ def templates_rename():
         if APP_MODE == 'user' and template_type == 'shared':
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
-        templates_dir = get_templates_dir()
-
-        if template_type == 'shared':
-            base_dir = os.path.join(templates_dir, 'shared')
-        else:
-            base_dir = os.path.join(templates_dir, 'users', current_user)
-
-        old_filepath = os.path.join(base_dir, filename)
-
-        # Защита от path traversal
-        if not os.path.abspath(old_filepath).startswith(os.path.abspath(base_dir) + os.sep):
-            return jsonify({'success': False, 'error': 'Доступ запрещён'}), 403
-
-        if not os.path.exists(old_filepath):
+        base_dir = _template_base_dir(template_type)
+        filepath, template = _find_template_by_id(base_dir, template_id)
+        if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        with open(old_filepath, 'r', encoding='utf-8') as f:
-            template = json.load(f)
 
         template['name'] = new_name
 
-        safe_name = secure_filename(new_name.replace(' ', '_'))
-        new_filename = f'template_{safe_name}.json'
-        new_filepath = os.path.join(base_dir, new_filename)
-
-        # Защита нового пути
-        if not os.path.abspath(new_filepath).startswith(os.path.abspath(base_dir) + os.sep):
-            return jsonify({'success': False, 'error': 'Доступ запрещён'}), 403
-
-        with open(new_filepath, 'w', encoding='utf-8') as f:
+        with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(template, f, ensure_ascii=False, indent=2)
 
-        if old_filepath != new_filepath:
-            os.remove(old_filepath)
-
-        print(f"✓ Шаблон переименован: {filename} → {new_filename}")
-
-        return jsonify({'success': True, 'newFilename': new_filename})
+        print(f"✓ Шаблон переименован: {os.path.basename(filepath)} → «{new_name}»")
+        return jsonify({'success': True})
 
     except Exception as e:
         app.logger.error("templates_rename error: %s", e, exc_info=True)
@@ -1492,13 +2396,144 @@ def templates_delete_category():
 # ============================================================================
 
 
-def open_browser():
-    """Открыть браузер через 1.5 секунды"""
-    time.sleep(1.5)
-    if APP_MODE == 'user':
-        webbrowser.open(f'http://localhost:{PORT}/user')
-    else:
-        webbrowser.open(f'http://localhost:{PORT}')
+# ============================================================================
+# PID-УПРАВЛЕНИЕ (ОДИНОЧНЫЙ ЭКЗЕМПЛЯР)
+# ============================================================================
+
+
+def _pid_file_path() -> str:
+    """Return path to the PID file stored in the system temp directory."""
+    return os.path.join(tempfile.gettempdir(), f'email-builder-{PORT}.pid')
+
+
+def _kill_previous_instance() -> None:
+    """Terminate the previous application instance using the saved PID file."""
+    path = _pid_file_path()
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path) as f:
+            pid = int(f.read().strip())
+        if pid != os.getpid():
+            os.kill(pid, signal.SIGTERM)
+            time.sleep(0.8)
+    except (ProcessLookupError, ValueError, PermissionError, OSError):
+        pass
+    try:
+        os.unlink(path)
+    except OSError:
+        pass
+
+
+def _write_pid_file() -> None:
+    """Write the current process PID to a file and register cleanup on exit."""
+    path = _pid_file_path()
+    try:
+        with open(path, 'w') as f:
+            f.write(str(os.getpid()))
+        atexit.register(_remove_pid_file)
+    except OSError:
+        pass
+
+
+def _remove_pid_file() -> None:
+    """Remove the PID file on process exit."""
+    try:
+        os.unlink(_pid_file_path())
+    except OSError:
+        pass
+
+
+# ============================================================================
+# ЗАПУСК ОКНА ПРИЛОЖЕНИЯ
+# ============================================================================
+
+
+def _wait_for_flask() -> None:
+    """Poll until Flask is accepting connections on PORT (max ~10 s)."""
+    import socket
+    for _ in range(50):
+        try:
+            with socket.create_connection(('127.0.0.1', PORT), timeout=0.5):
+                return
+        except OSError:
+            time.sleep(0.2)
+
+
+def _run_webview_or_browser() -> None:
+    """
+    Open the application UI in a QWebEngineView window (PyQt5), or fall back
+    to the system browser if PyQtWebEngine is unavailable.
+
+    Backend
+        ``PyQt5.QtWebEngineWidgets.QWebEngineView`` is used on both Windows and
+        Linux.  The Chromium engine is bundled inside the PyQtWebEngine pip
+        wheel, so no system webkit2gtk or WebView2 packages are required.
+
+    Fallback
+        If QWebEngineView cannot be imported (e.g. wheel not installed), the app
+        opens the system browser instead and stays alive via the heartbeat
+        watchdog.
+
+    Threading note
+        Must be called from the main thread — Qt's event loop requires it.
+        Calls ``qt_app.exec_()`` which blocks until the window is closed.
+    """
+    _wait_for_flask()
+    url = f'http://127.0.0.1:{PORT}'
+
+    try:
+        from PyQt5.QtWidgets import QApplication, QMainWindow
+        from PyQt5.QtWebEngineWidgets import QWebEngineView
+        from PyQt5.QtCore import QUrl, Qt
+        from PyQt5.QtGui import QIcon
+
+        global _qt_app
+        if not QApplication.instance():
+            # show_splash() was skipped — set WebEngine attributes before creating
+            # QApplication (must be done before the first QApplication instance).
+            QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
+            QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+            QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
+        qt_app = _qt_app or QApplication.instance() or QApplication(sys.argv)
+
+        window = QMainWindow()
+        role_label = 'Admin' if APP_MODE == 'admin' else 'User'
+        window.setWindowTitle(f'Email Builder {__version__} [{role_label}]')
+        window.resize(1280, 800)
+        window.setMinimumSize(800, 600)
+
+        try:
+            if getattr(sys, 'frozen', False):
+                ico = os.path.join(sys._MEIPASS, 'icon.ico')
+            else:
+                ico = os.path.join(os.path.dirname(__file__), 'icon.ico')
+            if os.path.exists(ico):
+                window.setWindowIcon(QIcon(ico))
+        except Exception:
+            pass
+
+        view = QWebEngineView()
+        view.load(QUrl(url))
+        window.setCentralWidget(view)
+        window.show()
+
+        # exec_() blocks until all windows are closed.
+        sys.exit(qt_app.exec_())
+    except Exception as e:
+        print(f'[QWebEngineView] недоступен ({e}), открываю системный браузер...')
+
+    # Browser fallback: open the URL and keep the process alive via the
+    # heartbeat watchdog (exits when the browser tab is closed).
+    webbrowser.open(url)
+    threading.Thread(target=heartbeat_watchdog, daemon=True).start()
+    try:
+        while True:
+            time.sleep(3600)
+    except KeyboardInterrupt:
+        pass
+    sys.exit(0)
+
 
 # ============================================================================
 # ГЛАВНАЯ ФУНКЦИЯ ЗАПУСКА
@@ -1506,36 +2541,47 @@ def open_browser():
 
 
 def main():
+    # PyInstaller .exe has no console — sys.stdout/stderr are None;
+    # Flask/Click crashes trying to write to them.
     if sys.stdout is None:
         sys.stdout = open(os.devnull, 'w', encoding='utf-8')
     if sys.stderr is None:
         sys.stderr = open(os.devnull, 'w', encoding='utf-8')
 
-    # Флаг для передачи результата из worker в main thread
-    init_result = {'ok': False, 'error': None}
+    # Single-instance guard: kill the previous process before starting.
+    _kill_previous_instance()
+    _write_pid_file()
+    # Ensure atexit handlers run on SIGTERM (Linux/macOS).
+    if hasattr(signal, 'SIGTERM'):
+        signal.signal(signal.SIGTERM, lambda *_: sys.exit(0))
+
+    # Flag to pass the init result from the worker thread back to main.
+    init_result = {'ok': False, 'error': None, 'reason': ''}
 
     def main_logic(close_splash, update_status):
         print("\n" + "=" * 60)
-        print("🚀 Email Builder")
+        print(f"🚀 Email Builder {__version__}")
         print("=" * 60)
         print(f"📁 Сетевой ресурс: {NETWORK_RESOURCES_PATH}")
         print(f"💾 Локальный кеш: {CACHE_DIR}")
         print("=" * 60 + "\n")
 
+        candidate = NETWORK_RESOURCES_PATH
         if sys.platform != 'win32':
-            update_status('Поиск сетевой папки...')
-            found = find_or_mount_linux_path(
-                _SMB_PATH,
-                hint=_LINUX_HINT,
-                status_callback=update_status
-            )
-            if found:
-                globals()['NETWORK_RESOURCES_PATH'] = found
-                print(f'✓ Linux путь: {found}')
-            else:
-                init_result['error'] = 'linux_not_found'
-                close_splash()
-                return
+            candidate = _LINUX_RESOLVED or NETWORK_RESOURCES_PATH
+
+        ok, reason = _validate_resource_repo(candidate)
+        if ok:
+            if candidate != NETWORK_RESOURCES_PATH:
+                globals()['NETWORK_RESOURCES_PATH'] = candidate
+                globals()['NETWORK_VERSION_FILE'] = os.path.join(candidate, 'version.txt')
+            print(f'✓ Репозиторий ресурсов: {candidate}')
+        else:
+            print(f'✗ Репозиторий ресурсов недоступен: {candidate} — {reason}')
+            init_result['error'] = 'resource_not_found'
+            init_result['reason'] = reason
+            close_splash()
+            return
 
         update_status('Проверка обновлений...')
 
@@ -1544,53 +2590,59 @@ def main():
             close_splash()
             return
 
-        threading.Thread(target=heartbeat_watchdog, daemon=True).start()
-
         print("\n" + "=" * 60)
         print("✓ Используется локальный кеш")
         print(f"🌐 Запуск сервера на http://localhost:{PORT}")
         print("=" * 60 + "\n")
 
+        # Flask runs as a daemon thread; the main thread is reserved for the
+        # webview window (WebKit2GTK on Linux requires the main thread).
+        threading.Thread(
+            target=app.run,
+            kwargs={'host': '0.0.0.0', 'port': PORT, 'debug': False},
+            daemon=True,
+        ).start()
+
         init_result['ok'] = True
-
-        # Открываем браузер через 1.5 сек после старта Flask
-        def open_browser():
-            time.sleep(1.5)
-            if APP_MODE == 'user':
-                webbrowser.open(f'http://localhost:{PORT}/user')
-            else:
-                webbrowser.open(f'http://localhost:{PORT}')
-
-        threading.Thread(target=open_browser, daemon=True).start()
-
-        # Закрываем сплэш — mainloop() завершится, управление вернётся в main()
+        # Close the splash — Tkinter mainloop() exits, control returns to main().
         close_splash()
 
-    show_splash(main_logic)
+    # Retry loop: if the resource path is not accessible, show the finder
+    # dialog on the main thread, then re-run the splash initialisation.
+    while True:
+        init_result['ok']    = False
+        init_result['error'] = None
 
-    # Сюда попадаем после закрытия сплэша (mainloop завершился)
-    if init_result['error'] == 'linux_not_found':
-        show_error_dialog(
-            'Email Builder — сетевая папка не найдена',
-            'Не удалось найти сетевую папку.\n\n'
-            'Откройте файловый менеджер, подключитесь к:\n'
-            f'{_SMB_PATH}\n\n'
-            'Затем запустите приложение снова.'
-        )
-        sys.exit(1)
+        show_splash(main_logic)
 
-    if init_result['error'] == 'cache_init_failed':
-        print("❌ Не удалось инициализировать приложение")
-        sys.exit(1)
+        if init_result['error'] == 'resource_not_found':
+            resolved = _show_resource_finder_dialog(
+                is_admin=(APP_MODE == 'admin'),
+                reason=init_result.get('reason', ''),
+            )
+            if not resolved:
+                sys.exit(1)
+            globals()['NETWORK_RESOURCES_PATH'] = resolved
+            globals()['NETWORK_VERSION_FILE']   = os.path.join(resolved, 'version.txt')
+            _save_network_path(resolved)
+            print(f'✓ Путь к ресурсам обновлён: {resolved}')
+            continue  # re-run splash with the new path
 
-    if not init_result['ok']:
-        sys.exit(1)
+        if init_result['error'] == 'cache_init_failed':
+            print("❌ Не удалось инициализировать приложение")
+            sys.exit(1)
 
-    # Flask запускается в main thread — не daemon, не умрёт
+        if not init_result['ok']:
+            sys.exit(1)
+
+        break
+
+    # Open the UI window on the main thread.
+    # WebKit2GTK on Linux requires webview.start() to run on the main thread.
     try:
-        app.run(host='0.0.0.0', port=PORT, debug=False)
+        _run_webview_or_browser()
     except KeyboardInterrupt:
-        print("\n\n👋 Приложение остановлено")
+        print("\n\n Приложение остановлено")
         sys.exit(0)
 # =============================================================================
 # Exchange / EWS — отправка писем и встреч
@@ -1760,6 +2812,48 @@ def api_send_meeting():
         import traceback
         app.logger.error('send_meeting error: %s', e, exc_info=True)
         return jsonify({'success': False, 'error': f'{type(e).__name__}: {e}'}), 500
+
+
+@app.route('/api/mode', methods=['GET'])
+def api_mode_get():
+    """Returns current APP_MODE and whether mode switching is available."""
+    return jsonify({
+        'mode': APP_MODE,
+        'can_switch': _ADMIN_VALIDATED and not _INVALID_TOKEN,
+    })
+
+
+@app.route('/api/mode', methods=['POST'])
+def api_mode_set():
+    """
+    Switches APP_MODE between ``'admin'`` and ``'user'``.
+
+    Only available when the admin token was validated at startup.
+    Switching to ``'user'`` is always allowed; switching back to ``'admin'``
+    requires no extra credentials (token was already validated at startup).
+    """
+    global APP_MODE
+
+    if not _ADMIN_VALIDATED or _INVALID_TOKEN:
+        return jsonify({'success': False, 'error': 'Переключение режима недоступно'}), 403
+
+    data    = request.get_json(silent=True) or {}
+    new_mode = data.get('mode', '')
+    if new_mode not in ('admin', 'user'):
+        return jsonify({'success': False, 'error': 'Допустимые значения: admin, user'}), 400
+
+    APP_MODE = new_mode
+    print(f'[mode] switched to {APP_MODE}')
+    return jsonify({'success': True, 'mode': APP_MODE})
+
+
+@app.route('/api/license-status', methods=['GET'])
+def api_license_status():
+    """
+    Returns whether an invalid token was detected at startup.
+    Called once by the frontend on load to decide whether to show a warning.
+    """
+    return jsonify({'invalid_token': _INVALID_TOKEN})
 
 
 @app.route('/api/shutdown', methods=['POST'])
