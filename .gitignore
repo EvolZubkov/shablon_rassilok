@@ -1,0 +1,3 @@
+dist/*.zip
+dist/*.exe
+build/**/*.pkg
