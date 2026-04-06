@@ -709,28 +709,42 @@
   <script src="js/user/exchangeModals.js"></script>
   <!-- <script src="js/user/bulk-mail.js"></script> -->
 
-  <!-- Завершаем процесс при закрытии вкладки -->
+  <!-- Переключатель режима: фиксированная позиция, виден только при can_switch -->
+  <div id="mode-switch-widget" class="mode-switch-widget" hidden>
+    <label class="mode-switch-track" title="Переключить режим">
+      <input type="checkbox" id="mode-switch-checkbox">
+      <span class="mode-switch-thumb"></span>
+    </label>
+    <span class="mode-switch-text">Пользователь</span>
+  </div>
+
   <script>
-
-    function switchToAdmin() {
-      window.location.href = '/';
-    }
-
-    function shutdownApp() {
-      if (confirm('Закрыть приложение?')) {
-        fetch('/api/shutdown', { method: 'POST' }).finally(() => {
-          window.close();
-        });
+    (function () {
+      async function initModeSwitcher() {
+        try {
+          const r = await fetch('/api/mode');
+          const data = await r.json();
+          if (!data.can_switch) return;
+          const widget = document.getElementById('mode-switch-widget');
+          widget.hidden = false;
+          document.getElementById('mode-switch-checkbox').addEventListener('change', async function () {
+            await fetch('/api/mode', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ mode: 'admin' }),
+            });
+            window.location.href = '/';
+          });
+        } catch (_) {}
       }
-    }
+      document.addEventListener('DOMContentLoaded', initModeSwitcher);
+    })();
 
     // Heartbeat — пингуем сервер каждые 5 секунд
     setInterval(() => {
-      fetch('/api/heartbeat', { method: 'POST' }).catch(() => { });
+      fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
     }, 5000);
   </script>
-</body>
-
 </body>
 
 </html>

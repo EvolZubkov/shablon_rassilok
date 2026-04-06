@@ -25,20 +25,21 @@ const TemplatesAPI = {
     },
 
     /**
-     * Загрузить шаблон по имени файла
+     * Load a template by stable id.
      */
-    async load(filename, type = 'personal') {
+    async load(id, type = 'personal') {
         try {
-            const response = await fetch(`${this.baseURL}/load?filename=${encodeURIComponent(filename)}&type=${type}`);
+            const response = await fetch(`${this.baseURL}/load?id=${encodeURIComponent(id)}&type=${type}`);
+            if (response.status === 404) {
+                return { notFound: true };
+            }
             const data = await response.json();
-            
             if (data.success) {
                 return data.template;
-            } else {
-                console.error('Ошибка загрузки шаблона:', data.error);
-                Toast.error('Ошибка загрузки шаблона: ' + data.error);
-                return null;
             }
+            console.error('Ошибка загрузки шаблона:', data.error);
+            Toast.error('Ошибка загрузки шаблона: ' + data.error);
+            return null;
         } catch (error) {
             console.error('Ошибка запроса шаблона:', error);
             Toast.error('Ошибка подключения к серверу');
@@ -69,39 +70,62 @@ const TemplatesAPI = {
             const data = await response.json();
             
             if (data.success) {
-                console.log('✅ Шаблон сохранён:', data.filename);
-                return true;
+                console.log('✅ Шаблон сохранён:', data.id);
+                return data.id || null;
             } else {
                 console.error('Ошибка сохранения шаблона:', data.error);
                 Toast.error('Ошибка сохранения: ' + data.error);
-                return false;
+                return null;
             }
         } catch (error) {
             console.error('Ошибка запроса сохранения:', error);
+            Toast.error('Ошибка подключения к серверу');
+            return null;
+        }
+    },
+
+    /**
+     * Update blocks (and optionally preview) of an existing template, by id.
+     */
+    async update(id, type = 'personal', blocks, preview = null) {
+        try {
+            const response = await fetch(`${this.baseURL}/update`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, type, blocks, preview }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                console.log('✅ Шаблон обновлён:', id);
+                return true;
+            }
+            console.error('Ошибка обновления шаблона:', data.error);
+            Toast.error('Ошибка обновления: ' + data.error);
+            return false;
+        } catch (error) {
+            console.error('Ошибка запроса обновления:', error);
             Toast.error('Ошибка подключения к серверу');
             return false;
         }
     },
 
     /**
-     * Удалить шаблон
+     * Delete a template by id.
      */
-    async delete(filename, type = 'personal') {
+    async delete(id, type = 'personal') {
         try {
-            const response = await fetch(`${this.baseURL}/delete?filename=${encodeURIComponent(filename)}&type=${type}`, {
-                method: 'DELETE'
-            });
-            
+            const response = await fetch(
+                `${this.baseURL}/delete?id=${encodeURIComponent(id)}&type=${type}`,
+                { method: 'DELETE' }
+            );
             const data = await response.json();
-            
             if (data.success) {
-                console.log('✅ Шаблон удалён');
+                console.log('✅ Шаблон удалён:', id);
                 return true;
-            } else {
-                console.error('Ошибка удаления шаблона:', data.error);
-                Toast.error('Ошибка удаления: ' + data.error);
-                return false;
             }
+            console.error('Ошибка удаления шаблона:', data.error);
+            Toast.error('Ошибка удаления: ' + data.error);
+            return false;
         } catch (error) {
             console.error('Ошибка запроса удаления:', error);
             Toast.error('Ошибка подключения к серверу');
@@ -110,36 +134,28 @@ const TemplatesAPI = {
     },
 
     /**
-     * Переименовать шаблон
+     * Rename a template by id (in-place, file path unchanged).
+     * Returns true on success, false on failure.
      */
-    async rename(filename, newName, type = 'personal') {
+    async rename(id, newName, type = 'personal') {
         try {
             const response = await fetch(`${this.baseURL}/rename`, {
                 method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    filename: filename,
-                    newName: newName,
-                    type: type
-                })
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, newName, type }),
             });
-            
             const data = await response.json();
-            
             if (data.success) {
-                console.log('✅ Шаблон переименован:', data.newFilename);
-                return data.newFilename;
-            } else {
-                console.error('Ошибка переименования шаблона:', data.error);
-                Toast.error('Ошибка переименования: ' + data.error);
-                return null;
+                console.log('✅ Шаблон переименован:', id, '→', newName);
+                return true;
             }
+            console.error('Ошибка переименования шаблона:', data.error);
+            Toast.error('Ошибка переименования: ' + data.error);
+            return false;
         } catch (error) {
             console.error('Ошибка запроса переименования:', error);
             Toast.error('Ошибка подключения к серверу');
-            return null;
+            return false;
         }
     },
     /**

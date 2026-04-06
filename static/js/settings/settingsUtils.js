@@ -111,7 +111,7 @@ function createImageGrid(images, currentValue, blockId, settingKey, customKey) {
             border: 2px solid ${isSelected ? '#f97316' : '#374151'};
             border-radius: 8px; overflow: hidden; cursor: pointer;
             transition: all 0.2s; aspect-ratio: 16/9;
-            background: #1e293b;
+            background: #1e293b; position: relative;
         `;
 
         const imgEl = document.createElement('img');
@@ -119,6 +119,13 @@ function createImageGrid(images, currentValue, blockId, settingKey, customKey) {
         imgEl.alt = img.label;
         imgEl.style.cssText = 'width: 100%; height: 100%; object-fit: cover;';
         option.appendChild(imgEl);
+
+        if (img.userOwned) {
+            const badge = document.createElement('span');
+            badge.className = 'user-owned-badge';
+            badge.textContent = 'Мои';
+            option.appendChild(badge);
+        }
 
         option.addEventListener('click', () => {
             if (customKey) {

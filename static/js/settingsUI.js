@@ -361,6 +361,12 @@ function createIconGrid(icons, currentIcon, blockId, settingKey, customKey = nul
             img.src = iconDef.src;
             img.alt = iconDef.label || '';
             option.appendChild(img);
+            if (iconDef.userOwned) {
+                const badge = document.createElement('span');
+                badge.className = 'user-owned-badge';
+                badge.textContent = 'Мои';
+                option.appendChild(badge);
+            }
         } else {
             const span = document.createElement('span');
             span.textContent = iconDef.label || 'Без иконки';

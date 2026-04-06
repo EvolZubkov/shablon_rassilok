@@ -1,18 +1,46 @@
-# Email Builder — зависимости
-# Установка: pip install -r requirements.txt
+# Email Builder - dependencies
+# Install: pip install -r requirements.txt
 
-# ─── Веб-сервер ──────────────────────────────────────────────────────────────
-flask>=2.3,<4.0
-werkzeug>=2.3,<4.0
+# ── Web server ──────────────────────────────────────────────────────────────
+flask>=3.0,<4.0
+werkzeug>=3.0,<4.0
+flask-cors>=4.0,<5.0
 
-# ─── Exchange / EWS (замена Outlook COM) ─────────────────────────────────────
-exchangelib>=4.9,<6.0
-cryptography>=41.0,<44.0
+# ── Exchange / EWS ──────────────────────────────────────────────────────────
+exchangelib>=5.2,<6.0
+
+# ── Encryption ──────────────────────────────────────────────────────────────
+cryptography>=42.0,<45.0
+
+# ── HTTP / TLS (exchangelib deps, also used directly) ───────────────────────
+requests>=2.31,<3.0
+urllib3>=2.0,<3.0
+certifi>=2024.1
+
+# ── XML parsing (exchangelib dep) ───────────────────────────────────────────
+lxml>=5.0,<6.0
+
+# ── Timezones ───────────────────────────────────────────────────────────────
 pytz>=2024.1
 
-# ─── Сборка .exe ─────────────────────────────────────────────────────────────
-pyinstaller>=6.0,<7.0
+# ── Native Qt5 window ────────────────────────────────────────────────────────
+# PyQt5 + PyQtWebEngine replace pywebview on all platforms:
+#   Windows : QWebEngineView uses the Chromium engine bundled in the wheel.
+#   Linux   : Same — Chromium is bundled inside the PyQtWebEngine pip wheel,
+#             no webkit2gtk, no system packages, no root required at runtime.
+#
+# Note: the WebEngine package for PyQt5 is "PyQtWebEngine" (Riverbank naming),
+# not "PyQt5-WebEngine" (which does not exist on PyPI for Qt5).
+#
+# If QWebEngineView is unavailable the app falls back to the system browser
+# and keeps running via the heartbeat watchdog.
+PyQt5>=5.15,<6.0
+PyQtWebEngine>=5.15,<6.0
 
-# ─── Тесты ───────────────────────────────────────────────────────────────────
+# ── Build (not bundled into the exe) ─────────────────────────────────────────
+pyinstaller>=6.0,<7.0
+Pillow>=10.0,<12.0     # icon conversion only — excluded from PyInstaller bundle
+
+# ── Tests ────────────────────────────────────────────────────────────────────
 pytest>=8.0
 pytest-flask>=1.3

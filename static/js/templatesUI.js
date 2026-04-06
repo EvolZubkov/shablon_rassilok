@@ -1,5 +1,69 @@
 // templatesUI.js - UI для библиотеки шаблонов
 
+/**
+ * Show a custom HTML confirmation dialog.
+ * Replaces the native window.confirm() to avoid encoding/rendering
+ * issues inside QWebEngineView.
+ *
+ * @param {string} message - Plain text message to display.
+ * @returns {Promise<boolean>} Resolves to true when confirmed, false when cancelled.
+ */
+function showConfirmDialog(message) {
+    return new Promise((resolve) => {
+        const overlay = document.createElement('div');
+        overlay.style.cssText = [
+            'position:fixed;inset:0;',
+            'background:rgba(0,0,0,0.55);',
+            'display:flex;align-items:center;justify-content:center;',
+            'z-index:99999;',
+        ].join('');
+
+        const box = document.createElement('div');
+        box.style.cssText = [
+            'background:#1e293b;border:1px solid #374151;border-radius:12px;',
+            'padding:24px 28px;max-width:440px;width:90%;',
+            'box-shadow:0 8px 32px rgba(0,0,0,0.4);',
+        ].join('');
+
+        const text = document.createElement('p');
+        text.style.cssText = 'margin:0 0 20px 0;font-size:14px;color:#e5e7eb;line-height:1.5;white-space:pre-wrap;';
+        text.textContent = message;
+
+        const buttons = document.createElement('div');
+        buttons.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.textContent = 'Отмена';
+        btnCancel.style.cssText = 'padding:8px 20px;background:#374151;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:14px;';
+
+        const btnOk = document.createElement('button');
+        btnOk.type = 'button';
+        btnOk.textContent = 'Подтвердить';
+        btnOk.style.cssText = 'padding:8px 20px;background:#f97316;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:14px;font-weight:600;';
+
+        function finish(result) {
+            overlay.remove();
+            resolve(result);
+        }
+
+        btnOk.addEventListener('click', () => finish(true));
+        btnCancel.addEventListener('click', () => finish(false));
+        overlay.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') finish(true);
+            if (e.key === 'Escape') finish(false);
+        });
+
+        buttons.appendChild(btnCancel);
+        buttons.appendChild(btnOk);
+        box.appendChild(text);
+        box.appendChild(buttons);
+        overlay.appendChild(box);
+        document.body.appendChild(overlay);
+        btnOk.focus();
+    });
+}
+
 function isPresetTemplate(t) {
     // Используем явное поле isPreset (не эмодзи в имени)
     if (!t) return false;
@@ -154,7 +218,6 @@ const TemplatesUI = {
     renderTemplates(filteredTemplates = null) {
         const templatesToRender = filteredTemplates || this.templates;
 
-        // Подсчёт общего количества
         const totalCount = (templatesToRender.shared?.length || 0) + (templatesToRender.personal?.length || 0);
 
         if (totalCount === 0) {
@@ -168,63 +231,73 @@ const TemplatesUI = {
 
         this.list.innerHTML = '';
 
-        // Общие шаблоны + Пресеты (оба живут в shared)
-        if (templatesToRender.shared && templatesToRender.shared.length > 0) {
-            const presets = templatesToRender.shared.filter(isPresetTemplate);
+        if (templatesToRender.shared?.length > 0) {
+            const presets   = templatesToRender.shared.filter(isPresetTemplate);
             const sharedOnly = templatesToRender.shared.filter(t => !isPresetTemplate(t));
 
             if (presets.length > 0) {
-                const presetsHeader = document.createElement('div');
-                presetsHeader.className = 'templates-section-header';
-                presetsHeader.textContent = '🧩 ПРЕСЕТЫ';
-                this.list.appendChild(presetsHeader);
-
-                presets.forEach(template => {
-                    const item = this.createTemplateItem(template);
-                    this.list.appendChild(item);
-                });
+                this._appendSectionHeader('🧩 ПРЕСЕТЫ');
+                presets.forEach(t => this.list.appendChild(this.createTemplateItem(t)));
             }
 
             if (sharedOnly.length > 0) {
-                const sharedHeader = document.createElement('div');
-                sharedHeader.className = 'templates-section-header';
-                sharedHeader.textContent = '📁 ОБЩИЕ ШАБЛОНЫ';
-                this.list.appendChild(sharedHeader);
+                this._appendSectionHeader('📁 ОБЩИЕ ШАБЛОНЫ');
 
-                sharedOnly.forEach(template => {
-                    const item = this.createTemplateItem(template);
-                    this.list.appendChild(item);
+                // Группируем по категории
+                const byCategory = new Map();
+                sharedOnly.forEach(t => {
+                    const cat = t.category || '';
+                    if (!byCategory.has(cat)) byCategory.set(cat, []);
+                    byCategory.get(cat).push(t);
+                });
+
+                // Сначала именованные категории (по алфавиту), затем «без категории»
+                const sortedCats = [...byCategory.keys()].sort((a, b) => {
+                    if (!a) return 1;
+                    if (!b) return -1;
+                    return a.localeCompare(b, 'ru');
+                });
+
+                const hasCategorized = sortedCats.some(c => c !== '');
+
+                sortedCats.forEach(cat => {
+                    if (cat || hasCategorized) {
+                        this._appendCategoryHeader(cat || 'Без категории');
+                    }
+                    byCategory.get(cat).forEach(t => this.list.appendChild(this.createTemplateItem(t)));
                 });
             }
         }
 
-
-        // Личные шаблоны
-        if (templatesToRender.personal && templatesToRender.personal.length > 0) {
-            const personalHeader = document.createElement('div');
-            personalHeader.className = 'templates-section-header';
-            personalHeader.textContent = '📁 МОИ ШАБЛОНЫ';
-            this.list.appendChild(personalHeader);
-
-            templatesToRender.personal.forEach(template => {
-                const item = this.createTemplateItem(template);
-                this.list.appendChild(item);
-            });
+        if (templatesToRender.personal?.length > 0) {
+            this._appendSectionHeader('📁 МОИ ШАБЛОНЫ');
+            templatesToRender.personal.forEach(t => this.list.appendChild(this.createTemplateItem(t)));
         }
+    },
+
+    _appendSectionHeader(text) {
+        const el = document.createElement('div');
+        el.className = 'templates-section-header';
+        el.textContent = text;
+        this.list.appendChild(el);
+    },
+
+    _appendCategoryHeader(text) {
+        const el = document.createElement('div');
+        el.className = 'templates-category-header';
+        el.textContent = text;
+        this.list.appendChild(el);
     },
 
     createTemplateItem(template) {
         const div = document.createElement('div');
         div.className = 'template-item';
-        div.dataset.filename = template.filename;
-        div.dataset.type = template.type; // personal или shared
+        div.dataset.id = template.id;
+        div.dataset.type = template.type;
 
-        const nameSpan = document.createElement('span');
-        nameSpan.className = 'template-name';
-        nameSpan.textContent = template.name;
-
-        // Одиночный клик - загрузить шаблон
-        nameSpan.addEventListener('click', () => {
+        // Двойной клик — применить шаблон / вставить пресет
+        div.addEventListener('dblclick', (e) => {
+            if (e.target.closest('.template-menu-btn')) return;
             if (isPresetTemplate(template)) {
                 this.insertPreset(template);
             } else {
@@ -232,34 +305,73 @@ const TemplatesUI = {
             }
         });
 
-        // Двойной клик - редактировать название (только для личных)
-        if (template.type === 'personal') {
-            nameSpan.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                this.startRenaming(nameSpan, template);
-            });
-        }
-
-        const deleteBtn = document.createElement('button');
-        deleteBtn.className = 'template-delete';
-        deleteBtn.innerHTML = '×';
-        deleteBtn.title = template.type === 'shared' ? 'Нельзя удалить общий шаблон' : 'Удалить шаблон';
-
-        // Общие шаблоны нельзя удалять
-        if (template.type === 'shared') {
-            deleteBtn.style.opacity = '0.3';
-            deleteBtn.style.cursor = 'not-allowed';
-        } else {
-            deleteBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                this.deleteTemplate(template);
-            });
-        }
-
+        const nameSpan = document.createElement('span');
+        nameSpan.className = 'template-name';
+        nameSpan.textContent = template.name;
         div.appendChild(nameSpan);
-        div.appendChild(deleteBtn);
+
+        // Кнопка меню ⋮
+        const menuBtn = document.createElement('button');
+        menuBtn.type = 'button';
+        menuBtn.className = 'template-menu-btn';
+        menuBtn.title = 'Действия';
+        menuBtn.textContent = '⋮';
+        menuBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this._openTemplateMenu(menuBtn, template, nameSpan);
+        });
+        div.appendChild(menuBtn);
 
         return div;
+    },
+
+    _openTemplateMenu(anchor, template, nameSpan) {
+        this._closeOpenMenu();
+
+        const dropdown = document.createElement('div');
+        dropdown.className = 'template-menu-dropdown';
+
+        const addItem = (label, danger, action) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'template-menu-item' + (danger ? ' template-menu-item--danger' : '');
+            btn.textContent = label;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._closeOpenMenu();
+                action();
+            });
+            dropdown.appendChild(btn);
+        };
+
+        if (isPresetTemplate(template)) {
+            addItem('Вставить', false, () => this.insertPreset(template));
+        } else {
+            addItem('Применить', false, () => this.selectTemplate(template));
+            addItem('Переименовать', false, () => this.startRenaming(nameSpan, template));
+            addItem('Обновить из холста', false, () => this.updateTemplateFromCanvas(template));
+            if (template.type === 'personal') {
+                addItem('Удалить', true, () => this.deleteTemplate(template));
+            }
+        }
+
+        anchor.appendChild(dropdown);
+        this._openMenuDropdown = dropdown;
+
+        const closeHandler = (e) => {
+            if (!anchor.contains(e.target)) {
+                this._closeOpenMenu();
+                document.removeEventListener('click', closeHandler, true);
+            }
+        };
+        setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+    },
+
+    _closeOpenMenu() {
+        if (this._openMenuDropdown) {
+            this._openMenuDropdown.remove();
+            this._openMenuDropdown = null;
+        }
     },
 
 
@@ -288,21 +400,14 @@ const TemplatesUI = {
     async selectTemplate(template) {
         console.log('📥 Загрузка шаблона:', template.name, `(${template.type})`);
 
-        // Логика: если есть блоки и это не только что загруженный шаблон
-        const hasBlocks = AppState.blocks.length > 0;
-        const isDifferentTemplate = this.currentTemplate?.filename !== template.filename;
-        const wasModified = hasBlocks && isDifferentTemplate;
-
-        if (wasModified) {
-            const confirmed = confirm(
+        if (AppState.blocks.length > 0) {
+            const confirmed = await showConfirmDialog(
                 `На холсте уже есть блоки.\n\nЗаменить их шаблоном "${template.name}"?`
             );
-
             if (!confirmed) return;
         }
 
-        // Загружаем шаблон с указанием типа
-        const templateData = await TemplatesAPI.load(template.filename, template.type);
+        const templateData = await TemplatesAPI.load(template.id, template.type);
 
         if (templateData && templateData.blocks) {
             AppState.blocks = migrateExpertLite(templateData.blocks);
@@ -331,7 +436,7 @@ const TemplatesUI = {
                 item.classList.remove('active');
             });
 
-            const activeItem = this.list.querySelector(`[data-filename="${template.filename}"]`);
+            const activeItem = this.list.querySelector(`[data-id="${template.id}"]`);
             if (activeItem) {
                 activeItem.classList.add('active');
             }
@@ -343,7 +448,7 @@ const TemplatesUI = {
     async insertPreset(template) {
         console.log('🧩 Вставка пресета:', template.name, `(${template.type})`);
 
-        const templateData = await TemplatesAPI.load(template.filename, template.type);
+        const templateData = await TemplatesAPI.load(template.id, template.type);
         if (!templateData || !templateData.blocks) return;
 
         const blocks = migrateExpertLite(templateData.blocks);
@@ -352,6 +457,24 @@ const TemplatesUI = {
             insertBlocksAfterSelection(blocks);
         } else {
             console.error('insertBlocksAfterSelection не найден. Проверь blockOperations.js');
+        }
+    },
+
+    async updateTemplateFromCanvas(template) {
+        if (!AppState.blocks.length) {
+            Toast.warning('Холст пуст — нечего сохранять.');
+            return;
+        }
+        const confirmed = await showConfirmDialog(
+            `Обновить шаблон "${template.name}" текущим содержимым холста?\n\nСодержимое шаблона будет заменено.`
+        );
+        if (!confirmed) return;
+
+        const preview = await generateTemplatePreview();
+        const success = await TemplatesAPI.update(template.id, template.type, AppState.blocks, preview);
+        if (success) {
+            Toast.success(`Шаблон "${template.name}" обновлён!`);
+            this.currentTemplate = template;
         }
     },
 
@@ -364,7 +487,7 @@ const TemplatesUI = {
         // Защита от двойного клика
         if (this._deleting) return;
 
-        const confirmed = confirm(
+        const confirmed = await showConfirmDialog(
             `Удалить шаблон "${template.name}"?\n\nЭто действие нельзя отменить.`
         );
 
@@ -372,10 +495,10 @@ const TemplatesUI = {
 
         this._deleting = true;
         try {
-            const success = await TemplatesAPI.delete(template.filename, template.type);
+            const success = await TemplatesAPI.delete(template.id, template.type);
 
             if (success) {
-                if (this.currentTemplate?.filename === template.filename) {
+                if (this.currentTemplate?.id === template.id) {
                     this.currentTemplate = null;
                 }
                 await this.loadTemplates();
@@ -406,20 +529,13 @@ const TemplatesUI = {
             const newName = nameSpan.textContent.trim();
 
             if (newName && newName !== oldName) {
-                const newFilename = await TemplatesAPI.rename(template.filename, newName, template.type);
-
-                if (newFilename) {
+                const ok = await TemplatesAPI.rename(template.id, newName, template.type);
+                if (ok) {
                     template.name = newName;
-                    template.filename = newFilename;
-
-                    // Обновляем в списке
-                    const item = nameSpan.closest('.template-item');
-                    item.dataset.filename = newFilename;
-
-                    console.log('✅ Шаблон переименован:', newName);
+                } else {
+                    nameSpan.textContent = oldName;
                 }
             } else {
-                // Откатываем
                 nameSpan.textContent = oldName;
             }
         };
@@ -452,14 +568,14 @@ const TemplatesUI = {
         this.renderTemplates(filtered);
     },
 
-    clearCanvas() {
+    async clearCanvas() {
         const hasBlocks = AppState.blocks.length > 0;
 
         if (!hasBlocks) {
             return;
         }
 
-        const confirmed = confirm('Очистить холст?');
+        const confirmed = await showConfirmDialog('Очистить холст?');
         if (!confirmed) return;
 
         AppState.blocks = [];
@@ -489,272 +605,274 @@ async function saveCurrentTemplate() {
     showSaveTemplateDialog();
 }
 
-// ✅ ДОБАВИТЬ НОВУЮ ФУНКЦИЮ ПОСЛЕ saveCurrentTemplate:
 function showSaveTemplateDialog() {
     const overlay = document.createElement('div');
-    overlay.style.cssText = `
-        position: fixed;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: rgba(0, 0, 0, 0.5);
-        display: flex;
-        align-items: center;
-        justify-content: center;
-        z-index: 10000;
-    `;
+    overlay.style.cssText = [
+        'position:fixed;inset:0;',
+        'background:rgba(0,0,0,0.55);',
+        'display:flex;align-items:center;justify-content:center;',
+        'z-index:10000;',
+    ].join('');
 
     const dialog = document.createElement('div');
-    dialog.style.cssText = `
-        background: #1e293b;
-        border: 1px solid #374151;
-        border-radius: 12px;
-        padding: 24px;
-        max-width: 500px;
-        width: 90%;
-        box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
-    `;
+    dialog.style.cssText = [
+        'background:#1e293b;border:1px solid #374151;border-radius:12px;',
+        'padding:28px 32px;max-width:480px;width:90%;',
+        'box-shadow:0 8px 32px rgba(0,0,0,0.4);',
+    ].join('');
 
-    dialog.innerHTML = `
-        <h3 style="margin: 0 0 16px 0; font-size: 20px; color: #dddddd;">Сохранить шаблон</h3>
-        
-        <input 
-            type="text" 
-            id="template-name-input" 
-            placeholder="Введите название шаблона / пресета"
-            style="
-                width: 100%;
-                padding: 12px;
-                border: 1px solid #475569;
-                border-radius: 6px;
-                font-size: 14px;
-                margin-bottom: 16px;
-                box-sizing: border-box;
-                background: #0f172a;
-                color: #e5e7eb;
-            "
-        />
-        
-        <div id="category-section" style="margin-bottom: 20px;">
-            <label style="display: block; margin-bottom: 8px; color: #9ca3af; font-size: 13px;">
-                Категория (для общих шаблонов)
-            </label>
-            <div style="display: flex; gap: 8px;">
-                <select 
-                    id="template-category-select"
-                    style="
-                        flex: 1;
-                        padding: 10px;
-                        border: 1px solid #475569;
-                        border-radius: 6px;
-                        font-size: 14px;
-                        background: #0f172a;
-                        color: #e5e7eb;
-                    "
-                >
-                    <option value="">— Без категории —</option>
-                </select>
-                <button 
-                    id="add-category-btn"
-                    style="
-                        padding: 10px 16px;
-                        background: #475569;
-                        color: #e5e7eb;
-                        border: none;
-                        border-radius: 6px;
-                        cursor: pointer;
-                        font-size: 14px;
-                    "
-                    title="Добавить новую категорию"
-                >
-                    +
-                </button>
-            </div>
-        </div>
-        
-        <div style="display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap;">
-            <button 
-                id="save-personal-btn"
-                style="
-                    padding: 10px 20px;
-                    background: #ff4f12;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    font-weight: 500;
-                "
-            >
-                Личный
-            </button>
-            
-            <button 
-                id="save-shared-btn"
-                style="
-                    padding: 10px 20px;
-                    background: #7700ff;
-                    color: #ffffff;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    font-weight: 500;
-                "
-            >
-                Общий
-            </button>
+    // --- Заголовок ---
+    const title = document.createElement('h3');
+    title.textContent = 'Сохранить шаблон';
+    title.style.cssText = 'margin:0 0 20px 0;font-size:18px;color:#f9fafb;font-weight:600;';
+    dialog.appendChild(title);
 
-            <button 
-                id="save-preset-btn"
-                style="
-                    padding: 10px 20px;
-                    background: #d0fd51;
-                    color: #1e293b;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    font-weight: 500;
-                "
-            >
-                Пресет
-            </button>
-            
-            <button 
-                id="save-cancel-btn"
-                style="
-                    padding: 10px 20px;
-                    background: #374151;
-                    color: #e5e7eb;
-                    border: none;
-                    border-radius: 6px;
-                    cursor: pointer;
-                    font-size: 14px;
-                    font-weight: 500;
-                "
-            >
-                Отмена
-            </button>
-        </div>
-    `;
+    // --- Поле названия ---
+    const nameInput = document.createElement('input');
+    nameInput.type = 'text';
+    nameInput.placeholder = 'Название шаблона или пресета';
+    nameInput.style.cssText = [
+        'width:100%;padding:10px 12px;box-sizing:border-box;',
+        'border:1px solid #475569;border-radius:6px;',
+        'font-size:14px;background:#0f172a;color:#e5e7eb;',
+        'margin-bottom:20px;',
+    ].join('');
+    dialog.appendChild(nameInput);
+
+    // --- Options row: toggle «Общий» + «Сохранить как» ---
+    let currentType = 'personal';
+
+    const optionsRow = document.createElement('div');
+    optionsRow.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:16px;';
+
+    // Toggle side
+    const switchRow = document.createElement('label');
+    switchRow.style.cssText = 'display:flex;align-items:center;gap:10px;cursor:pointer;flex-shrink:0;';
+
+    const switchTrack = document.createElement('span');
+    switchTrack.style.cssText = 'position:relative;display:inline-block;width:40px;height:22px;flex-shrink:0;';
+
+    const switchInput = document.createElement('input');
+    switchInput.type = 'checkbox';
+    switchInput.style.cssText = 'opacity:0;width:0;height:0;position:absolute;';
+
+    const switchThumb = document.createElement('span');
+    switchThumb.style.cssText = 'position:absolute;inset:0;border-radius:22px;background:#334155;transition:background 0.2s;';
+    const knob = document.createElement('span');
+    knob.style.cssText = [
+        'position:absolute;width:16px;height:16px;',
+        'left:3px;top:3px;border-radius:50%;',
+        'background:#94a3b8;transition:transform 0.2s,background 0.2s;',
+    ].join('');
+    switchThumb.appendChild(knob);
+    switchTrack.appendChild(switchInput);
+    switchTrack.appendChild(switchThumb);
+
+    const switchLabel = document.createElement('span');
+    switchLabel.textContent = 'Общий';
+    switchLabel.style.cssText = 'font-size:14px;color:#9ca3af;transition:color 0.2s;';
+
+    switchRow.appendChild(switchTrack);
+    switchRow.appendChild(switchLabel);
+
+    // Save-type select side
+    const saveTypeWrapper = document.createElement('div');
+    saveTypeWrapper.style.cssText = 'display:flex;align-items:center;gap:8px;flex-shrink:0;';
+
+    const saveTypeLabel = document.createElement('span');
+    saveTypeLabel.textContent = 'Сохранить как:';
+    saveTypeLabel.style.cssText = 'font-size:13px;color:#9ca3af;white-space:nowrap;';
+
+    const saveTypeSelect = document.createElement('select');
+    saveTypeSelect.style.cssText = [
+        'padding:6px 10px;border:1px solid #475569;border-radius:6px;',
+        'font-size:13px;background:#0f172a;color:#e5e7eb;cursor:pointer;',
+    ].join('');
+    const optTemplate = document.createElement('option');
+    optTemplate.value = 'template';
+    optTemplate.textContent = 'Шаблон';
+    const optPreset = document.createElement('option');
+    optPreset.value = 'preset';
+    optPreset.textContent = 'Пресет';
+    saveTypeSelect.appendChild(optTemplate);
+    saveTypeSelect.appendChild(optPreset);
+
+    saveTypeWrapper.appendChild(saveTypeLabel);
+    saveTypeWrapper.appendChild(saveTypeSelect);
+
+    optionsRow.appendChild(switchRow);
+    optionsRow.appendChild(saveTypeWrapper);
+    dialog.appendChild(optionsRow);
+
+    const _updateOptionsUI = () => {
+        const isPreset = saveTypeSelect.value === 'preset';
+        const on = switchInput.checked;
+        // Toggle disabled when preset (preset is always shared)
+        switchRow.style.opacity = isPreset ? '0.4' : '1';
+        switchRow.style.pointerEvents = isPreset ? 'none' : '';
+        currentType = (isPreset || on) ? 'shared' : 'personal';
+        // Category only for shared templates (not presets)
+        categorySection.style.display = (!isPreset && on) ? 'block' : 'none';
+        nameInput.placeholder = isPreset ? 'Название пресета' : 'Название шаблона';
+        // Toggle visuals
+        switchThumb.style.background = on ? 'rgba(249,115,22,0.25)' : '#334155';
+        switchThumb.style.border = on ? '1px solid #f97316' : 'none';
+        knob.style.transform = on ? 'translateX(18px)' : 'none';
+        knob.style.background = on ? '#f97316' : '#94a3b8';
+        switchLabel.style.color = on ? '#f97316' : '#9ca3af';
+    };
+
+    switchInput.addEventListener('change', _updateOptionsUI);
+    saveTypeSelect.addEventListener('change', _updateOptionsUI);
+
+    // --- Блок категории (только для общих) ---
+    const categorySection = document.createElement('div');
+    categorySection.style.cssText = 'margin-bottom:16px;display:none;';
+
+    const catLabel = document.createElement('label');
+    catLabel.textContent = 'Категория';
+    catLabel.style.cssText = 'display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;';
+    categorySection.appendChild(catLabel);
+
+    const catRow = document.createElement('div');
+    catRow.style.cssText = 'display:flex;gap:8px;';
+
+    const categorySelect = document.createElement('select');
+    categorySelect.style.cssText = [
+        'flex:1;padding:9px 10px;',
+        'border:1px solid #475569;border-radius:6px;',
+        'font-size:13px;background:#0f172a;color:#e5e7eb;',
+    ].join('');
+    const optNone = document.createElement('option');
+    optNone.value = '';
+    optNone.textContent = '— Без категории —';
+    categorySelect.appendChild(optNone);
+
+    const addCatBtn = document.createElement('button');
+    addCatBtn.type = 'button';
+    addCatBtn.textContent = '+';
+    addCatBtn.title = 'Новая категория';
+    addCatBtn.style.cssText = 'padding:9px 14px;background:#334155;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:16px;';
+
+    catRow.appendChild(categorySelect);
+    catRow.appendChild(addCatBtn);
+    categorySection.appendChild(catRow);
+
+    // Поле для ввода новой категории (скрыто до нажатия +)
+    const newCatRow = document.createElement('div');
+    newCatRow.style.cssText = 'display:none;margin-top:8px;display:none;gap:6px;';
+
+    const newCatInput = document.createElement('input');
+    newCatInput.type = 'text';
+    newCatInput.placeholder = 'Название категории';
+    newCatInput.style.cssText = 'flex:1;padding:8px 10px;border:1px solid #475569;border-radius:6px;font-size:13px;background:#0f172a;color:#e5e7eb;';
+
+    const confirmCatBtn = document.createElement('button');
+    confirmCatBtn.type = 'button';
+    confirmCatBtn.textContent = 'OK';
+    confirmCatBtn.style.cssText = 'padding:8px 14px;background:#334155;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:13px;';
+
+    newCatRow.appendChild(newCatInput);
+    newCatRow.appendChild(confirmCatBtn);
+    categorySection.appendChild(newCatRow);
+
+    addCatBtn.addEventListener('click', () => {
+        newCatRow.style.display = 'flex';
+        newCatInput.focus();
+    });
+
+    const commitNewCategory = async () => {
+        const trimmed = newCatInput.value.trim();
+        if (!trimmed) return;
+        const option = document.createElement('option');
+        option.value = trimmed;
+        option.textContent = trimmed;
+        option.selected = true;
+        categorySelect.appendChild(option);
+        await TemplatesAPI.saveCategory(trimmed);
+        newCatInput.value = '';
+        newCatRow.style.display = 'none';
+    };
+
+    confirmCatBtn.addEventListener('click', commitNewCategory);
+    newCatInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); commitNewCategory(); }
+        if (e.key === 'Escape') { newCatRow.style.display = 'none'; }
+    });
+
+    dialog.appendChild(categorySection);
+    loadCategories(categorySelect);
+
+    // --- Кнопки действий ---
+    const actionsRow = document.createElement('div');
+    actionsRow.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;margin-top:4px;';
+
+    const btnCancel = document.createElement('button');
+    btnCancel.type = 'button';
+    btnCancel.textContent = 'Отмена';
+    btnCancel.style.cssText = 'padding:9px 18px;background:#374151;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:13px;';
+
+    const btnSave = document.createElement('button');
+    btnSave.type = 'button';
+    btnSave.textContent = 'Сохранить';
+    btnSave.style.cssText = 'padding:9px 18px;background:#f97316;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;';
+
+    actionsRow.appendChild(btnCancel);
+    actionsRow.appendChild(btnSave);
+    dialog.appendChild(actionsRow);
 
     overlay.appendChild(dialog);
     document.body.appendChild(overlay);
+    setTimeout(() => nameInput.focus(), 60);
 
-    const input = document.getElementById('template-name-input');
-    const categorySelect = document.getElementById('template-category-select');
-    const addCategoryBtn = document.getElementById('add-category-btn');
-    
-    // Загружаем существующие категории
-    loadCategories(categorySelect);
-    
-    setTimeout(() => input.focus(), 100);
+    // --- Логика ---
+    const closeDialog = () => overlay.remove();
 
-    const closeDialog = () => {
-        document.body.removeChild(overlay);
-    };
+    btnCancel.addEventListener('click', closeDialog);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeDialog(); });
+    overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeDialog(); });
 
-    // Добавление новой категории
-    addCategoryBtn.addEventListener('click', async () => {
-        const newCategory = prompt('Введите название новой категории:');
-        if (newCategory && newCategory.trim()) {
-            const trimmed = newCategory.trim();
-            
-            // Добавляем в select
-            const option = document.createElement('option');
-            option.value = trimmed;
-            option.textContent = trimmed;
-            option.selected = true;
-            categorySelect.appendChild(option);
-            
-            // Сохраняем на сервер
-            await TemplatesAPI.saveCategory(trimmed);
-        }
-    });
-
-    const saveTemplate = async (type) => {
-        const templateName = input.value.trim();
-        const category = categorySelect.value;
-
+    const saveTemplate = async () => {
+        const templateName = nameInput.value.trim();
         if (!templateName) {
             Toast.warning('Введите название шаблона!');
-            input.focus();
+            nameInput.focus();
             return;
         }
-
-        // Генерируем превью
+        const category = currentType === 'shared' ? categorySelect.value : '';
         const preview = await generateTemplatePreview();
-
-        const success = await TemplatesAPI.save(templateName, AppState.blocks, type, category, preview);
-
-        if (success) {
+        const savedId = await TemplatesAPI.save(templateName, AppState.blocks, currentType, category, preview);
+        if (savedId) {
             closeDialog();
-
-            const typeText = type === 'shared' ? 'общий' : 'личный';
             Toast.success(`Шаблон "${templateName}" сохранён!`);
-
-            TemplatesUI.currentTemplate = {
-                name: templateName,
-                filename: `template_${Date.now()}.json`,
-                type: type
-            };
-
-            if (TemplatesUI.isOpen) {
-                await TemplatesUI.loadTemplates();
-            }
+            TemplatesUI.currentTemplate = { id: savedId, name: templateName, type: currentType };
+            if (TemplatesUI.isOpen) await TemplatesUI.loadTemplates();
         }
     };
 
     const savePreset = async () => {
-        const raw = input.value.trim();
-        if (!raw) {
+        const presetName = nameInput.value.trim();
+        if (!presetName) {
             Toast.warning('Введите название пресета!');
-            input.focus();
+            nameInput.focus();
             return;
         }
-
-        const presetName = raw;  // Имя без эмодзи — статус пресета через поле isPreset
-
         const blocks = getBlocksForPreset();
         if (!blocks.length) {
             Toast.warning('Нечего сохранять: выдели блоки (Ctrl/Shift) или выбери один блок.');
             return;
         }
-
-        const success = await TemplatesAPI.save(presetName, blocks, 'shared', '', null, true);
-
-        if (success) {
+        const savedId = await TemplatesAPI.save(presetName, blocks, 'shared', '', null, true);
+        if (savedId) {
             closeDialog();
             Toast.success(`Пресет "${presetName}" сохранён!`);
             if (TemplatesUI.isOpen) await TemplatesUI.loadTemplates();
         }
     };
 
-    document.getElementById('save-personal-btn').addEventListener('click', () => {
-        saveTemplate('personal');
-    });
-
-    document.getElementById('save-shared-btn').addEventListener('click', () => {
-        saveTemplate('shared');
-    });
-
-    document.getElementById('save-cancel-btn').addEventListener('click', closeDialog);
-
-    document.getElementById('save-preset-btn').addEventListener('click', savePreset);
-
-    input.addEventListener('keypress', (e) => {
-        if (e.key === 'Enter') {
-            saveTemplate('personal');
-        }
-    });
-
-    overlay.addEventListener('click', (e) => {
-        if (e.target === overlay) {
-            closeDialog();
-        }
-    });
+    const doSave = () => saveTypeSelect.value === 'preset' ? savePreset() : saveTemplate();
+    btnSave.addEventListener('click', doSave);
+    nameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSave(); });
 }
 
 /**

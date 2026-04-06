@@ -1,5 +1,49 @@
 // imageRenderers.js - Рендеринг баннеров и экспертов в canvas
-// Определяет, является ли цвет светлым
+
+// Polyfill for CanvasRenderingContext2D.roundRect (Chrome < 99, Firefox < 112, older Electron)
+if (typeof CanvasRenderingContext2D !== 'undefined' &&
+    typeof CanvasRenderingContext2D.prototype.roundRect !== 'function') {
+    /**
+     * Draws a rounded rectangle path on the canvas context.
+     * @param {number} x - X coordinate of the top-left corner.
+     * @param {number} y - Y coordinate of the top-left corner.
+     * @param {number} w - Width of the rectangle.
+     * @param {number} h - Height of the rectangle.
+     * @param {number|number[]} radii - Corner radius or array [tl, tr, br, bl].
+     */
+    CanvasRenderingContext2D.prototype.roundRect = function (x, y, w, h, radii) {
+        let tl, tr, br, bl;
+        if (Array.isArray(radii)) {
+            const r = radii.map(v => Math.max(0, v));
+            tl = r[0] || 0;
+            tr = r[1] !== undefined ? r[1] : tl;
+            br = r[2] !== undefined ? r[2] : tl;
+            bl = r[3] !== undefined ? r[3] : tr;
+        } else {
+            tl = tr = br = bl = Math.max(0, radii || 0);
+        }
+        // Clamp radii so they don't exceed half the rectangle's dimension
+        const maxR = Math.min(w / 2, h / 2);
+        tl = Math.min(tl, maxR);
+        tr = Math.min(tr, maxR);
+        br = Math.min(br, maxR);
+        bl = Math.min(bl, maxR);
+
+        this.moveTo(x + tl, y);
+        this.lineTo(x + w - tr, y);
+        this.quadraticCurveTo(x + w, y, x + w, y + tr);
+        this.lineTo(x + w, y + h - br);
+        this.quadraticCurveTo(x + w, y + h, x + w - br, y + h);
+        this.lineTo(x + bl, y + h);
+        this.quadraticCurveTo(x, y + h, x, y + h - bl);
+        this.lineTo(x, y + tl);
+        this.quadraticCurveTo(x, y, x + tl, y);
+        this.closePath();
+    };
+}
+
+// Determines whether a color is light
+
 function isLightColor(hexColor) {
     const hex = hexColor.replace('#', '');
     const r = parseInt(hex.substr(0, 2), 16);

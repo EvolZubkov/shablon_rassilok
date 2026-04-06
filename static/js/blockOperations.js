@@ -30,18 +30,55 @@ function addBlock(type, parentId = null, position = null) {
             }
         }
     } else {
-        AppState.addBlock(newBlock);
-    }
+        const sid = AppState.selectedBlockId;
+        // Top-level selected block — insert after it
+        const topIdx = sid !== null
+            ? AppState.blocks.findIndex(b => b.id === sid)
+            : -1;
+        if (topIdx !== -1) {
+            AppState.blocks.splice(topIdx + 1, 0, newBlock);
+        } else {
+            // Nested selected block — find its parent row in AppState.blocks
+            let inserted = false;
+            if (sid !== null) {
+                // Full-width block types must not go inside a column — insert after the parent row instead
+                const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer', 'image', 'heading', 'text', 'list', 'important'];
+                const insertIntoColumn = !FULL_WIDTH_TYPES.includes(type);
 
-    // Автоматический рендер для баннера при создании
-    if (type === 'banner') {
-        renderBannerToDataUrl(newBlock, (dataUrl) => {
-            newBlock.settings.renderedBanner = dataUrl || null;
-            renderCanvas();
-        });
+                outer: for (let rowIdx = 0; rowIdx < AppState.blocks.length; rowIdx++) {
+                    const row = AppState.blocks[rowIdx];
+                    if (!row.columns) continue;
+                    for (const col of row.columns) {
+                        const idx = col.blocks.findIndex(b => b.id === sid);
+                        if (idx !== -1) {
+                            if (insertIntoColumn) {
+                                col.blocks.splice(idx + 1, 0, newBlock);
+                            } else {
+                                AppState.blocks.splice(rowIdx + 1, 0, newBlock);
+                            }
+                            inserted = true;
+                            break outer;
+                        }
+                    }
+                }
+            }
+            if (!inserted) {
+                AppState.addBlock(newBlock);
+            }
+        }
     }
 
     selectBlock(newBlock.id);
+
+    // Async render for banner: runs after selectBlock so the block is already
+    // in the DOM; requestAnimationFrame ensures the browser repaints after
+    // the canvas DOM update, fixing the "banner invisible until next block" bug.
+    if (type === 'banner') {
+        renderBannerToDataUrl(newBlock, (dataUrl) => {
+            newBlock.settings.renderedBanner = dataUrl || null;
+            requestAnimationFrame(() => renderCanvas());
+        });
+    }
 }
 
 function deleteBlock(blockId) {

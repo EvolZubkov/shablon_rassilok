@@ -1,3 +1,5 @@
-dist/*.zip
-dist/*.exe
-build/**/*.pkg
+build/
+dist/
+.lic
+.key
+.admin_hash
