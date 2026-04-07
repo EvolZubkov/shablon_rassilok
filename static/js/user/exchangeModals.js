@@ -463,20 +463,22 @@ const ExchangeModals = (() => {
     async function _populateSenderSelect(selectId, status) {
         const sel = _q(selectId);
         if (!sel) return;
-        // Сбрасываем до дефолта
-        sel.innerHTML = '<option value="">— по умолчанию —</option>';
 
-        // Добавляем основной ящик
-        if (status.username) {
-            const opt = document.createElement('option');
-            opt.value = status.username;
-            opt.textContent = status.username;
-            sel.appendChild(opt);
-        }
+        sel.innerHTML = '';
 
-        // Доп. ящики уже есть в status (пришли из /api/credentials/status)
+        // Default option: use the saved from_email (or username as fallback).
+        // The value must never be empty so the server always receives a valid address.
+        const defaultAddress = status.from_email || status.username || '';
+        const defaultOpt = document.createElement('option');
+        defaultOpt.value = defaultAddress;
+        defaultOpt.textContent = defaultAddress
+            ? `— по умолчанию — (${defaultAddress})`
+            : '— по умолчанию —';
+        sel.appendChild(defaultOpt);
+
+        // Additional sender mailboxes
         (status.default_senders || []).forEach(email => {
-            if (email === status.username) return; // уже добавили
+            if (email === defaultAddress) return; // already shown
             const opt = document.createElement('option');
             opt.value = email;
             opt.textContent = email;
