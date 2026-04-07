@@ -355,27 +355,17 @@ R0lGODlhdgF2Aff3AAsBAgxpzQ8DAhAFBRUGAxYKCRcIBRgMCxlDgxtwzxwNCh0MBh8PDB8RDyIQCiMU
 
 
 def show_splash(main_logic):
-    """
-    Show a borderless startup splash with an animated GIF using PyQt5.
-
-    Runs ``main_logic(close_fn, update_status_fn)`` in a background QThread.
-    ``close_fn`` signals the splash to close; ``update_status_fn(text)`` updates
-    the status label from any thread.  Blocks the caller via a local QEventLoop
-    (not QApplication.exec_()) so that the caller can open a QMainWindow
-    afterwards and call QApplication.exec_() for the main event loop.
-    """
     try:
         from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QVBoxLayout
         from PyQt5.QtCore import (
             Qt, QEventLoop, QThread, pyqtSignal, QBuffer, QIODevice, QByteArray,
+            QTimer, QRectF,
         )
-        from PyQt5.QtGui import QMovie, QIcon, QFont
+        from PyQt5.QtGui import QMovie, QIcon, QFont, QColor, QPainter, QPen, QBrush
+        import math
 
         global _qt_app
         if not QApplication.instance():
-            # Must be set before QApplication() is created.
-            # Required on Linux for QWebEngineView to share the OpenGL context
-            # with Chromium's GPU process; harmless on Windows.
             QApplication.setAttribute(Qt.AA_ShareOpenGLContexts)
             QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
             QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
@@ -383,34 +373,96 @@ def show_splash(main_logic):
 
         W, H = 320, 320
 
-        # Borderless, always-on-top splash window with transparent background
-        splash = QWidget(None, Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # ── Спиннер ──────────────────────────────────────────────────────
+        class _Spinner(QWidget):
+            N = 12
+            OFFSET = 30
+            RECT_W = 20
+            RECT_H = 7
+            CORNER_R = 2.5
+            MARGIN_R = 10
+            MARGIN_T = 10
+            SPEED_MS = 50
+
+            def __init__(self, parent=None):
+                super().__init__(parent)
+                self._step = 0
+                sz = (self.OFFSET + self.RECT_W) * 2 + 4
+                self.setFixedSize(sz, sz)
+                self.setAttribute(Qt.WA_TransparentForMouseEvents)
+                self.setAttribute(Qt.WA_NoSystemBackground)
+                self.setAttribute(Qt.WA_TranslucentBackground)
+                self._timer = QTimer(self)
+                self._timer.timeout.connect(self._tick)
+                self._timer.start(self.SPEED_MS)
+
+            def _tick(self):
+                self._step = (self._step + 1) % self.N
+                self.update()
+
+            def paintEvent(self, event):
+                painter = QPainter(self)
+                painter.setRenderHint(QPainter.Antialiasing)
+                cx = self.width() / 2
+                cy = self.height() / 2
+                for i in range(self.N):
+                    deg = i * 360.0 / self.N
+                    rad = math.radians(deg)
+                    rx = cx + math.cos(rad) * self.OFFSET
+                    ry = cy + math.sin(rad) * self.OFFSET
+                    alpha = int(
+                        255 * (((i - self._step) % self.N + 1) / self.N))
+                    painter.save()
+                    painter.translate(rx, ry)
+                    painter.rotate(deg)
+                    color = QColor(255, 255, 255, alpha)
+                    painter.setBrush(QBrush(color))
+                    painter.setPen(Qt.NoPen)
+                    rect = QRectF(
+                        -self.RECT_W / 2,
+                        -self.RECT_H / 2,
+                        self.RECT_W,
+                        self.RECT_H,
+                    )
+                    painter.drawRoundedRect(rect, self.CORNER_R, self.CORNER_R)
+                    painter.restore()
+                painter.end()
+
+        # ── Основное окно ─────────────────────────────────────────────────
+        splash = QWidget(None, Qt.FramelessWindowHint |
+                         Qt.WindowStaysOnTopHint)
         splash.setAttribute(Qt.WA_TranslucentBackground)
         splash.setFixedSize(W, H)
 
+        # Скруглённые углы через bitmap-маску
+        from PyQt5.QtGui import QRegion, QPainterPath
+        path = QPainterPath()
+        path.addRoundedRect(0, 0, W, H, 16, 16)
+        region = QRegion(path.toFillPolygon().toPolygon())
+        splash.setMask(region)
+
         screen_geo = _qt_app.primaryScreen().geometry()
         splash.move(
-            (screen_geo.width()  - W) // 2,
+            (screen_geo.width() - W) // 2,
             (screen_geo.height() - H) // 2,
         )
-
-        # Rounded dark background via stylesheet
+        splash.setObjectName('splashRoot')
         splash.setStyleSheet('''
             QWidget#splashRoot {
                 background-color: rgba(10, 10, 10, 235);
                 border-radius: 16px;
             }
         ''')
-        splash.setObjectName('splashRoot')
 
+        # Без layout — всё абсолютное позиционирование поверх GIF
         layout = QVBoxLayout(splash)
-        layout.setContentsMargins(0, 8, 0, 12)
-        layout.setSpacing(4)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        # Animated GIF label (takes most of the window height)
-        gif_label = QLabel()
+        # GIF на весь размер окна
+        gif_label = QLabel(splash)
         gif_label.setAlignment(Qt.AlignCenter)
-        gif_label.setFixedSize(W, H - 64)
+        gif_label.setFixedSize(W, H)
         gif_label.setStyleSheet('background: transparent;')
 
         try:
@@ -423,32 +475,49 @@ def show_splash(main_logic):
             movie.setScaledSize(gif_label.size())
             gif_label.setMovie(movie)
             movie.start()
-            # Keep references alive for the duration of the splash
-            gif_label._buf   = _buf
+            gif_label._buf = _buf
             gif_label._movie = movie
         except Exception:
             gif_label.setText('Email Builder')
             gif_label.setStyleSheet(
-                'color: white; font-size: 22px; background: transparent;'
-            )
+                'color: white; font-size: 22px; background: transparent;')
 
         layout.addWidget(gif_label)
 
-        # App title
-        title_lbl = QLabel('Email Builder')
+        # Название — поверх GIF внизу по центру
+        title_lbl = QLabel('Email Builder', splash)
         title_lbl.setAlignment(Qt.AlignCenter)
-        title_lbl.setFont(QFont('Segoe UI', 14, QFont.Bold))
-        title_lbl.setStyleSheet('color: white; background: transparent;')
-        title_lbl.setFixedHeight(22)
-        layout.addWidget(title_lbl)
+        title_lbl.setFont(QFont('Segoe UI', 24, QFont.Bold))
+        title_lbl.setStyleSheet('''
+            color: white;
+            background: transparent;
+            text-shadow: 0px 1px 4px rgba(0,0,0,200);
+        ''')
+        title_lbl.setFixedWidth(W)
+        title_lbl.move(0, H - 68)
 
-        # Status text updated from the worker thread
-        status_lbl = QLabel('Запуск...')
+        # Статус — поверх GIF под названием
+        status_lbl = QLabel('Запуск...', splash)
         status_lbl.setAlignment(Qt.AlignCenter)
-        status_lbl.setFont(QFont('Segoe UI', 11))
-        status_lbl.setStyleSheet('color: rgba(255,255,255,200); background: transparent;')
-        status_lbl.setFixedHeight(20)
-        layout.addWidget(status_lbl)
+        status_lbl.setFont(QFont('Segoe UI', 14))
+        status_lbl.setStyleSheet('''
+            color: rgba(255,255,255,200);
+            background: transparent;
+        ''')
+        status_lbl.setFixedWidth(W)
+        status_lbl.move(0, H - 36)
+
+        # Спиннер — правый верхний угол
+        spinner = _Spinner(splash)
+        sz = spinner.width()
+        spinner.move(
+            W - sz - _Spinner.MARGIN_R,
+            _Spinner.MARGIN_T,
+        )
+        spinner.raise_()
+        spinner.show()
+        title_lbl.raise_()
+        status_lbl.raise_()
 
         try:
             if getattr(sys, 'frozen', False):
@@ -463,8 +532,7 @@ def show_splash(main_logic):
         loop = QEventLoop()
 
         class _Worker(QThread):
-            """Background initialisation thread."""
-            done           = pyqtSignal()
+            done = pyqtSignal()
             status_changed = pyqtSignal(str)
 
             def run(self):

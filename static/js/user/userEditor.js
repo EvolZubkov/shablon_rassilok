@@ -427,10 +427,8 @@ function renderUserText(block) {
                 font-family:${fontFamily};
                 padding:16px 20px;
                 outline:none;
-                -webkit-text-fill-color: inherit;
-                caret-color: #f97316;;
              ">
-            ${TextSanitizer.render(s.content || 'Введите текст...')}
+            ${formatTextForEditing(s.content || 'Введите текст...')}
         </div>
     `;
 }
@@ -663,16 +661,13 @@ function renderUserImage(block) {
         borderRadius = `${s.borderRadiusAll || 0}px`;
     }
 
-    const imgTag = `<img src="${src}" 
-         style="max-width:100%; width:${s.renderedWidth || 'auto'}px; border-radius:${borderRadius};" 
-         alt="${s.alt || ''}">`;
-
     return `
         <div class="editable-image" 
              data-block-id="${block.id}" 
              style="padding:16px 20px; text-align:${s.align || 'center'}; cursor:pointer;">
-            ${s.url ? `<a href="${s.url}" style="display:inline-block; pointer-events:none;">${imgTag}</a>` : imgTag}
-            ${s.url ? `<div style="font-size:11px; color:#7700ff; margin-top:4px;">🔗 ${s.url}</div>` : ''}
+            <img src="${src}" 
+                 style="max-width:100%; width:${s.renderedWidth || 'auto'}px; border-radius:${borderRadius};" 
+                 alt="${s.alt || ''}">
         </div>
     `;
 }
@@ -690,12 +685,58 @@ function renderUserSpacer(block) {
 /**
  * Форматирование текста для редактирования (конвертация markdown в HTML)
  */
-function formatTextForEditing(content) {
-    if (!content) return '';
-    // s.content уже simple HTML — просто возвращаем через render для стилей ссылок
-    return TextSanitizer.render(content);
+function formatTextForEditing(text) {
+    if (!text) return '';
+
+    let html = text;
+
+    // Bold **text**
+    html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+    // Italic *text*
+    html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+
+    // Links [text](url)
+    html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" style="color:#7700ff;">$1</a>');
+
+    // Line breaks
+    html = html.replace(/\n/g, '<br>');
+
+    return html;
 }
 
+/**
+ * Конвертация HTML обратно в markdown
+ */
+function htmlToMarkdown(html) {
+    if (!html) return '';
+
+    let text = html;
+
+    // Strong -> **
+    text = text.replace(/<strong>([^<]+)<\/strong>/gi, '**$1**');
+    text = text.replace(/<b>([^<]+)<\/b>/gi, '**$1**');
+
+    // Em -> *
+    text = text.replace(/<em>([^<]+)<\/em>/gi, '*$1*');
+    text = text.replace(/<i>([^<]+)<\/i>/gi, '*$1*');
+
+    // Links -> [text](url)
+    text = text.replace(/<a[^>]+href="([^"]+)"[^>]*>([^<]+)<\/a>/gi, '[$2]($1)');
+
+    // BR -> \n
+    text = text.replace(/<br\s*\/?>/gi, '\n');
+
+    // Remove other tags
+    text = text.replace(/<[^>]+>/g, '');
+
+    // Decode HTML entities
+    const textarea = document.createElement('textarea');
+    textarea.innerHTML = text;
+    text = textarea.value;
+
+    return text;
+}
 
 /**
  * Инициализация inline-редактирования
@@ -707,42 +748,38 @@ function initInlineEditing() {
     canvas.querySelectorAll('.editable-text').forEach(el => {
 
         el.addEventListener('blur', (e) => {
+            // Сохраняем выделение ДО blur — клик по тулбару его сбросит
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                savedSelection = sel.getRangeAt(0).cloneRange();
+            }
             saveTextChanges(e.target);
         });
 
         el.addEventListener('focus', (e) => {
             showTextToolbar(e.target);
-            const blockId = parseInt(e.target.dataset.blockId);
-            const block = findBlockById(UserAppState.blocks, blockId);
-            if (block) {
-                // Обновляем innerHTML contenteditable с новым отформатированным текстом
-                e.target.innerHTML = TextSanitizer.render(block.settings.content || '');
-                // Ставим курсор в конец
-                const range = document.createRange();
-                const sel = window.getSelection();
-                range.selectNodeContents(e.target);
-                range.collapse(false);
-                sel.removeAllRanges();
-                sel.addRange(range);
+        });
+
+        // Сохраняем выделение при изменении мышью или клавиатурой
+        el.addEventListener('mouseup', () => {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                savedSelection = sel.getRangeAt(0).cloneRange();
             }
         });
 
+        el.addEventListener('keyup', () => {
+            const sel = window.getSelection();
+            if (sel && sel.rangeCount > 0) {
+                savedSelection = sel.getRangeAt(0).cloneRange();
+            }
+        });
+
+        // Enter — вставляем перенос строки вместо нового параграфа
         el.addEventListener('keydown', (e) => {
             if (e.key !== 'Enter') return;
             e.preventDefault();
             document.execCommand('insertLineBreak');
-        });
-
-        el.addEventListener('input', (e) => {
-            const target = e.target;
-            target.querySelectorAll('span[style], font[color], font[style]').forEach(node => {
-                const parent = node.parentNode;
-                if (!parent) return;
-                while (node.firstChild) {
-                    parent.insertBefore(node.firstChild, node);
-                }
-                parent.removeChild(node);
-            });
         });
 
         el.addEventListener('paste', (e) => {
@@ -771,7 +808,16 @@ function initInlineEditing() {
                 cleanHTML = TextSanitizer.sanitize(normalized, true);
             }
 
-            // Вставляем в позицию курсора
+            // Для заголовка — только чистый текст без тегов
+            const blockType = e.target.closest('[data-block-type]')?.dataset.blockType;
+            if (blockType === 'heading') {
+                cleanHTML = cleanHTML
+                    .replace(/<br\s*\/?>/gi, ' ')
+                    .replace(/<[^>]+>/g, '')
+                    .replace(/&nbsp;/g, ' ')
+                    .trim();
+            }
+
             const selection = window.getSelection();
             if (!selection.rangeCount) return;
             selection.deleteFromDocument();
@@ -780,14 +826,23 @@ function initInlineEditing() {
             range.insertNode(fragment);
             selection.collapseToEnd();
 
-            // Сохраняем и обновляем отображение
             saveTextChanges(e.target);
 
-            // Обновляем innerHTML с отформатированным текстом
+            // Читаем правильное поле через dataset
             const blockId = parseInt(e.target.dataset.blockId);
+            const field = e.target.dataset.field;
+            const itemIndex = e.target.dataset.itemIndex;
             const block = findBlockById(UserAppState.blocks, blockId);
             if (block) {
-                e.target.innerHTML = TextSanitizer.render(block.settings.content || '');
+                let value;
+                if (field === 'items' && itemIndex !== undefined) {
+                    value = (block.settings.items || [])[parseInt(itemIndex)] || '';
+                } else {
+                    value = block.settings[field] || '';
+                }
+                e.target.innerHTML = blockType === 'heading'
+                    ? value
+                    : TextSanitizer.render(value);
                 // Курсор в конец
                 const r = document.createRange();
                 const sel = window.getSelection();
@@ -907,8 +962,22 @@ function saveTextChanges(element) {
     const block = findBlockById(UserAppState.blocks, blockId);
     if (!block) return;
 
-    // Санитизируем HTML из contenteditable → simple HTML
-    const newValue = TextSanitizer.sanitize(element.innerHTML, false);
+    const blockType = element.closest('[data-block-type]')?.dataset.blockType;
+
+    let newValue;
+    if (blockType === 'heading') {
+        // Заголовок — только чистый текст, никаких тегов
+        newValue = element.innerHTML
+            .replace(/<br\s*\/?>/gi, ' ')
+            .replace(/<[^>]+>/g, '')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .trim();
+    } else {
+        newValue = TextSanitizer.sanitize(element.innerHTML, false);
+    }
 
     const oldValue = field === 'items' && itemIndex !== undefined
         ? (block.settings.items || [])[parseInt(itemIndex)]
@@ -1024,75 +1093,47 @@ function openImagePicker(blockId) {
     const block = findBlockById(UserAppState.blocks, blockId);
     if (!block) return;
 
-    const modal = document.getElementById('image-editor-modal');
-    if (!modal) return;
-
-    const s = block.settings;
-
-    // Превью если картинка уже есть
-    const thumb = document.getElementById('image-preview-thumb');
-    const thumbImg = document.getElementById('image-thumb-img');
-    if (s.renderedImage || s.src) {
-        thumbImg.src = s.renderedImage || s.src;
-        thumb.style.display = 'block';
-    } else {
-        thumb.style.display = 'none';
+    // Берём или создаём скрытый file input
+    let fileInput = document.getElementById('image-file-input');
+    if (!fileInput) {
+        fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = 'image/*';
+        fileInput.id = 'image-file-input';
+        fileInput.style.display = 'none';
+        document.body.appendChild(fileInput);
     }
 
-    // URL
-    document.getElementById('image-url-input').value = s.url || '';
+    // Сбрасываем предыдущий обработчик
+    fileInput.onchange = null;
+    fileInput.value = '';
 
-    // Кнопка выбора файла
-    document.getElementById('btn-change-image').onclick = () => {
-        let fileInput = document.getElementById('image-file-input');
-        if (!fileInput) {
-            fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = 'image/*';
-            fileInput.id = 'image-file-input';
-            fileInput.style.display = 'none';
-            document.body.appendChild(fileInput);
-        }
-        fileInput.onchange = null;
-        fileInput.value = '';
-        fileInput.onchange = (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            const reader = new FileReader();
-            reader.onload = (ev) => {
-                s.src = ev.target.result;
-                thumbImg.src = ev.target.result;
-                thumb.style.display = 'block';
-            };
-            reader.readAsDataURL(file);
-        };
-        fileInput.click();
-    };
+    fileInput.onchange = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
 
-    // Применить
-    document.getElementById('btn-apply-image').onclick = async () => {
-        pushUndoState();
-        s.url = document.getElementById('image-url-input').value.trim();
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            pushUndoState();
+            block.settings.src = ev.target.result;
 
-        if (typeof renderImageToDataUrl === 'function' && s.src) {
-            renderImageToDataUrl(block, (result) => {
-                if (result) {
-                    s.renderedImage = result.dataUrl;
-                    s.renderedWidth = result.width;
-                    s.renderedHeight = result.height;
-                }
-                UserAppState.isDirty = true;
+            if (typeof renderImageToDataUrl === 'function') {
+                renderImageToDataUrl(block, (result) => {
+                    if (result) {
+                        block.settings.renderedImage = result.dataUrl;
+                        block.settings.renderedWidth = result.width;
+                        block.settings.renderedHeight = result.height;
+                    }
+                    renderUserCanvas();
+                });
+            } else {
                 renderUserCanvas();
-            });
-        } else {
-            UserAppState.isDirty = true;
-            renderUserCanvas();
-        }
-
-        modal.style.display = 'none';
+            }
+        };
+        reader.readAsDataURL(file);
     };
 
-    modal.style.display = 'flex';
+    fileInput.click();
 }
 
 /**

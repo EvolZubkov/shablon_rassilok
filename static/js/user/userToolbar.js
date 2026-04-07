@@ -9,19 +9,19 @@ let toolbarMode = 'format'; // 'format' | 'link'
  */
 function showTextToolbar(element) {
     currentEditableElement = element;
-    
+
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
-    
+
     // Сбрасываем в режим форматирования
     setToolbarMode('format');
-    
+
     // Позиционируем над элементом
     positionToolbar(element);
-    
+
     // Показываем
     toolbar.style.display = 'flex';
-    
+
     // Обновляем состояние кнопок
     updateToolbarState();
 }
@@ -32,16 +32,20 @@ function showTextToolbar(element) {
 function positionToolbar(element) {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
-    
+
     const rect = element.getBoundingClientRect();
     const toolbarWidth = toolbar.offsetWidth || 200;
-    
+    const toolbarHeight = toolbar.offsetHeight || 40;
+
     let left = rect.left + rect.width / 2 - toolbarWidth / 2;
-    // Не выходим за края экрана
     left = Math.max(10, Math.min(left, window.innerWidth - toolbarWidth - 10));
-    
+
+    // Показываем над блоком, если места нет — под блоком
+    let top = rect.top - toolbarHeight - 10;
+    if (top < 10) top = rect.bottom + 10;
+
     toolbar.style.left = `${left}px`;
-    toolbar.style.top = `${rect.top - toolbar.offsetHeight - 10 + window.scrollY}px`;
+    toolbar.style.top = `${top}px`;  // без scrollY
 }
 
 /**
@@ -49,11 +53,10 @@ function positionToolbar(element) {
  */
 function hideTextToolbar() {
     const toolbar = document.getElementById('text-toolbar');
-    if (toolbar) {
-        toolbar.style.display = 'none';
-    }
+    if (toolbar) toolbar.style.display = 'none';
     currentEditableElement = null;
     currentLinkElement = null;
+    savedSelection = null; // ← добавить!
     toolbarMode = 'format';
 }
 
@@ -62,19 +65,19 @@ function hideTextToolbar() {
  */
 function setToolbarMode(mode) {
     toolbarMode = mode;
-    
+
     const formatMode = document.getElementById('toolbar-format-mode');
     const linkMode = document.getElementById('toolbar-link-mode');
-    
+
     if (!formatMode || !linkMode) return;
-    
+
     if (mode === 'format') {
         formatMode.style.display = 'flex';
         linkMode.style.display = 'none';
     } else {
         formatMode.style.display = 'none';
         linkMode.style.display = 'flex';
-        
+
         // Фокус на поле ввода
         const input = document.getElementById('toolbar-link-input');
         if (input) {
@@ -85,7 +88,7 @@ function setToolbarMode(mode) {
             }, 50);
         }
     }
-    
+
     // Перепозиционируем после смены режима
     if (currentEditableElement) {
         setTimeout(() => positionToolbar(currentEditableElement), 10);
@@ -98,18 +101,18 @@ function setToolbarMode(mode) {
 function updateToolbarState() {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar || !currentEditableElement) return;
-    
+
     // Проверяем форматирование в текущей позиции
     const isBold = document.queryCommandState('bold');
     const isItalic = document.queryCommandState('italic');
-    
+
     toolbar.querySelector('[data-action="bold"]')?.classList.toggle('active', isBold);
     toolbar.querySelector('[data-action="italic"]')?.classList.toggle('active', isItalic);
-    
+
     // Проверяем есть ли ссылка
     const linkElement = getSelectedLink();
     toolbar.querySelector('[data-action="link"]')?.classList.toggle('active', !!linkElement);
-    
+
     // Проверяем выравнивание
     if (currentEditableElement) {
         const align = currentEditableElement.style.textAlign || 'left';
@@ -126,7 +129,7 @@ function updateToolbarState() {
 function getSelectedLink() {
     const selection = window.getSelection();
     if (!selection || selection.rangeCount === 0) return null;
-    
+
     // Проверяем родительские элементы выделения
     let node = selection.anchorNode;
     while (node && node !== currentEditableElement) {
@@ -135,7 +138,7 @@ function getSelectedLink() {
         }
         node = node.parentNode;
     }
-    
+
     // Проверяем focusNode тоже
     node = selection.focusNode;
     while (node && node !== currentEditableElement) {
@@ -144,7 +147,7 @@ function getSelectedLink() {
         }
         node = node.parentNode;
     }
-    
+
     return null;
 }
 
@@ -177,7 +180,7 @@ function initTextToolbar() {
         createToolbarHTML();
         return;
     }
-    
+
     initToolbarHandlers();
 }
 
@@ -191,7 +194,7 @@ function createToolbarHTML() {
         initToolbarHandlers();
         return;
     }
-    
+
     const toolbar = document.createElement('div');
     toolbar.id = 'text-toolbar';
     toolbar.className = 'text-toolbar';
@@ -276,7 +279,7 @@ function createToolbarHTML() {
             </button>
         </div>
     `;
-    
+
     document.body.appendChild(toolbar);
     initToolbarHandlers();
 }
@@ -287,18 +290,21 @@ function createToolbarHTML() {
 function initToolbarHandlers() {
     const toolbar = document.getElementById('text-toolbar');
     if (!toolbar) return;
-    
+
     // Кнопки форматирования
     toolbar.querySelectorAll('#toolbar-format-mode .toolbar-btn').forEach(btn => {
+        // mousedown с preventDefault — не даём браузеру снять фокус с contenteditable
+        btn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+        });
         btn.addEventListener('click', (e) => {
             e.preventDefault();
             e.stopPropagation();
-            
             const action = btn.dataset.action;
             handleToolbarAction(action);
         });
     });
-    
+
     // Кнопка "Назад" из режима ссылки
     document.getElementById('toolbar-link-back')?.addEventListener('click', (e) => {
         e.preventDefault();
@@ -306,7 +312,7 @@ function initToolbarHandlers() {
         restoreSelection();
         setToolbarMode('format');
     });
-    
+
     // Кнопка "Открыть ссылку"
     document.getElementById('toolbar-link-open')?.addEventListener('click', (e) => {
         e.preventDefault();
@@ -316,21 +322,21 @@ function initToolbarHandlers() {
             window.open(input.value, '_blank');
         }
     });
-    
+
     // Кнопка "Применить ссылку"
     document.getElementById('toolbar-link-apply')?.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         applyLink();
     });
-    
+
     // Кнопка "Удалить ссылку"
     document.getElementById('toolbar-link-remove')?.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         removeLink();
     });
-    
+
     // Enter в поле ввода ссылки
     document.getElementById('toolbar-link-input')?.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') {
@@ -342,7 +348,7 @@ function initToolbarHandlers() {
             setToolbarMode('format');
         }
     });
-    
+
     // Обновляем состояние при изменении выделения
     document.addEventListener('selectionchange', () => {
         if (currentEditableElement && toolbarMode === 'format') {
@@ -356,36 +362,41 @@ function initToolbarHandlers() {
  */
 function handleToolbarAction(action) {
     if (!currentEditableElement) return;
-    
+
     // Фокусируемся на элементе
     currentEditableElement.focus();
-    
+
+    // Восстанавливаем выделение если потеряли фокус при клике на toolbar
+    if (savedSelection) {
+        restoreSelection();
+    }
+
     switch (action) {
         case 'bold':
             document.execCommand('bold', false, null);
             break;
-            
+
         case 'italic':
             document.execCommand('italic', false, null);
             break;
-            
+
         case 'link':
             handleLinkAction();
             return; // Не сохраняем сразу
-            
+
         case 'align-left':
             setTextAlign('left');
             break;
-            
+
         case 'align-center':
             setTextAlign('center');
             break;
-            
+
         case 'align-right':
             setTextAlign('right');
             break;
     }
-    
+
     // Сохраняем изменения
     setTimeout(() => {
         saveTextChanges(currentEditableElement);
@@ -397,11 +408,13 @@ function handleToolbarAction(action) {
  * Обработка действия со ссылкой
  */
 function handleLinkAction() {
-    const existingLink = getSelectedLink();
-    currentLinkElement = existingLink;
     
     // Сохраняем выделение
     saveSelection();
+
+    const existingLink = getSelectedLink();
+    currentLinkElement = existingLink;
+
     
     // Переключаем toolbar в режим ссылки
     setToolbarMode('link');
@@ -413,32 +426,29 @@ function handleLinkAction() {
 function applyLink() {
     const input = document.getElementById('toolbar-link-input');
     if (!input) return;
-    
+
     const url = input.value.trim();
     if (!url) {
         Toast.warning('Введите URL');
         return;
     }
-    
-    // Восстанавливаем выделение
+
     restoreSelection();
     currentEditableElement?.focus();
-    
+
     if (currentLinkElement) {
-        // Редактируем существующую ссылку
         currentLinkElement.href = url;
     } else {
-        // Создаём новую ссылку
         const selection = window.getSelection();
         if (!selection || selection.toString().length === 0) {
             Toast.warning('Сначала выделите текст для ссылки');
             setToolbarMode('format');
+            savedSelection = null; // ← сбрасываем!
             return;
         }
-        
+
         document.execCommand('createLink', false, url);
-        
-        // Стилизуем ссылку
+
         const links = currentEditableElement?.querySelectorAll('a');
         links?.forEach(link => {
             if (!link.style.color) {
@@ -446,13 +456,13 @@ function applyLink() {
             }
         });
     }
-    
-    // Сохраняем изменения
+
     if (currentEditableElement) {
         saveTextChanges(currentEditableElement);
     }
-    
+
     currentLinkElement = null;
+    savedSelection = null; // ← сбрасываем после применения!
     setToolbarMode('format');
     updateToolbarState();
 }
@@ -465,22 +475,20 @@ function removeLink() {
         setToolbarMode('format');
         return;
     }
-    
-    // Восстанавливаем выделение
+
     restoreSelection();
     currentEditableElement?.focus();
-    
-    // Заменяем ссылку на текст
+
     const textContent = currentLinkElement.textContent;
     const textNode = document.createTextNode(textContent);
     currentLinkElement.parentNode?.replaceChild(textNode, currentLinkElement);
-    
-    // Сохраняем изменения
+
     if (currentEditableElement) {
         saveTextChanges(currentEditableElement);
     }
-    
+
     currentLinkElement = null;
+    savedSelection = null; // ← сбрасываем!
     setToolbarMode('format');
     updateToolbarState();
 }
@@ -490,9 +498,9 @@ function removeLink() {
  */
 function setTextAlign(align) {
     if (!currentEditableElement) return;
-    
+
     currentEditableElement.style.textAlign = align;
-    
+
     // Также обновляем блок
     const blockId = parseInt(currentEditableElement.dataset.blockId);
     const block = findBlockDeep(UserAppState.blocks, blockId);
@@ -587,7 +595,7 @@ function initBulkMailFieldButton() {
         let left = r.left;
         if (left + dw > window.innerWidth - 8) left = window.innerWidth - dw - 8;
         dropdown.style.left = left + 'px';
-        dropdown.style.top  = (r.bottom + 4) + 'px';
+        dropdown.style.top = (r.bottom + 4) + 'px';
     });
 
     document.addEventListener('mousedown', (e) => {

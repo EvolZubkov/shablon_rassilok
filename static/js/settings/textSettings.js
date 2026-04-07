@@ -186,7 +186,7 @@ function createTextLinkToolbar(block) {
 
     btn.addEventListener('click', () => {
         const ta = document.querySelector(
-            `.setting-textarea[data-block-id="${block.id}"][data-setting-key="content"]`
+            `textarea[data-block-id="${block.id}"][data-setting-key="content"]`
         );
         if (!ta) return;
 
