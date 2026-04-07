@@ -64,7 +64,12 @@ def _load_config():
     config_path = os.path.join(config_dir, 'config.ini')
 
     cfg = configparser.ConfigParser()
-    cfg.read(config_path, encoding='utf-8')
+    # Try UTF-8 first; fall back to Windows-1251 (common on Russian Windows installations).
+    try:
+        cfg.read(config_path, encoding='utf-8')
+    except UnicodeDecodeError:
+        cfg = configparser.ConfigParser()
+        cfg.read(config_path, encoding='cp1251')
 
     section = 'app'
     defaults = {
@@ -2010,21 +2015,135 @@ def _validate_template_id(tid):
     return True
 
 
-def _find_template_by_id(base_dir, template_id):
+# ---------------------------------------------------------------------------
+# Template index cache
+# Keyed by template type ('shared' / 'personal').
+# Each entry: {'meta': list[dict], 'index': dict[id, filepath], 'ts': float}
+#
+# 'meta'  — lightweight metadata rows (no 'blocks', no 'preview')
+# 'index' — id → absolute filepath for O(1) lookup
+# TTL     — 30 s for shared (network I/O), 10 s for personal (local disk)
+# ---------------------------------------------------------------------------
+_template_cache: dict = {}
+_template_cache_lock = threading.Lock()
+_TEMPLATE_CACHE_TTL: dict = {'shared': 30.0, 'personal': 10.0}
+
+
+def _invalidate_template_cache(template_type=None):
     """
-    Locate a template file by its ``id`` field.
+    Drop the in-memory template index.
 
-    Search strategy:
-    1. Scan every ``.json`` in *base_dir* and match ``data['id'] == template_id``.
-    2. Fallback for legacy templates that have no ``id`` field: treat *template_id*
-       as the filename stem and look for ``{template_id}.json``.
+    Pass *template_type* to invalidate a single type, or ``None`` to clear all.
+    Must be called after every mutation (save / update / delete / rename).
+    Thread-safe.
+    """
+    with _template_cache_lock:
+        if template_type:
+            _template_cache.pop(template_type, None)
+        else:
+            _template_cache.clear()
 
-    Returns ``(filepath, data)`` or ``(None, None)`` if not found.
+
+def _build_index_from_dir(base_dir, template_type):
+    """
+    Read every ``.json`` in *base_dir* and build metadata structures.
+
+    ``blocks`` and ``preview`` fields are intentionally skipped — they are
+    large and only needed when a specific template is loaded.
+
+    :returns: ``(meta_list, id_index, fingerprint)``
+              *fingerprint* is a short MD5 hex string derived from each
+              file's name and mtime — changes whenever a file is added,
+              removed, or modified on disk without going through this app.
+    """
+    meta: list = []
+    index: dict = {}
+    fp_parts: list = []
+
+    if os.path.isdir(base_dir):
+        for fname in sorted(os.listdir(base_dir)):
+            if not fname.endswith('.json'):
+                continue
+            fpath = os.path.join(base_dir, fname)
+            try:
+                mtime = os.path.getmtime(fpath)
+                fp_parts.append(f'{fname}:{mtime:.3f}')
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                tid = data.get('id') or os.path.splitext(fname)[0]
+                meta.append({
+                    'id': tid,
+                    'name': data.get('name', fname),
+                    'filename': fname,
+                    'created': data.get('created', ''),
+                    'author': data.get('author', 'unknown'),
+                    'type': template_type,
+                    'category': data.get('category', ''),
+                    'isPreset': bool(data.get('isPreset', False)),
+                })
+                index[tid] = fpath
+            except Exception:
+                continue
+
+    fp = hashlib.md5('\n'.join(fp_parts).encode()).hexdigest()[:16]
+    return meta, index, fp
+
+
+def _get_template_index(template_type, base_dir):
+    """
+    Return ``(meta_list, id_index, fingerprint)`` for *template_type*,
+    rebuilding from disk when the TTL has expired.
+
+    Thread-safe: a single lock serialises both the cache read and the
+    rebuild so two threads never scan the same directory simultaneously.
+
+    :param template_type: ``'shared'`` or ``'personal'``
+    :param base_dir: filesystem directory that contains the template JSON files
+    :returns: ``(meta_list, id_index, fingerprint)``
+    """
+    now = time.time()
+    ttl = _TEMPLATE_CACHE_TTL.get(template_type, 10.0)
+
+    with _template_cache_lock:
+        cached = _template_cache.get(template_type)
+        if cached and (now - cached['ts']) < ttl:
+            return cached['meta'], cached['index'], cached['fp']
+
+        meta, index, fp = _build_index_from_dir(base_dir, template_type)
+        _template_cache[template_type] = {
+            'meta': meta, 'index': index, 'fp': fp, 'ts': now,
+        }
+        return meta, index, fp
+
+
+def _find_template_by_id(base_dir, template_id, template_type=None):
+    """
+    Locate a template file by its ``id`` field and return ``(filepath, data)``.
+
+    When *template_type* is provided the in-memory index is used for an O(1)
+    lookup.  Falls back to a linear directory scan otherwise (e.g. first call
+    before the cache is warm, or after a cache miss on a stale path).
+
+    The fallback also handles legacy templates that have no ``id`` field by
+    treating *template_id* as the filename stem.
+
+    :returns: ``(filepath, data)`` or ``(None, None)`` if not found.
     """
     if not os.path.isdir(base_dir):
         return None, None
 
-    # Primary scan — match by id field
+    # Fast path — O(1) index lookup
+    if template_type:
+        _, index, _ = _get_template_index(template_type, base_dir)
+        fpath = index.get(template_id)
+        if fpath and os.path.exists(fpath):
+            try:
+                with open(fpath, 'r', encoding='utf-8') as f:
+                    return fpath, json.load(f)
+            except Exception:
+                pass  # index stale; fall through to full scan
+
+    # Slow path — linear scan by id field
     for fname in sorted(os.listdir(base_dir)):
         if not fname.endswith('.json'):
             continue
@@ -2056,62 +2175,37 @@ def _find_template_by_id(base_dir, template_id):
 
 @app.route('/api/templates/list', methods=['GET'])
 def templates_list():
-    """Получить список всех шаблонов (общих и личных)"""
-    try:
-        templates_dir = get_templates_dir()
-        current_user = get_user_from_system()
+    """
+    Return lightweight metadata for all templates (shared + personal).
 
-        shared_dir = os.path.join(templates_dir, 'shared')
+    ``blocks`` and ``preview`` are intentionally excluded — they can be large
+    (preview is a base64 image) and are only needed when loading a specific
+    template.  The in-memory index cache avoids re-reading files on every
+    panel open.
+    """
+    try:
+        shared_dir = os.path.join(get_templates_dir(), 'shared')
         user_dir = get_personal_templates_dir()
 
-        result = {
-            'shared': [],
-            'personal': []
-        }
+        shared_meta, _, shared_fp = _get_template_index('shared', shared_dir)
+        personal_meta, _, personal_fp = _get_template_index('personal', user_dir)
 
-        if os.path.exists(shared_dir):
-            for filename in os.listdir(shared_dir):
-                if filename.endswith('.json'):
-                    filepath = os.path.join(shared_dir, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            template = json.load(f)
-                            result['shared'].append({
-                                'id': template.get('id') or os.path.splitext(filename)[0],
-                                'name': template.get('name', filename),
-                                'filename': filename,
-                                'created': template.get('created', ''),
-                                'author': template.get('author', 'unknown'),
-                                'type': 'shared',
-                                'category': template.get('category', ''),
-                                'preview': template.get('preview', None),
-                                'isPreset': bool(template.get('isPreset', False))
-                            })
-                    except Exception as e:
-                        print(f"⚠️  Ошибка чтения шаблона {filename}: {e}")
+        etag = f'"{shared_fp}-{personal_fp}"'
 
-        if os.path.exists(user_dir):
-            for filename in os.listdir(user_dir):
-                if filename.endswith('.json'):
-                    filepath = os.path.join(user_dir, filename)
-                    try:
-                        with open(filepath, 'r', encoding='utf-8') as f:
-                            template = json.load(f)
-                            result['personal'].append({
-                                'id': template.get('id') or os.path.splitext(filename)[0],
-                                'name': template.get('name', filename),
-                                'filename': filename,
-                                'created': template.get('created', ''),
-                                'author': current_user,
-                                'type': 'personal'
-                            })
-                    except Exception as e:
-                        print(f"⚠️  Ошибка чтения шаблона {filename}: {e}")
+        # Conditional GET — return 304 when the client already has a fresh copy
+        if request.headers.get('If-None-Match') == etag:
+            return '', 304
 
-        result['shared'].sort(key=lambda x: x['name'])
-        result['personal'].sort(key=lambda x: x['name'])
+        current_user = get_user_from_system()
+        personal_out = [dict(m, author=current_user) for m in personal_meta]
 
-        return jsonify({'success': True, 'templates': result})
+        resp = jsonify({'success': True, 'templates': {
+            'shared': sorted(shared_meta, key=lambda x: x['name']),
+            'personal': sorted(personal_out, key=lambda x: x['name']),
+        }})
+        resp.headers['ETag'] = etag
+        resp.headers['Cache-Control'] = 'no-cache'
+        return resp
 
     except Exception as e:
         app.logger.error("templates_list error: %s", e, exc_info=True)
@@ -2132,7 +2226,7 @@ def templates_load():
             pass  # reading shared is allowed in user mode
 
         base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id)
+        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
 
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
@@ -2194,6 +2288,7 @@ def templates_save():
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(template, f, ensure_ascii=False, indent=2)
 
+        _invalidate_template_cache(template_type)
         print(
             f"✓ Шаблон сохранён: {filename} ({template_type}, категория: {category or 'без категории'})")
 
@@ -2221,7 +2316,7 @@ def templates_update():
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
         base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id)
+        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
@@ -2233,6 +2328,7 @@ def templates_update():
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(template, f, ensure_ascii=False, indent=2)
 
+        _invalidate_template_cache(template_type)
         print(f"✓ Шаблон обновлён: {os.path.basename(filepath)}")
         return jsonify({'success': True})
 
@@ -2255,11 +2351,12 @@ def templates_delete():
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
         base_dir = _template_base_dir(template_type)
-        filepath, _ = _find_template_by_id(base_dir, template_id)
+        filepath, _ = _find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
         os.remove(filepath)
+        _invalidate_template_cache(template_type)
         print(f"✓ Шаблон удалён: {os.path.basename(filepath)}")
         return jsonify({'success': True})
 
@@ -2288,7 +2385,7 @@ def templates_rename():
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
         base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id)
+        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
@@ -2297,6 +2394,7 @@ def templates_rename():
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(template, f, ensure_ascii=False, indent=2)
 
+        _invalidate_template_cache(template_type)
         print(f"✓ Шаблон переименован: {os.path.basename(filepath)} → «{new_name}»")
         return jsonify({'success': True})
 

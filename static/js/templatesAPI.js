@@ -5,22 +5,40 @@ const TemplatesAPI = {
     baseURL: '/api/templates',  // ← БЕЗ http://localhost:XXXX
 
     /**
-     * Получить список всех шаблонов
+     * Fetch the template list from the server.
+     *
+     * Sends a conditional GET using the supplied ETag so the server can reply
+     * with 304 Not Modified when nothing has changed, saving both network I/O
+     * and JSON parsing.
+     *
+     * @param {string|null} etag - ETag value from the previous response, or null.
+     * @returns {{ unchanged: boolean, templates?: object, etag?: string }}
+     *   When ``unchanged`` is true the caller should reuse its cached data.
      */
-    async getList() {
+    async getList(etag = null) {
         try {
-            const response = await fetch(`${this.baseURL}/list`);
-            const data = await response.json();
-            
-            if (data.success) {
-                return data.templates;
-            } else {
-                console.error('Ошибка загрузки списка шаблонов:', data.error);
-                return {shared: [], personal: []};
+            const headers = {};
+            if (etag) headers['If-None-Match'] = etag;
+
+            const response = await fetch(`${this.baseURL}/list`, { headers });
+
+            if (response.status === 304) {
+                return { unchanged: true };
             }
+
+            const data = await response.json();
+            if (data.success) {
+                return {
+                    unchanged: false,
+                    templates: data.templates,
+                    etag: response.headers.get('ETag') || null,
+                };
+            }
+            console.error('Ошибка загрузки списка шаблонов:', data.error);
+            return { unchanged: false, templates: { shared: [], personal: [] }, etag: null };
         } catch (error) {
             console.error('Ошибка запроса списка шаблонов:', error);
-            return {shared: [], personal: []};
+            return { unchanged: false, templates: { shared: [], personal: [] }, etag: null };
         }
     },
 
