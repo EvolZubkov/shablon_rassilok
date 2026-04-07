@@ -137,8 +137,12 @@ const TemplatesUI = {
     list: null,
     searchInput: null,
     isOpen: false,
-    templates: { shared: [], personal: [] }, // ИЗМЕНЕНО: теперь объект
+    templates: { shared: [], personal: [] },
     currentTemplate: null,
+    /** ETag from the last successful /api/templates/list response. */
+    _etag: null,
+    /** setInterval handle for the background shared-template refresh. */
+    _refreshTimer: null,
 
     init() {
         this.panel = document.getElementById('templates-panel');
@@ -176,6 +180,17 @@ const TemplatesUI = {
             });
         }
 
+        // Silently refresh shared templates every 5 minutes so changes made
+        // by administrators on the network share become visible without restart.
+        this._refreshTimer = setInterval(async () => {
+            const result = await TemplatesAPI.getList(this._etag);
+            if (!result.unchanged) {
+                this.templates = result.templates;
+                this._etag = result.etag;
+                if (this.isOpen) this.renderTemplates();
+            }
+        }, 5 * 60 * 1000);
+
         console.log('✅ TemplatesUI initialized');
     },
 
@@ -186,7 +201,9 @@ const TemplatesUI = {
         this.panel.classList.add('active');
         this.overlay.classList.add('active');
 
-        // Загружаем список шаблонов
+        // Always do a conditional GET on open — the server returns 304 when
+        // nothing has changed (ETag match), so the cost is just one HTTP
+        // round-trip with an empty body.
         await this.loadTemplates();
     },
 
@@ -210,9 +227,26 @@ const TemplatesUI = {
     },
 
     async loadTemplates() {
-        this.templates = await TemplatesAPI.getList();
+        const result = await TemplatesAPI.getList(this._etag);
+        if (result.unchanged) {
+            // Server confirmed our data is still current — just re-render.
+            this.renderTemplates();
+            return;
+        }
+        this.templates = result.templates;
+        this._etag = result.etag;
         console.log('📚 Загружено шаблонов:', this.templates);
         this.renderTemplates();
+    },
+
+    /**
+     * Force a full reload from the server by discarding the stored ETag.
+     * Use when external changes to the template list are expected
+     * (e.g. after an admin updates shared templates on the network share).
+     */
+    async refresh() {
+        this._etag = null;
+        await this.loadTemplates();
     },
 
     renderTemplates(filteredTemplates = null) {
@@ -501,7 +535,12 @@ const TemplatesUI = {
                 if (this.currentTemplate?.id === template.id) {
                     this.currentTemplate = null;
                 }
-                await this.loadTemplates();
+                // Optimistic local update — no round-trip needed
+                const list = this.templates[template.type];
+                if (list) {
+                    this.templates[template.type] = list.filter(t => t.id !== template.id);
+                }
+                this.renderTemplates();
             }
         } finally {
             this._deleting = false;
@@ -845,8 +884,14 @@ function showSaveTemplateDialog() {
         if (savedId) {
             closeDialog();
             Toast.success(`Шаблон "${templateName}" сохранён!`);
-            TemplatesUI.currentTemplate = { id: savedId, name: templateName, type: currentType };
-            if (TemplatesUI.isOpen) await TemplatesUI.loadTemplates();
+            const newItem = { id: savedId, name: templateName, type: currentType, category, isPreset: false };
+            TemplatesUI.currentTemplate = newItem;
+            // Optimistic local update — insert and re-sort without a server round-trip
+            const list = TemplatesUI.templates[currentType] || [];
+            list.push(newItem);
+            list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+            TemplatesUI.templates[currentType] = list;
+            if (TemplatesUI.isOpen) TemplatesUI.renderTemplates();
         }
     };
 
@@ -866,7 +911,13 @@ function showSaveTemplateDialog() {
         if (savedId) {
             closeDialog();
             Toast.success(`Пресет "${presetName}" сохранён!`);
-            if (TemplatesUI.isOpen) await TemplatesUI.loadTemplates();
+            // Optimistic local update
+            const newItem = { id: savedId, name: presetName, type: 'shared', category: '', isPreset: true };
+            const list = TemplatesUI.templates.shared || [];
+            list.push(newItem);
+            list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+            TemplatesUI.templates.shared = list;
+            if (TemplatesUI.isOpen) TemplatesUI.renderTemplates();
         }
     };
 
