@@ -76,6 +76,22 @@ def connect_exchange(server: str, username: str, password: str,
                      from_email: str) -> 'Account':
     """
     Создаёт подключение к Exchange.
+
+    Access type selection:
+    * Own mailbox (from_email matches username, with or without domain) →
+      ``DELEGATE`` against the user's own primary address.  Exchange accepts
+      DELEGATE for the mailbox owner; this is the standard mode for sending
+      from your own account.
+    * Another mailbox (shared / delegated) → ``DELEGATE`` as well, but
+      ``primary_smtp_address`` points to the target mailbox so Exchange
+      knows which folder tree to open.
+
+    The distinction that matters here is the ``primary_smtp_address`` value:
+    when it equals the authenticating user's own address everything works
+    with DELEGATE.  The previous bug was that ``from_email`` could be an
+    empty string (when the UI sent the "default" option), which caused
+    Exchange to receive an empty primary_smtp_address and reject the request.
+
     Raises:
         ValueError  — неверный логин/пароль
         ConnectionError — сервер недоступен
@@ -84,11 +100,16 @@ def connect_exchange(server: str, username: str, password: str,
     if not EXCHANGELIB_AVAILABLE:
         raise RuntimeError(
             'exchangelib не установлен: pip install exchangelib')
+
+    # Guard against empty from_email coming from the frontend "default" option.
+    # Fall back to the username so Exchange always gets a valid address.
+    effective_from = (from_email or '').strip() or username.strip()
+
     try:
         credentials = Credentials(username=username, password=password)
         config = Configuration(server=server, credentials=credentials)
         account = Account(
-            primary_smtp_address=from_email,
+            primary_smtp_address=effective_from,
             config=config,
             autodiscover=False,
             access_type=DELEGATE,
