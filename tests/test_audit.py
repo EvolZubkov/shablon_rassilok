@@ -386,67 +386,6 @@ class TestErrorLeakage_Fixed:
 #     check_for_updates() вызывает input() — блокирует поток Flask
 # ══════════════════════════════════════════════════════════════════════════════
 
-class TestBlockingInput_BugProof:
-    """
-    Доказываем что check_for_updates вызывает input() при обнаружении обновления.
-    """
-
-    @pytest.mark.xfail(reason="Баг исправлен: input() удалён из check_for_updates", strict=True)
-    def test_check_for_updates_calls_input_when_new_version_available(self):
-        """
-        Если на сервере новая версия — вызывается input().
-        Это означает что сервер зависает в ожидании ввода из терминала.
-        """
-        # Создаём валидный кеш чтобы пройти мимо ветки initialize_cache
-        # и попасть в ветку сравнения версий (где и живёт input())
-        os.makedirs(FAKE_CACHE, exist_ok=True)
-        cfg_path = os.path.join(FAKE_CACHE, 'config.json')
-        with open(cfg_path, 'w') as f:
-            json.dump({'version': '1.0'}, f)
-        banners_dir = os.path.join(FAKE_CACHE, 'banners')
-        os.makedirs(banners_dir, exist_ok=True)
-
-        email_app.set_cache_version('1.0')
-
-        version_file = os.path.join(FAKE_NETWORK, 'version.txt')
-        with open(version_file, 'w') as f:
-            f.write('2.0')
-        email_app.NETWORK_VERSION_FILE = version_file
-
-        input_called = []
-
-        def mock_input(prompt=''):
-            input_called.append(prompt)
-            return 'n'  # симулируем ввод 'n' чтобы не зависнуть
-
-        with mock.patch('builtins.input', side_effect=mock_input):
-            with mock.patch.object(email_app, 'check_network_access', return_value=True):
-                email_app.check_for_updates()
-
-        # Фиксируем факт: input() был вызван — сервер заблокировался
-        assert len(input_called) > 0, \
-            "ОЖИДАЛОСЬ что input() вызван — баг с блокирующим вводом не воспроизвёлся"
-
-        os.remove(version_file)
-        os.remove(cfg_path)
-        email_app.NETWORK_VERSION_FILE = os.path.join(FAKE_NETWORK, 'version.txt')
-
-    @pytest.mark.xfail(reason="Баг исправлен: input() удалён из initialize_cache", strict=True)
-    def test_initialize_cache_calls_input_on_no_network(self):
-        """initialize_cache() вызывает input() при отсутствии сети."""
-        input_called = []
-
-        def mock_input(prompt=''):
-            input_called.append(prompt)
-            return ''
-
-        with mock.patch('builtins.input', side_effect=mock_input):
-            with mock.patch.object(email_app, 'check_network_access', return_value=False):
-                email_app.initialize_cache()
-
-        assert len(input_called) > 0, "input() должен был быть вызван при отсутствии сети"
-
-
 class TestBlockingInput_Fixed:
     """
     Тесты для исправленного кода.
@@ -559,23 +498,6 @@ class TestPresetEmojiBug_BugProof:
         assert len(non_presets_after) == 2, \
             "БАГ ПОДТВЕРЖДЁН: после переименования пресет потерял статус пресета"
 
-    @pytest.mark.xfail(reason="Баг исправлен: эмодзи 🧩 заменено на поле isPreset")
-    def test_emoji_hardcoded_in_multiple_places(self):
-        """Эмодзи 🧩 использовался как магическая константа в нескольких местах.
-        После фикса эмодзи убран — тест ожидаемо не проходит (xfail).
-        """
-        js_files = [
-            os.path.join(os.path.dirname(__file__), '..', 'js_src', 'js', 'user', 'userApp.js'),
-            os.path.join(os.path.dirname(__file__), '..', 'js_src', 'js', 'templatesUI.js'),
-        ]
-        total_occurrences = 0
-        for path in js_files:
-            if os.path.exists(path):
-                content = open(path, encoding='utf-8').read()
-                total_occurrences += content.count('🧩')
-
-        assert total_occurrences >= 3, \
-            f"Ожидалось 3+ вхождений 🧩 в JS файлах, найдено: {total_occurrences}"
 
 
 class TestPresetEmojiBug_Fixed:
