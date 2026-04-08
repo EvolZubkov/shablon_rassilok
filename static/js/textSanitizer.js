@@ -204,6 +204,111 @@ const TextSanitizer = (() => {
     }
 
     // -------------------------------------------------------
+    // Типографика: неразрывные пробелы после коротких слов
+    // -------------------------------------------------------
+
+    // Russian prepositions, conjunctions and particles that must not be left
+    // hanging at the end of a line (followed by a line break before the next word).
+    const HANGING_WORDS = new Set([
+        // Prepositions
+        'в', 'во', 'к', 'ко', 'с', 'со', 'у', 'о', 'об', 'обо',
+        'от', 'ото', 'до', 'за', 'из', 'на', 'над', 'по', 'под',
+        'подо', 'пред', 'предо', 'при', 'про', 'без', 'безо', 'меж',
+        'между', 'через', 'чрез', 'сквозь', 'вне', 'вместо', 'кроме',
+        'перед', 'передо', 'около', 'после', 'вдоль', 'вокруг',
+        'ради', 'для',
+        // Conjunctions
+        'и', 'а', 'но', 'да', 'или', 'либо', 'то', 'ни', 'не',
+        'же', 'бы', 'ли', 'как', 'так', 'что', 'чем', 'хоть',
+        'хотя', 'если', 'когда', 'пока', 'лишь', 'едва',
+        // Particles and short pronouns
+        'я', 'ты', 'он', 'мы', 'вы', 'со', 'вот', 'уже', 'ещё',
+        'всё', 'все', 'там', 'тут', 'бы', 'же', 'ну',
+    ]);
+
+    // Pre-built regex: matches any of the listed words (case-insensitive) as a whole
+    // word preceded by start-of-string or whitespace (via zero-width lookbehind so the
+    // preceding space is NOT consumed and remains available for the next match), followed
+    // by a regular space and then a non-space character.
+    const _HANGING_RE = new RegExp(
+        `(?:^|(?<=[\\s\\u00A0]))(${[...HANGING_WORDS].join('|')})\\u0020(?=\\S)`,
+        'gi'
+    );
+
+    /**
+     * Replace a regular space with a non-breaking space after Russian prepositions,
+     * conjunctions, and particles so they cannot be separated from the following word
+     * by a line break.
+     *
+     * Operates on raw text content (no HTML), so HTML attributes are never affected.
+     *
+     * @param {string} text - plain text content of a single DOM text node
+     * @returns {string}
+     */
+    function _nbspHanging(text) {
+        _HANGING_RE.lastIndex = 0;
+        return text.replace(_HANGING_RE, (_, word) => `${word}\u00A0`);
+    }
+
+    /**
+     * Walk every DOM text node inside `root` and apply {@link _nbspHanging}.
+     * Element nodes are traversed recursively; other node types are skipped.
+     *
+     * @param {Element} root
+     */
+    function _walkForTypography(root) {
+        for (const child of Array.from(root.childNodes)) {
+            if (child.nodeType === 3) {
+                child.textContent = _nbspHanging(child.textContent);
+            } else if (child.nodeType === 1) {
+                _walkForTypography(child);
+            }
+        }
+    }
+
+    /**
+     * Replace straight double-quote characters (`"`) with Russian typographic
+     * guillemets («»).  Operates directly on the HTML string, matching either a
+     * complete HTML tag or a quote character in a single pass so that:
+     *   - HTML attributes are never modified (the whole tag is consumed at once).
+     *   - Opening/closing state is tracked globally across element boundaries,
+     *     so `"<strong>text</strong>"` is correctly converted to «<strong>text</strong>».
+     *
+     * Odd (unpaired) quotes are handled gracefully: each `"` simply toggles state,
+     * so the worst case is a mismatched guillemet rather than broken HTML.
+     *
+     * @param {string} html - simple HTML (p, br, strong, a …)
+     * @returns {string}
+     */
+    function _replaceQuotes(html) {
+        let open = false;
+        return html.replace(/<[^>]*>|"/g, (match) => {
+            if (match !== '"') return match;   // HTML tag — pass through unchanged
+            open = !open;
+            return open ? '\u00AB' : '\u00BB'; // « or »
+        });
+    }
+
+    /**
+     * Apply typographic transformations to an HTML fragment:
+     * 1. Straight quotes `"` → guillemets «».
+     * 2. Non-breaking spaces after hanging prepositions/conjunctions.
+     *
+     * Parses the fragment via DOMParser so HTML attributes are never touched.
+     *
+     * @param {string} html - simple HTML (p, br, strong, a …)
+     * @returns {string}
+     */
+    function _applyTypography(html) {
+        if (!html) return html;
+        html = _replaceQuotes(html);
+        const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+        const root = doc.body.firstElementChild;
+        _walkForTypography(root);
+        return root.innerHTML;
+    }
+
+    // -------------------------------------------------------
     // ПУБЛИЧНЫЙ API
     // -------------------------------------------------------
 
@@ -284,6 +389,6 @@ const TextSanitizer = (() => {
             .trim();
     }
 
-    return { sanitize, render, toPlainText };
+    return { sanitize, render, toPlainText, applyTypography: _applyTypography };
 
 })();
