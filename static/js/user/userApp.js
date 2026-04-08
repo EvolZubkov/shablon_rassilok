@@ -1,4 +1,4 @@
-// userApp.js - Главный модуль для user-версии Email Builder
+// userApp.js - Главный модуль для user-версии Почтелье
 
 /**
  * User App State

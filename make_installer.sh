@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # make_installer.sh — runs inside the Docker build container.
-# Produces a self-extracting EmailBuilder.sh installer for ALT Linux.
+# Produces a self-extracting Pochtelye.sh installer for ALT Linux.
 #
 # The generated script:
 #   - fresh install  : extracts binary, icon, config, creates desktop shortcut
@@ -18,10 +18,10 @@ if [ -z "$DIST" ]; then
   exit 1
 fi
 
-BINARY="$DIST/EmailBuilder"
+BINARY="$DIST/Pochtelye"
 ICON="$DIST/icon.png"
 CFG="$DIST/config.ini"
-OUTPUT="$DIST/EmailBuilder.sh"
+OUTPUT="$DIST/Pochtelye.sh"
 
 if [ ! -f "$BINARY" ]; then
   echo "Error: $BINARY not found"
@@ -47,15 +47,15 @@ HAS_CFG=0
 # ── Write script header (variable expansion active — $VERSION is baked in) ────
 cat > "$OUTPUT" << SCRIPT_HEAD
 #!/usr/bin/env bash
-# Email Builder — self-extracting installer / updater / launcher
-# Run: bash EmailBuilder.sh
+# Почтелье — self-extracting installer / updater / launcher
+# Run: bash Pochtelye.sh
 # No root or sudo required.
 set -e
 
 INSTALLER_VERSION="$VERSION"
 
-INSTALL_DIR="\$HOME/EmailBuilder"
-BIN="\$INSTALL_DIR/EmailBuilder"
+INSTALL_DIR="\$HOME/Pochtelye"
+BIN="\$INSTALL_DIR/Pochtelye"
 ICON_PATH="\$INSTALL_DIR/icon.png"
 
 # Locate directory of this script regardless of how it was invoked
@@ -67,7 +67,7 @@ for _D in "\$HOME/Рабочий стол" "\$HOME/Desktop" "\$HOME/Рабочи
   if [ -d "\$_D" ]; then DESKTOP_DIR="\$_D"; break; fi
 done
 mkdir -p "\$DESKTOP_DIR"
-DESKTOP_FILE="\$DESKTOP_DIR/EmailBuilder.desktop"
+DESKTOP_FILE="\$DESKTOP_DIR/Pochtelye.desktop"
 
 SCRIPT_HEAD
 
@@ -102,7 +102,7 @@ _make_shortcut() {
     echo "[Desktop Entry]"
     echo "Version=1.0"
     echo "Type=Application"
-    echo "Name=Email Builder"
+    echo "Name=Почтелье"
     echo "Comment=HTML email and meeting builder"
     echo "Exec=$BIN"
     [ -f "$ICON_PATH" ] && echo "Icon=$ICON_PATH"
@@ -122,7 +122,7 @@ INSTALLED_VERSION=""
 if [ ! -f "$BIN" ]; then
 
   # ── Fresh install ─────────────────────────────────────────────────────────
-  echo "Установка Email Builder $INSTALLER_VERSION..."
+  echo "Установка Почтелье $INSTALLER_VERSION..."
   mkdir -p "$INSTALL_DIR"
 
   echo "  Распаковка бинарного файла..."
@@ -153,7 +153,7 @@ if [ ! -f "$BIN" ]; then
 elif _version_gt "$INSTALLER_VERSION" "${INSTALLED_VERSION:-0.0.0}"; then
 
   # ── Update ────────────────────────────────────────────────────────────────
-  echo "Обновление Email Builder ${INSTALLED_VERSION:-?} → $INSTALLER_VERSION..."
+  echo "Обновление Почтелье ${INSTALLED_VERSION:-?} → $INSTALLER_VERSION..."
 
   echo "  Обновление бинарного файла..."
   if ! _extract BINARY "$BIN.new"; then
@@ -180,7 +180,7 @@ elif _version_gt "$INSTALLER_VERSION" "${INSTALLED_VERSION:-0.0.0}"; then
 else
 
   # ── Already up to date ────────────────────────────────────────────────────
-  echo "Email Builder $INSTALLED_VERSION уже установлен и актуален."
+  echo "Почтелье $INSTALLED_VERSION уже установлен и актуален."
 
 fi
 
@@ -219,13 +219,13 @@ rm -f "$BINARY"
 # ── Generate INSTALL.md alongside the installer ───────────────────────────────
 README="$DIST/INSTALL.md"
 cat > "$README" << README_EOF
-# Email Builder $VERSION — Установка (ALT Linux)
+# Почтелье $VERSION — Установка (ALT Linux)
 
 ## Содержимое дистрибутива
 
 | Файл | Описание |
 |---|---|
-| \`EmailBuilder.sh\` | Самоустанавливающийся скрипт (бинарник встроен) |
+| \`Pochtelye.sh\` | Самоустанавливающийся скрипт (бинарник встроен) |
 | \`config.ini\` | Конфигурация приложения |
 | \`.lic\` | Токен администратора (только для администраторов) |
 
@@ -234,18 +234,18 @@ cat > "$README" << README_EOF
 ## Установка
 
 \`\`\`bash
-bash EmailBuilder.sh
+bash Pochtelye.sh
 \`\`\`
 
-Приложение устанавливается в \`~/EmailBuilder/\`.
-На рабочем столе создаётся ярлык Email Builder.
+Приложение устанавливается в \`~/Pochtelye/\`.
+На рабочем столе создаётся ярлык Почтелье.
 
 ## Обновление
 
 Запустите новый установщик той же командой:
 
 \`\`\`bash
-bash EmailBuilder.sh
+bash Pochtelye.sh
 \`\`\`
 
 Скрипт автоматически определит установленную версию.
@@ -268,8 +268,8 @@ port = 7788
 
 ## Режим администратора
 
-Положите файл \`.lic\` рядом с \`EmailBuilder.sh\` перед установкой,
-или скопируйте его в \`~/EmailBuilder/.lic\` вручную после.
+Положите файл \`.lic\` рядом с \`Pochtelye.sh\` перед установкой,
+или скопируйте его в \`~/Pochtelye/.lic\` вручную после.
 
 ## Диагностика
 
@@ -277,7 +277,7 @@ port = 7788
 |---|---|
 | Приложение не запускается | Проверить \`config.ini\`, убедиться в правильности путей |
 | Ресурсы не загружаются | Проверить доступность сетевой папки |
-| Режим администратора недоступен | Убедиться что \`.lic\` находится в \`~/EmailBuilder/\` |
+| Режим администратора недоступен | Убедиться что \`.lic\` находится в \`~/Pochtelye/\` |
 README_EOF
 
 echo "README created:   $README"

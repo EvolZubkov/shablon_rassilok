@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# build_admin.spec — PyInstaller spec for the Admin build of Email Builder.
+# build_admin.spec — PyInstaller spec for the Admin build of Почтелье.
 #
 # Rendering strategy
 # ------------------
@@ -131,7 +131,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='EmailBuilderAdmin',
+    name='PochtelyeAdmin',
     debug=False,
     strip=False,
     upx=False,

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# build.spec — single PyInstaller spec for Email Builder.
+# build.spec — single PyInstaller spec for Почтелье.
 #
 # Mode is determined at runtime by admin.lic + config.ini (admin_token_hash),
 # not at build time.  One binary serves both user and admin roles.
@@ -142,7 +142,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='EmailBuilder',
+    name='Pochtelye',
     debug=False,
     strip=False,
     upx=False,

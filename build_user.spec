@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# build_user.spec — PyInstaller spec for the User build of Email Builder.
+# build_user.spec — PyInstaller spec for the User build of Почтелье.
 #
 # Rendering strategy
 # ------------------
@@ -127,7 +127,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='EmailBuilderUser',
+    name='PochtelyeUser',
     debug=False,
     strip=False,
     upx=False,
