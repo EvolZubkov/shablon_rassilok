@@ -50,10 +50,10 @@ async function loadTemplatesAndCategories() {
 
     try {
         // Загружаем шаблоны
-        const templatesData = await TemplatesAPI.getList();
+        const { templates: templatesData } = await TemplatesAPI.getList();
 
         // Берём только общие шаблоны (не пресеты)
-        UserAppState.templates = (templatesData.shared || []).filter(t => !t.isPreset);
+        UserAppState.templates = (templatesData?.shared || []).filter(t => !t.isPreset);
 
         // Загружаем категории
         UserAppState.categories = await TemplatesAPI.getCategories();
