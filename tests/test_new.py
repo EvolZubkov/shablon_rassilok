@@ -89,7 +89,10 @@ def reset_paths():
 
 def make_template(base_dir, filename, name='Тест', is_preset=False):
     os.makedirs(base_dir, exist_ok=True)
-    tpl = {'name': name, 'isPreset': is_preset, 'blocks': []}
+    # Store the filename stem as 'id' so _find_template_by_id can locate the file
+    # both via the index and via the legacy filename-stem fallback.
+    tid = os.path.splitext(filename)[0]
+    tpl = {'id': tid, 'name': name, 'isPreset': is_preset, 'blocks': []}
     with open(os.path.join(base_dir, filename), 'w', encoding='utf-8') as f:
         json.dump(tpl, f, ensure_ascii=False)
     return os.path.join(base_dir, filename)
@@ -100,24 +103,25 @@ def make_template(base_dir, filename, name='Тест', is_preset=False):
 # =============================================================================
 
 class TestLoadConfigIni:
-    """_load_config() читает config.ini и возвращает (network_path, port, mode, path)"""
+    """_load_config() reads config.ini and returns (network_path, port, config_path, linux_hint, smb_path, linux_resolved)"""
 
     def test_returns_tuple_of_four(self):
-        """Должна возвращать (str, int, str, str)"""
+        """Should return a 6-element tuple"""
         result = email_app._load_config()
         assert isinstance(result, tuple)
         assert len(result) == 6
 
     def test_port_is_int(self):
-        path, port, mode, config_path, linux_hint, smb_path = email_app._load_config()
+        path, port, config_path, linux_hint, smb_path, linux_resolved = email_app._load_config()
         assert isinstance(port, int)
 
     def test_mode_is_lowercase_str(self):
-        path, port, mode, config_path, linux_hint, smb_path = email_app._load_config()
+        """APP_MODE is resolved separately via _resolve_app_mode(), not from _load_config()"""
+        mode = email_app.APP_MODE
         assert mode == mode.lower()
 
     def test_network_path_is_str(self):
-        path, port, mode, config_path, linux_hint, smb_path = email_app._load_config()
+        path, port, config_path, linux_hint, smb_path, linux_resolved = email_app._load_config()
         assert isinstance(path, str)
         assert len(path) > 0
 
@@ -270,17 +274,16 @@ class TestTemplatesRename:
     """Тесты эндпоинта PUT /api/templates/rename"""
 
     def _get_user_dir(self):
-        templates_dir = email_app.get_templates_dir()
-        user = email_app.get_user_from_system()
-        return os.path.join(templates_dir, 'users', user)
+        return email_app.get_personal_templates_dir()
 
     def test_rename_returns_200_on_success(self, client):
         user_dir = self._get_user_dir()
         fname = 'template_test_rename.json'
         make_template(user_dir, fname, name='Старое имя')
+        tid = os.path.splitext(fname)[0]
 
         resp = client.put('/api/templates/rename', json={
-            'filename': fname,
+            'id': tid,
             'newName': 'Новое имя',
             'type': 'personal'
         })
@@ -291,24 +294,21 @@ class TestTemplatesRename:
         user_dir = self._get_user_dir()
         fname = 'template_rename_name_test.json'
         make_template(user_dir, fname, name='Оригинал')
+        tid = os.path.splitext(fname)[0]
 
         client.put('/api/templates/rename', json={
-            'filename': fname,
+            'id': tid,
             'newName': 'Изменённое название',
             'type': 'personal'
         })
 
-        # Находим переименованный файл
-        new_files = [f for f in os.listdir(user_dir)
-                     if f.endswith('.json') and f != fname]
-        assert len(new_files) >= 1
-        with open(os.path.join(user_dir, new_files[-1]), encoding='utf-8') as f:
+        with open(os.path.join(user_dir, fname), encoding='utf-8') as f:
             saved = json.load(f)
         assert saved['name'] == 'Изменённое название'
 
     def test_missing_filename_returns_400(self, client):
         resp = client.put('/api/templates/rename', json={
-            'filename': '',
+            'id': '',
             'newName': 'Новое',
             'type': 'personal'
         })
@@ -318,9 +318,10 @@ class TestTemplatesRename:
         user_dir = self._get_user_dir()
         fname = 'template_empty_name.json'
         make_template(user_dir, fname)
+        tid = os.path.splitext(fname)[0]
 
         resp = client.put('/api/templates/rename', json={
-            'filename': fname,
+            'id': tid,
             'newName': '',
             'type': 'personal'
         })
@@ -333,9 +334,10 @@ class TestTemplatesRename:
         user_dir = self._get_user_dir()
         fname = 'template_long_name.json'
         make_template(user_dir, fname)
+        tid = os.path.splitext(fname)[0]
 
         resp = client.put('/api/templates/rename', json={
-            'filename': fname,
+            'id': tid,
             'newName': 'A' * 201,
             'type': 'personal'
         })
@@ -347,28 +349,28 @@ class TestTemplatesRename:
         user_dir = self._get_user_dir()
         fname = 'template_max_name.json'
         make_template(user_dir, fname)
+        tid = os.path.splitext(fname)[0]
 
         resp = client.put('/api/templates/rename', json={
-            'filename': fname,
+            'id': tid,
             'newName': 'А' * 200,
             'type': 'personal'
         })
-        # 200 символов — разрешено
-        assert resp.status_code in (200, 400)  # зависит от реализации
-        if resp.status_code == 400:
-            assert '200' in resp.get_json().get('error', '')
+        assert resp.status_code == 200
+        assert resp.get_json()['success'] is True
 
     def test_nonexistent_file_returns_404(self, client):
         resp = client.put('/api/templates/rename', json={
-            'filename': 'template_does_not_exist.json',
+            'id': 'template_does_not_exist',
             'newName': 'Новое',
             'type': 'personal'
         })
         assert resp.status_code == 404
 
     def test_invalid_filename_extension_returns_400(self, client):
+        # Path traversal chars in id → 400
         resp = client.put('/api/templates/rename', json={
-            'filename': 'template.txt',
+            'id': '../template',
             'newName': 'Новое',
             'type': 'personal'
         })
@@ -380,7 +382,7 @@ class TestTemplatesRename:
         email_app.APP_MODE = 'user'
         try:
             resp = client.put('/api/templates/rename', json={
-                'filename': 'template_shared.json',
+                'id': 'template_shared',
                 'newName': 'Взлом',
                 'type': 'shared'
             })
@@ -390,7 +392,7 @@ class TestTemplatesRename:
 
     def test_path_traversal_in_filename_blocked(self, client):
         resp = client.put('/api/templates/rename', json={
-            'filename': '../../../etc/passwd',
+            'id': '../../../etc/passwd',
             'newName': 'Взлом',
             'type': 'personal'
         })
@@ -398,7 +400,7 @@ class TestTemplatesRename:
 
     def test_path_traversal_with_dots_blocked(self, client):
         resp = client.put('/api/templates/rename', json={
-            'filename': '..\\..\\template.json',
+            'id': '..\\..\\template',
             'newName': 'Взлом',
             'type': 'personal'
         })
@@ -523,12 +525,12 @@ class TestRenameIntegration:
         assert save_resp.status_code == 200
         save_data = save_resp.get_json()
         assert save_data['success'] is True
-        filename = save_data.get('filename') or save_data.get('file')
-        assert filename is not None
+        template_id = save_data.get('id')
+        assert template_id is not None
 
         # Переименовываем
         rename_resp = client.put('/api/templates/rename', json={
-            'filename': filename,
+            'id': template_id,
             'newName': 'Переименованный шаблон',
             'type': 'personal'
         })
@@ -545,10 +547,10 @@ class TestRenameIntegration:
         if not save_resp.get_json().get('success'):
             pytest.skip('save не вернул success')
 
-        filename = save_resp.get_json().get('filename') or save_resp.get_json().get('file')
+        template_id = save_resp.get_json().get('id')
 
         client.put('/api/templates/rename', json={
-            'filename': filename,
+            'id': template_id,
             'newName': 'После переименования',
             'type': 'personal'
         })

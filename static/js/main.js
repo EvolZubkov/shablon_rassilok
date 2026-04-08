@@ -1,7 +1,7 @@
 // main.js - Главный файл инициализации приложения
 
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 Запуск Email Builder...');
+    console.log('🚀 Запуск Почтелье...');
     
     // СНАЧАЛА загружаем конфигурацию ресурсов (config.json)
     console.log('[*] Загрузка конфигурации...');
@@ -12,7 +12,7 @@ document.addEventListener('DOMContentLoaded', async () => {
 });
 
 function init() {
-    console.log('[*] Инициализация Email Builder...');
+    console.log('[*] Инициализация Почтелье...');
     
     setupBlockButtons();
     setupPreviewButton();
@@ -33,7 +33,7 @@ function init() {
         UserResources.init();
     }
 
-    console.log('✓ Email Builder готов к работе');
+    console.log('✓ Почтелье готов к работе');
 }
 
 function setupBlockButtons() {

@@ -1,6 +1,6 @@
 @echo off
 setlocal
-chcp 65001 >nul
+chcp 65001 >/dev/null
 
 set "IMAGE_NAME=emailbuilder-alt-p10"
 set "CONTAINER_NAME=eb-builder-%RANDOM%"
@@ -8,63 +8,63 @@ set "DIST_DIR=dist\linux"
 
 echo.
 echo ============================================
-echo   Email Builder - ALT Linux p10 build
+echo   Pochtelye - ALT Linux p10 build
 echo ============================================
 echo.
 
-docker --version >nul 2>&1
+docker --version >/dev/null 2>&1
 if errorlevel 1 (
-    echo [ERROR] Docker не найден или не запущен
+    echo [ERROR] Docker not found or not running
     pause
     exit /b 1
 )
-echo [OK] Docker доступен
+echo [OK] Docker available
 
 if not exist Dockerfile.alt-p10-builder (
-    echo [ERROR] Файл Dockerfile.alt-p10-builder не найден
+    echo [ERROR] Dockerfile.alt-p10-builder not found
     pause
     exit /b 1
 )
 
 if not exist requirements.txt (
-    echo [ERROR] Файл requirements.txt не найден
+    echo [ERROR] requirements.txt not found
     pause
     exit /b 1
 )
 
 if not exist build.spec (
-    echo [ERROR] Файл build.spec не найден
+    echo [ERROR] build.spec not found
     pause
     exit /b 1
 )
 
-echo [1/5] Сборка Docker-образа ALT p10...
+echo [1/5] Building Docker image ALT p10...
 docker build -t %IMAGE_NAME% -f Dockerfile.alt-p10-builder .
 if errorlevel 1 (
-    echo [ERROR] Не удалось собрать Docker-образ
+    echo [ERROR] Failed to build Docker image
     pause
     exit /b 1
 )
 echo        OK
 
-echo [2/5] Запуск контейнера...
+echo [2/5] Starting container...
 docker run -d --name %CONTAINER_NAME% -v "%CD%:/app" %IMAGE_NAME% tail -f /dev/null
 if errorlevel 1 (
-    echo [ERROR] Не удалось запустить контейнер
+    echo [ERROR] Failed to start container
     pause
     exit /b 1
 )
 echo        OK
 
-echo [3/4] Синхронизация версии из pyproject.toml...
+echo [3/5] Syncing version from pyproject.toml...
 docker exec %CONTAINER_NAME% bash -c "cd /app && python3 sync_version.py"
 if errorlevel 1 (
-    echo [ERROR] Не удалось синхронизировать версию
+    echo [ERROR] Failed to sync version
     goto error
 )
 echo        OK
 
-echo [4/4] Сборка EmailBuilder...
+echo [4/5] Building Pochtelye...
 docker exec %CONTAINER_NAME% bash -c "cd /app && pyinstaller build.spec --noconfirm --distpath dist/linux --workpath build/app --clean"
 if errorlevel 1 (
     echo [ERROR] Build failed
@@ -72,22 +72,22 @@ if errorlevel 1 (
 )
 echo        OK
 
-echo [5/5] chmod +x, конвертация иконки, создание установщика...
-docker exec %CONTAINER_NAME% bash -c "chmod +x /app/dist/linux/EmailBuilder"
+echo [5/5] chmod +x, icon conversion, creating installer...
+docker exec %CONTAINER_NAME% bash -c "chmod +x /app/dist/linux/Pochtelye"
 if errorlevel 1 (
-    echo [ERROR] Не удалось выставить права на исполнение
+    echo [ERROR] Failed to set executable permissions
     goto error
 )
 
-docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 -c \"from PIL import Image; img=Image.open('/app/icon.ico'); img = img.convert('RGBA'); img.thumbnail((48,48)); img.save('/app/dist/linux/icon.png','PNG'); print('icon.png written')\" || echo '[WARN] icon conversion failed'"
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 -c "from PIL import Image; img=Image.open('/app/icon.ico'); img = img.convert('RGBA'); img.thumbnail((48,48)); img.save('/app/dist/linux/icon.png','PNG'); print('icon.png written')" || echo '[WARN] icon conversion failed'"
 if exist config.ini (
     if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
-    copy /y config.ini "%DIST_DIR%\config.ini" >nul
+    copy /y config.ini "%DIST_DIR%\config.ini" >/dev/null
 )
 
 docker exec %CONTAINER_NAME% bash -c "bash /app/make_installer.sh /app/dist/linux"
 if errorlevel 1 (
-    echo [ERROR] Не удалось создать установщик
+    echo [ERROR] Failed to create installer
     goto error
 )
 echo        OK
@@ -109,21 +109,21 @@ call :cleanup
 echo.
 echo ============================================
 echo   Done!
-echo   %DIST_DIR%\EmailBuilder.sh
+echo   %DIST_DIR%\Pochtelye.sh
 echo.
-echo   Передать пользователю:
-echo     EmailBuilder.sh
+echo   Distribute to users:
+echo     Pochtelye.sh
 echo     config.ini
-echo     .lic  (только для администраторов)
+echo     .lic  (admins only)
 echo.
-echo   Запуск на ALT Linux:
-echo     bash EmailBuilder.sh
+echo   Install on ALT Linux:
+echo     bash Pochtelye.sh
 echo ============================================
 echo.
 pause
 exit /b 0
 
 :cleanup
-docker stop %CONTAINER_NAME% >nul 2>&1
-docker rm   %CONTAINER_NAME% >nul 2>&1
+docker stop %CONTAINER_NAME% >/dev/null 2>&1
+docker rm   %CONTAINER_NAME% >/dev/null 2>&1
 exit /b 0

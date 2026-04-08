@@ -1,4 +1,4 @@
-# Email Builder
+# Почтелье
 
 Десктопное приложение для создания и отправки HTML-писем и встреч через Microsoft Exchange (EWS).
 
@@ -7,14 +7,14 @@
 ## Архитектура
 
 ```text
-EmailBuilder.exe / EmailBuilder (Linux)
+Pochtelye.exe / Pochtelye (Linux)
     |
     +-- Flask (localhost:7788)          веб-интерфейс + API
     +-- QWebEngineView                  окно приложения (Chromium)
     +-- exchangelib                     отправка через Exchange EWS
     +-- Локальный кеш                   ресурсы: иконки, шрифты, шаблоны
-          %LOCALAPPDATA%\EmailBuilder\cache\  (Windows)
-          ~/.local/share/EmailBuilder/cache/ (Linux)
+          %LOCALAPPDATA%\Pochtelye\cache\  (Windows)
+          ~/.local/share/Pochtelye/cache/ (Linux)
 ```
 
 ### Расположение файлов после установки
@@ -23,7 +23,7 @@ EmailBuilder.exe / EmailBuilder (Linux)
 
 ```text
 <папка с exe>\
-    EmailBuilder.exe
+    Pochtelye.exe
     config.ini
     .lic              (только на машинах администраторов)
 ```
@@ -31,8 +31,8 @@ EmailBuilder.exe / EmailBuilder (Linux)
 **Linux** — установщик распаковывает в домашнюю папку пользователя:
 
 ```text
-~/EmailBuilder/
-    EmailBuilder      бинарник
+~/Pochtelye/
+    Pochtelye      бинарник
     config.ini        конфигурация
     .lic              токен (только для администраторов)
     icon.png          иконка
@@ -50,7 +50,7 @@ EmailBuilder.exe / EmailBuilder (Linux)
 ## Структура файлов
 
 ```text
-EmailBuilder.exe          исполняемый файл
+Pochtelye.exe          исполняемый файл
 config.ini                конфигурация (редактируется вручную)
 .lic                      токен администратора (только на машинах администраторов)
 ```
@@ -101,7 +101,7 @@ email-builder/
 pyinstaller build.spec --noconfirm
 ```
 
-Результат: `dist\EmailBuilder.exe`
+Результат: `dist\Pochtelye.exe`
 
 ### ALT Linux (через Docker с Windows-хоста)
 
@@ -109,7 +109,7 @@ pyinstaller build.spec --noconfirm
 build_linux_alt.bat
 ```
 
-Результат: `dist\linux\EmailBuilder`
+Результат: `dist\linux\Pochtelye`
 
 ### Подготовка перед сборкой
 

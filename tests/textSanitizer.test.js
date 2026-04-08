@@ -411,3 +411,94 @@ describe('TextSanitizer.applyTypography — кавычки + NBSP вместе',
         expect(r2).toContain(`и${NBSP}слово`)
     })
 })
+
+// ─── applyTypography() — замена дефиса на тире ───────────────────────────
+
+describe('TextSanitizer.applyTypography — замена дефиса на тире', () => {
+
+    const EM = '\u2014'
+
+    // ── случаи замены ──────────────────────────────────────────────────────
+
+    test('дефис между пробелами → тире', () => {
+        const r = TextSanitizer.applyTypography('<p>слово - слово</p>')
+        expect(r).toContain(`слово ${EM} слово`)
+        expect(r).not.toMatch(/\s-\s/)
+    })
+
+    test('дефис после запятой → тире', () => {
+        const r = TextSanitizer.applyTypography('<p>текст, - продолжение</p>')
+        expect(r).toContain(`, ${EM} продолжение`)
+    })
+
+    test('дефис после точки → тире', () => {
+        const r = TextSanitizer.applyTypography('<p>конец. - начало</p>')
+        expect(r).toContain(`. ${EM} начало`)
+    })
+
+    test('дефис после ! → тире', () => {
+        const r = TextSanitizer.applyTypography('<p>стоп! - иди</p>')
+        expect(r).toContain(`! ${EM} иди`)
+    })
+
+    test('дефис после ? → тире', () => {
+        const r = TextSanitizer.applyTypography('<p>вопрос? - ответ</p>')
+        expect(r).toContain(`? ${EM} ответ`)
+    })
+
+    test('дефис в начале строки перед текстом → тире (диалог)', () => {
+        const r = TextSanitizer.applyTypography('<p>- Привет</p>')
+        expect(r).toContain(`${EM} Привет`)
+        expect(r).not.toContain('- Привет')
+    })
+
+    // ── нормализация пробелов вокруг тире ─────────────────────────────────
+
+    test('нормализация: лишние пробелы вокруг тире убираются', () => {
+        const r = TextSanitizer.applyTypography('<p>слово  -  слово</p>')
+        expect(r).toContain(`слово ${EM} слово`)
+        expect(r).not.toMatch(/\s{2}/)
+    })
+
+    test('нормализация: уже существующее тире без пробелов → пробелы добавляются', () => {
+        const r = TextSanitizer.applyTypography(`<p>слово${EM}слово</p>`)
+        expect(r).toContain(`слово ${EM} слово`)
+    })
+
+    // ── случаи НЕ замены ──────────────────────────────────────────────────
+
+    test('дефис внутри слова (кто-то) → не заменяется', () => {
+        const r = TextSanitizer.applyTypography('<p>кто-то пришёл</p>')
+        expect(r).toContain('кто-то')
+        expect(r).not.toContain(EM)
+    })
+
+    test('составное имя (Санкт-Петербург) → не заменяется', () => {
+        const r = TextSanitizer.applyTypography('<p>Санкт-Петербург</p>')
+        expect(r).toContain('Санкт-Петербург')
+        expect(r).not.toContain(EM)
+    })
+
+    test('отрицательное число (-5) → не заменяется', () => {
+        const r = TextSanitizer.applyTypography('<p>температура -5 градусов</p>')
+        expect(r).toContain('-5')
+        expect(r).not.toContain(EM)
+    })
+
+    test('числовой диапазон (5-3) → не заменяется', () => {
+        const r = TextSanitizer.applyTypography('<p>выражение 5-3 равно</p>')
+        expect(r).toContain('5-3')
+        expect(r).not.toContain(EM)
+    })
+
+    test('slug / идентификатор (user-id) → не заменяется', () => {
+        const r = TextSanitizer.applyTypography('<p>поле user-id обязательно</p>')
+        expect(r).toContain('user-id')
+        expect(r).not.toContain(EM)
+    })
+
+    test('HTML-атрибуты с дефисом не затрагиваются', () => {
+        const r = TextSanitizer.applyTypography('<p><a href="https://site-name.com">ссылка</a></p>')
+        expect(r).toContain('href="https://site-name.com"')
+    })
+})

@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# build_admin.spec — PyInstaller spec for the Admin build of Email Builder.
+# build_admin.spec — PyInstaller spec for the Admin build of Почтелье.
 #
 # Rendering strategy
 # ------------------
@@ -118,7 +118,7 @@ a = Analysis(
         # Heavy unused libs.
         'matplotlib', 'numpy', 'pandas', 'pystray', 'PIL',
         # pywebview and PyQt6 are replaced by PyQt5.
-        'webview', 'PyQt6',
+        'webview', 'PyQt6', 'PySide6', 'PySide2',
     ],
     noarchive=False,
 )
@@ -131,7 +131,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='EmailBuilderAdmin',
+    name='PochtelyeAdmin',
     debug=False,
     strip=False,
     upx=False,
