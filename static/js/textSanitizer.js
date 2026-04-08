@@ -251,15 +251,60 @@ const TextSanitizer = (() => {
     }
 
     /**
-     * Walk every DOM text node inside `root` and apply {@link _nbspHanging}.
-     * Element nodes are traversed recursively; other node types are skipped.
+     * Replace a hyphen-minus (`-`) with an em dash (`—`) in the following cases:
+     *
+     *  1. Surrounded by spaces:              `word - word`  → `word — word`
+     *  2. After sentence punctuation (, . ! ?) optionally preceded by a space,
+     *     followed by a space and a word:    `, - word`     → `, — word`
+     *  3. At the very beginning of the text (list-item style):
+     *                                         `- text`       → `— text`
+     *
+     * The hyphen is intentionally left unchanged when:
+     *  - Between letters (hyphenated words, compound names, slugs, identifiers).
+     *  - Adjacent to digits without spaces (negative numbers, ranges: -5, 5-3).
+     *  - Inside URLs or email addresses (detected heuristically as "no surrounding spaces").
+     *
+     * After all replacements, spaces around `—` are normalised to exactly one on each side.
+     *
+     * @param {string} text - plain text content of a single DOM text node
+     * @returns {string}
+     */
+    function _replaceDash(text) {
+        // Case 3: hyphen at start of text (optionally preceded by whitespace) — list item
+        text = text.replace(/^(\s*)-(?=\s+\S)/, '$1\u2014');
+
+        // Case 2: hyphen after sentence punctuation (, . ! ? ; :) with optional surrounding spaces
+        text = text.replace(/([,\.!?;:])\s*-(?=\s)/g, '$1\u2014');
+
+        // Case 1: hyphen surrounded by spaces (word - word)
+        text = text.replace(/(?<=\s)-(?=\s)/g, '\u2014');
+
+        // Normalise spaces around em dash: exactly one regular space on each side.
+        // Collapse multiple spaces, trim NBSP to regular space around dash.
+        text = text.replace(/[\s\u00A0]*\u2014[\s\u00A0]*/g, ' \u2014 ');
+
+        // But do not leave a leading space if dash is at the very start of the node.
+        text = text.replace(/^ \u2014 /, '\u2014 ');
+
+        return text;
+    }
+
+    /**
+     * Walk every DOM text node inside `root` and apply typographic transforms:
+     * 1. {@link _replaceDash} — hyphen → em dash where appropriate.
+     * 2. {@link _nbspHanging} — non-breaking spaces after hanging prepositions.
+     *
+     * Elements are traversed recursively; other node types are skipped.
      *
      * @param {Element} root
      */
     function _walkForTypography(root) {
         for (const child of Array.from(root.childNodes)) {
             if (child.nodeType === 3) {
-                child.textContent = _nbspHanging(child.textContent);
+                let t = child.textContent;
+                t = _replaceDash(t);
+                t = _nbspHanging(t);
+                child.textContent = t;
             } else if (child.nodeType === 1) {
                 _walkForTypography(child);
             }

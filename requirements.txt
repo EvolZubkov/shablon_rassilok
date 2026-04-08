@@ -1,4 +1,4 @@
-# Email Builder - dependencies
+# Почтелье - dependencies
 # Install: pip install -r requirements.txt
 
 # ── Web server ──────────────────────────────────────────────────────────────

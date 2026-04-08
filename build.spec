@@ -1,5 +1,5 @@
 # -*- mode: python ; coding: utf-8 -*-
-# build.spec — single PyInstaller spec for Email Builder.
+# build.spec — single PyInstaller spec for Почтелье.
 #
 # Mode is determined at runtime by admin.lic + config.ini (admin_token_hash),
 # not at build time.  One binary serves both user and admin roles.
@@ -128,8 +128,8 @@ a = Analysis(
         # only for the icon conversion step (see build_linux_alt.bat step 3/5).
         'matplotlib', 'numpy', 'pandas', 'pystray',
         'PIL', 'PIL.Image', 'PIL.ImageFile', 'PIL._imaging',
-        # pywebview and PyQt6 are replaced by PyQt5.
-        'webview', 'PyQt6',
+        # pywebview and PyQt6/PySide6 are replaced by PyQt5.
+        'webview', 'PyQt6', 'PySide6', 'PySide2',
     ],
     noarchive=False,
 )
@@ -142,7 +142,7 @@ exe = EXE(
     a.binaries,
     a.datas,
     [],
-    name='EmailBuilder',
+    name='Pochtelye',
     debug=False,
     strip=False,
     upx=False,

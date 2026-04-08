@@ -85,12 +85,17 @@ def templates_root(tmp_path):
 
 @pytest.fixture
 def sample_template(templates_root):
-    """Кладёт один тестовый шаблон в папку personal."""
-    user_dir = templates_root / 'templates' / 'users' / 'testuser'
-    tpl_path = user_dir / 'my_template.json'
-    tpl_path.write_text(json.dumps({'name': 'Test', 'blocks': []}), encoding='utf-8')
+    """Кладёт один тестовый шаблон в папку personal (CACHE_BASE/templates)."""
+    personal_dir = email_app.get_personal_templates_dir()
+    tpl_path = os.path.join(personal_dir, 'my_template.json')
+    with open(tpl_path, 'w', encoding='utf-8') as f:
+        json.dump({'id': 'my_template', 'name': 'Test', 'blocks': []}, f)
     with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-        yield str(tpl_path), 'my_template.json'
+        yield tpl_path, 'my_template.json'
+    try:
+        os.remove(tpl_path)
+    except FileNotFoundError:
+        pass
 
 @pytest.fixture
 def sensitive_file(templates_root):
@@ -239,10 +244,9 @@ class TestPathTraversal_Fixed:
         assert resp.status_code in (400, 403, 404)
 
     def test_valid_filename_still_works_after_fix(self, client, sample_template):
-        """После фикса: легитимные имена файлов продолжают работать."""
-        _, filename = sample_template
+        """После фикса: легитимные id шаблонов продолжают работать."""
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-            resp = client.get(f'/api/templates/load?filename={filename}&type=personal')
+            resp = client.get('/api/templates/load?id=my_template&type=personal')
         assert resp.status_code == 200
         assert resp.get_json()['success'] is True
 
@@ -276,25 +280,31 @@ class TestErrorLeakage_BugProof:
         При 500-ошибке в ответе могут оказаться внутренние пути.
         Сымитируем ошибку через кривой JSON в шаблоне.
         """
-        # Кладём невалидный JSON файл
-        user_dir = templates_root / 'templates' / 'users' / 'testuser'
-        bad_file = user_dir / 'broken.json'
-        bad_file.write_text('NOT_VALID_JSON{{{', encoding='utf-8')
+        # Кладём невалидный JSON файл в реальную папку personal templates
+        personal_dir = email_app.get_personal_templates_dir()
+        bad_path = os.path.join(personal_dir, 'broken.json')
+        with open(bad_path, 'w', encoding='utf-8') as f:
+            f.write('NOT_VALID_JSON{{{')
+        try:
+            with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
+                resp = client.get('/api/templates/load?id=broken&type=personal')
 
-        with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-            resp = client.get('/api/templates/load?filename=broken.json&type=personal')
-
-        data = resp.get_json()
-        assert resp.status_code == 500
-        # На уязвимом коде: 'error' содержит str(e) с внутренним путём
-        error_msg = data.get('error', '')
-        # Проверяем что путь действительно просачивается
-        path_leaked = (
-            str(templates_root) in error_msg or
-            'templates' in error_msg.lower() or
-            os.sep in error_msg
-        )
-        assert path_leaked or True, "Информация о внутреннем пути не утекла (это хорошо!)"
+            data = resp.get_json()
+            # Broken JSON causes 500 or 404 (if index skips broken files)
+            assert resp.status_code in (500, 404)
+            # На уязвимом коде: 'error' содержит str(e) с внутренним путём
+            error_msg = data.get('error', '') if data else ''
+            # Проверяем что путь действительно просачивается (или хорошо скрыт)
+            path_leaked = (
+                'templates' in error_msg.lower() or
+                os.sep in error_msg
+            )
+            assert path_leaked or True, "Информация о внутреннем пути не утекла (это хорошо!)"
+        finally:
+            try:
+                os.remove(bad_path)
+            except FileNotFoundError:
+                pass
 
     def test_network_path_leaked_in_config_error(self, client):
         """
@@ -375,67 +385,6 @@ class TestErrorLeakage_Fixed:
 #  3. БЛОКИРУЮЩИЙ input() ПРИ ОБНОВЛЕНИИ
 #     check_for_updates() вызывает input() — блокирует поток Flask
 # ══════════════════════════════════════════════════════════════════════════════
-
-class TestBlockingInput_BugProof:
-    """
-    Доказываем что check_for_updates вызывает input() при обнаружении обновления.
-    """
-
-    @pytest.mark.xfail(reason="Баг исправлен: input() удалён из check_for_updates", strict=True)
-    def test_check_for_updates_calls_input_when_new_version_available(self):
-        """
-        Если на сервере новая версия — вызывается input().
-        Это означает что сервер зависает в ожидании ввода из терминала.
-        """
-        # Создаём валидный кеш чтобы пройти мимо ветки initialize_cache
-        # и попасть в ветку сравнения версий (где и живёт input())
-        os.makedirs(FAKE_CACHE, exist_ok=True)
-        cfg_path = os.path.join(FAKE_CACHE, 'config.json')
-        with open(cfg_path, 'w') as f:
-            json.dump({'version': '1.0'}, f)
-        banners_dir = os.path.join(FAKE_CACHE, 'banners')
-        os.makedirs(banners_dir, exist_ok=True)
-
-        email_app.set_cache_version('1.0')
-
-        version_file = os.path.join(FAKE_NETWORK, 'version.txt')
-        with open(version_file, 'w') as f:
-            f.write('2.0')
-        email_app.NETWORK_VERSION_FILE = version_file
-
-        input_called = []
-
-        def mock_input(prompt=''):
-            input_called.append(prompt)
-            return 'n'  # симулируем ввод 'n' чтобы не зависнуть
-
-        with mock.patch('builtins.input', side_effect=mock_input):
-            with mock.patch.object(email_app, 'check_network_access', return_value=True):
-                email_app.check_for_updates()
-
-        # Фиксируем факт: input() был вызван — сервер заблокировался
-        assert len(input_called) > 0, \
-            "ОЖИДАЛОСЬ что input() вызван — баг с блокирующим вводом не воспроизвёлся"
-
-        os.remove(version_file)
-        os.remove(cfg_path)
-        email_app.NETWORK_VERSION_FILE = os.path.join(FAKE_NETWORK, 'version.txt')
-
-    @pytest.mark.xfail(reason="Баг исправлен: input() удалён из initialize_cache", strict=True)
-    def test_initialize_cache_calls_input_on_no_network(self):
-        """initialize_cache() вызывает input() при отсутствии сети."""
-        input_called = []
-
-        def mock_input(prompt=''):
-            input_called.append(prompt)
-            return ''
-
-        with mock.patch('builtins.input', side_effect=mock_input):
-            with mock.patch.object(email_app, 'check_network_access', return_value=False):
-                email_app.initialize_cache()
-
-        assert len(input_called) > 0, "input() должен был быть вызван при отсутствии сети"
-
 
 class TestBlockingInput_Fixed:
     """
@@ -549,23 +498,6 @@ class TestPresetEmojiBug_BugProof:
         assert len(non_presets_after) == 2, \
             "БАГ ПОДТВЕРЖДЁН: после переименования пресет потерял статус пресета"
 
-    @pytest.mark.xfail(reason="Баг исправлен: эмодзи 🧩 заменено на поле isPreset")
-    def test_emoji_hardcoded_in_multiple_places(self):
-        """Эмодзи 🧩 использовался как магическая константа в нескольких местах.
-        После фикса эмодзи убран — тест ожидаемо не проходит (xfail).
-        """
-        js_files = [
-            os.path.join(os.path.dirname(__file__), '..', 'js_src', 'js', 'user', 'userApp.js'),
-            os.path.join(os.path.dirname(__file__), '..', 'js_src', 'js', 'templatesUI.js'),
-        ]
-        total_occurrences = 0
-        for path in js_files:
-            if os.path.exists(path):
-                content = open(path, encoding='utf-8').read()
-                total_occurrences += content.count('🧩')
-
-        assert total_occurrences >= 3, \
-            f"Ожидалось 3+ вхождений 🧩 в JS файлах, найдено: {total_occurrences}"
 
 
 class TestPresetEmojiBug_Fixed:
@@ -758,20 +690,18 @@ class TestInputValidation_Fixed:
 
     def test_rename_accepts_valid_name_after_fix(self, client, sample_template):
         """После фикса: нормальные имена продолжают работать."""
-        _, filename = sample_template
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
             resp = client.put('/api/templates/rename',
-                              json={'filename': filename, 'newName': 'Новое имя', 'type': 'personal'},
+                              json={'id': 'my_template', 'newName': 'Новое имя', 'type': 'personal'},
                               content_type='application/json')
         assert resp.status_code == 200
         assert resp.get_json()['success'] is True
 
     def test_rename_accepts_exactly_200_chars(self, client, sample_template):
         """После фикса: ровно 200 символов — граничное значение — принимается."""
-        _, filename = sample_template
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
             resp = client.put('/api/templates/rename',
-                              json={'filename': filename, 'newName': 'A' * 200, 'type': 'personal'},
+                              json={'id': 'my_template', 'newName': 'A' * 200, 'type': 'personal'},
                               content_type='application/json')
         assert resp.status_code == 200
 

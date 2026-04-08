@@ -1,5 +1,5 @@
 """
-Email Builder - Desktop Application
+Почтелье - Desktop Application
 Главный файл приложения с системой кеширования и управлением ресурсами
 """
 
@@ -123,7 +123,7 @@ except RuntimeError as _cfg_err:
     try:
         from PyQt5.QtWidgets import QApplication, QMessageBox
         _app = QApplication.instance() or QApplication(sys.argv)
-        QMessageBox.critical(None, 'Email Builder — ошибка конфигурации', str(_cfg_err))
+        QMessageBox.critical(None, 'Почтелье — ошибка конфигурации', str(_cfg_err))
     except Exception:
         pass
     sys.exit(1)
@@ -200,13 +200,13 @@ if getattr(sys, 'frozen', False):
     BUILTIN_DIR = sys._MEIPASS
     EXE_DIR = os.path.dirname(sys.executable)
     
-    # CACHE_BASE = os.path.join(os.environ['LOCALAPPDATA'], 'EmailBuilder')
+    # CACHE_BASE = os.path.join(os.environ['LOCALAPPDATA'], 'Pochtelye')
     if sys.platform == 'win32':
         _app_data = os.environ.get('LOCALAPPDATA') or os.path.expanduser('~\\AppData\\Local')
     else:
         _app_data = os.environ.get('XDG_DATA_HOME') or os.path.join(os.path.expanduser('~'), '.local', 'share')
 
-    CACHE_BASE = os.path.join(_app_data, 'EmailBuilder')
+    CACHE_BASE = os.path.join(_app_data, 'Pochtelye')
     CACHE_DIR = os.path.join(CACHE_BASE, 'cache')
 else:
     # Режим разработки
@@ -242,7 +242,7 @@ _qt_app = None
 
 # Время последнего пинга
 _last_heartbeat = time.time()
-_heartbeat_timeout = 10  # секунд
+_heartbeat_timeout = 20  # секунд (интервал пинга 5 с + запас на джиттер и медленный старт)
 
 
 @app.route('/api/heartbeat', methods=['POST'])
@@ -316,7 +316,7 @@ def check_network_access():
 
 def _validate_resource_repo(path):
     """
-    Checks whether *path* contains a valid Email Builder resource repository.
+    Checks whether *path* contains a valid Почтелье resource repository.
 
     A valid repository must have:
         * ``version.txt``    — version marker at the root
@@ -478,14 +478,14 @@ def show_splash(main_logic):
             gif_label._buf = _buf
             gif_label._movie = movie
         except Exception:
-            gif_label.setText('Email Builder')
+            gif_label.setText('Почтелье')
             gif_label.setStyleSheet(
                 'color: white; font-size: 22px; background: transparent;')
 
         layout.addWidget(gif_label)
 
         # Название — поверх GIF внизу по центру
-        title_lbl = QLabel('Email Builder', splash)
+        title_lbl = QLabel('Почтелье', splash)
         title_lbl.setAlignment(Qt.AlignCenter)
         title_lbl.setFont(QFont('Segoe UI', 24, QFont.Bold))
         title_lbl.setStyleSheet('''
@@ -742,7 +742,7 @@ def _show_resource_finder_dialog(is_admin, reason=''):
     qt_app = QApplication.instance() or QApplication(sys.argv)  # noqa: F841
 
     dlg = QDialog()
-    dlg.setWindowTitle('Email Builder — поиск ресурсов')
+    dlg.setWindowTitle('Почтелье — поиск ресурсов')
     dlg.setMinimumWidth(580)
     dlg.setModal(True)
 
@@ -1037,14 +1037,14 @@ def copy_directory_with_progress(src, dst, desc="Копирование"):
 def initialize_cache():
     """Инициализация кеша при первом запуске"""
     print("\n" + "=" * 60)
-    print("🚀 Email Builder - Первый запуск")
+    print("🚀 Почтелье - Первый запуск")
     print("=" * 60)
 
     if not check_network_access():
         print("❌ ОШИБКА: Нет доступа к сетевой папке!")
         print(f"   Проверьте доступность: {NETWORK_RESOURCES_PATH}")
         show_error_dialog(
-            'Email Builder — ошибка запуска',
+            'Почтелье — ошибка запуска',
             f'Нет доступа к сетевой папке:\n{NETWORK_RESOURCES_PATH}\n\n'
             'Локальный кеш не найден. Приложение не может запуститься.\n\n'
             'Проверьте подключение к сети и повторите попытку.'
@@ -1121,7 +1121,7 @@ def check_for_updates():
         print("⚠️  Нет доступа к сетевому ресурсу")
         print("   Используется локальный кеш")
         show_error_dialog(
-            'Email Builder — нет доступа к сети',
+            'Почтелье — нет доступа к сети',
             f'Нет доступа к сетевой папке:\n{NETWORK_RESOURCES_PATH}\n\n'
             'Приложение запущено в автономном режиме.\n'
             'Шаблоны и ресурсы загружены из локального кеша.'
@@ -1453,7 +1453,7 @@ def user_index():
     return send_from_directory(app.static_folder, 'index-user.html')
 
 
-@app.route('/<path:path>')
+@app.route('/<path:path>', methods=['GET', 'HEAD'])
 def static_files(path):
     """Гибридная раздача: картинки из кеша, остальное из static"""
 
@@ -2665,7 +2665,7 @@ def _run_webview_or_browser() -> None:
 
         window = QMainWindow()
         role_label = 'Admin' if APP_MODE == 'admin' else 'User'
-        window.setWindowTitle(f'Email Builder {__version__} [{role_label}]')
+        window.setWindowTitle(f'Почтелье {__version__} [{role_label}]')
         window.resize(1280, 800)
         window.setMinimumSize(800, 600)
 
@@ -2726,7 +2726,7 @@ def main():
 
     def main_logic(close_splash, update_status):
         print("\n" + "=" * 60)
-        print(f"🚀 Email Builder {__version__}")
+        print(f"🚀 Почтелье {__version__}")
         print("=" * 60)
         print(f"📁 Сетевой ресурс: {NETWORK_RESOURCES_PATH}")
         print(f"💾 Локальный кеш: {CACHE_DIR}")

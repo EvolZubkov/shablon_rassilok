@@ -14,7 +14,10 @@ function renderTextSettings(container, block) {
     if (ta) {
         // Убираем стандартный oninput/onchange который мог быть назначен в createSettingTextarea
         ta.addEventListener('change', (e) => {
-            const simpleHTML = TextSanitizer.sanitize(e.target.value, true);
+            let simpleHTML = TextSanitizer.sanitize(e.target.value, true);
+            simpleHTML = TextSanitizer.applyTypography(simpleHTML);
+            // Reflect typography back so the user sees guillemets and NBSP in the textarea
+            e.target.value = TextSanitizer.toPlainText(simpleHTML);
             updateBlockSetting(block.id, 'content', simpleHTML);
         });
 

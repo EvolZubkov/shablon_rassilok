@@ -1,0 +1,15 @@
+{
+  "python.testing.pytestEnabled": true,
+  "python.testing.pytestArgs": [
+    "tests",
+    "--no-header",
+    "-v"
+  ],
+  "python.testing.unittestEnabled": false,
+  "python.testing.cwd": "${workspaceFolder}",
+
+  "vitest.enable": true,
+  "vitest.commandLine": "npx vitest",
+  "vitest.include": "tests/**/*.test.js",
+  "vitest.rootConfig": "${workspaceFolder}/vitest.config.js"
+}
