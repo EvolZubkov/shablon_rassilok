@@ -128,8 +128,8 @@ a = Analysis(
         # only for the icon conversion step (see build_linux_alt.bat step 3/5).
         'matplotlib', 'numpy', 'pandas', 'pystray',
         'PIL', 'PIL.Image', 'PIL.ImageFile', 'PIL._imaging',
-        # pywebview and PyQt6 are replaced by PyQt5.
-        'webview', 'PyQt6',
+        # pywebview and PyQt6/PySide6 are replaced by PyQt5.
+        'webview', 'PyQt6', 'PySide6', 'PySide2',
     ],
     noarchive=False,
 )

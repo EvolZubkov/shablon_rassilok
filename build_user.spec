@@ -114,7 +114,7 @@ a = Analysis(
         # Heavy unused libs.
         'matplotlib', 'numpy', 'pandas', 'pystray', 'PIL',
         # pywebview and PyQt6 are replaced by PyQt5.
-        'webview', 'PyQt6',
+        'webview', 'PyQt6', 'PySide6', 'PySide2',
     ],
     noarchive=False,
 )
