@@ -57,6 +57,9 @@ function renderTextSettings(container, block) {
                 result = TextSanitizer.sanitize(ta.value, true);
             }
 
+            // Применяем типографику: неразрывные пробелы после предлогов/союзов
+            result = TextSanitizer.applyTypography(result);
+
             updateBlockSetting(block.id, 'content', result);
             renderCanvas();
         });
