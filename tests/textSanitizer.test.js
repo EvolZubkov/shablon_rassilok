@@ -264,3 +264,150 @@ describe('TextSanitizer.toPlainText', () => {
         expect(html2).toBe(html)
     })
 })
+
+// ─── applyTypography() — кавычки ──────────────────────────────────────────
+
+describe('TextSanitizer.applyTypography — замена кавычек', () => {
+
+    test('простая пара → «»', () => {
+        const r = TextSanitizer.applyTypography('<p>"текст"</p>')
+        expect(r).toContain('«текст»')
+        expect(r).not.toContain('"')
+    })
+
+    test('несколько пар в одной строке', () => {
+        const r = TextSanitizer.applyTypography('<p>"первый" и "второй"</p>')
+        expect(r).toContain('«первый»')
+        expect(r).toContain('«второй»')
+        expect(r).not.toContain('"')
+    })
+
+    test('кавычки вокруг элемента с тегами внутри', () => {
+        const r = TextSanitizer.applyTypography('<p>"<strong>жирный</strong>"</p>')
+        expect(r).toContain('«')
+        expect(r).toContain('»')
+        expect(r).toContain('<strong>жирный</strong>')
+        expect(r).not.toContain('"')
+    })
+
+    test('кавычка раскрывается через границу тегов', () => {
+        // Открывающая " до тега, закрывающая после — правило должно соблюдаться
+        const r = TextSanitizer.applyTypography('<p>"слово <em>курсив</em> конец"</p>')
+        expect(r).toContain('«слово')
+        expect(r).toContain('конец»')
+        expect(r).not.toContain('"')
+    })
+
+    test('href в атрибутах не затрагивается', () => {
+        const r = TextSanitizer.applyTypography('<p><a href="https://rt.ru">"ссылка"</a></p>')
+        expect(r).toContain('href="https://rt.ru"')
+        expect(r).toContain('«ссылка»')
+    })
+
+    test('нечётная (непарная) кавычка не ломает HTML', () => {
+        const r = TextSanitizer.applyTypography('<p>текст "без закрывающей</p>')
+        expect(r).toContain('«без закрывающей')
+        expect(typeof r).toBe('string')
+    })
+
+    test('строка без кавычек и без коротких предлогов не изменяется', () => {
+        // Все слова длиннее 6 букв и не входят в список предлогов/союзов
+        const input = '<p>совершенно обычный длинный текст</p>'
+        expect(TextSanitizer.applyTypography(input)).toBe(input)
+    })
+
+    test('пустая строка → пустая строка', () => {
+        expect(TextSanitizer.applyTypography('')).toBe('')
+    })
+})
+
+// ─── applyTypography() — неразрывные пробелы ─────────────────────────────
+
+describe('TextSanitizer.applyTypography — неразрывные пробелы', () => {
+
+    // jsdom сериализует \u00A0 в innerHTML как &nbsp;
+    const NBSP = '&nbsp;'
+
+    test('однобуквенный предлог «в» → неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>в магазин</p>')
+        expect(r).toContain(`в${NBSP}магазин`)
+    })
+
+    test('предлог «на» → неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>на работе</p>')
+        expect(r).toContain(`на${NBSP}работе`)
+    })
+
+    test('предлог «перед» (6 букв, в явном списке) → неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>перед домом</p>')
+        expect(r).toContain(`перед${NBSP}домом`)
+    })
+
+    test('предлог «между» → неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>между делом</p>')
+        expect(r).toContain(`между${NBSP}делом`)
+    })
+
+    test('союз «и» → неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>мама и папа</p>')
+        expect(r).toContain(`и${NBSP}папа`)
+    })
+
+    test('два союза подряд — оба получают неразрывный пробел', () => {
+        // «да» и «или» — оба в списке; lookbehind не потребляет пробел,
+        // поэтому второй матч находит ведущий пробел перед «или».
+        const r = TextSanitizer.applyTypography('<p>да или нет</p>')
+        expect(r).toContain(`да${NBSP}или`)
+        expect(r).toContain(`или${NBSP}нет`)
+    })
+
+    test('регистронезависимость: «В» в начале предложения', () => {
+        const r = TextSanitizer.applyTypography('<p>В начале было слово</p>')
+        expect(r).toContain(`В${NBSP}начале`)
+    })
+
+    test('длинное слово не из списка → обычный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>программа запущена</p>')
+        expect(r).not.toContain(NBSP)
+    })
+
+    test('предлог перед тегом: неразрывный пробел внутри текстовой ноды', () => {
+        // «с» и «другом» в одной текстовой ноде → NBSP
+        const r = TextSanitizer.applyTypography('<p>пришёл с другом</p>')
+        expect(r).toContain(`с${NBSP}другом`)
+    })
+
+    test('повторный вызов не удваивает nbsp', () => {
+        const once = TextSanitizer.applyTypography('<p>в магазин</p>')
+        const twice = TextSanitizer.applyTypography(once)
+        const nbspCount = (twice.match(/&nbsp;/g) || []).length
+        expect(nbspCount).toBe(1)
+    })
+})
+
+// ─── applyTypography() — совместная работа ────────────────────────────────
+
+describe('TextSanitizer.applyTypography — кавычки + NBSP вместе', () => {
+
+    const NBSP = '&nbsp;'
+
+    test('кавычки и предлог в одном тексте', () => {
+        const r = TextSanitizer.applyTypography('<p>"поездка в горы"</p>')
+        expect(r).toContain('«')
+        expect(r).toContain('»')
+        expect(r).toContain(`в${NBSP}горы`)
+    })
+
+    test('HTML-структура не ломается после обеих замен', () => {
+        // «и» перед <strong> — граница текстовой ноды, NBSP не вставляется.
+        // Проверяем целостность HTML и корректную замену кавычек.
+        const r = TextSanitizer.applyTypography(
+            '<p>"текст" и <strong>жирное</strong> слово</p>'
+        )
+        expect(r).toContain('<strong>жирное</strong>')
+        expect(r).toContain('«текст»')
+        // «и» внутри одной текстовой ноды с последующим словом — NBSP есть
+        const r2 = TextSanitizer.applyTypography('<p>и слово вместе</p>')
+        expect(r2).toContain(`и${NBSP}слово`)
+    })
+})
