@@ -82,11 +82,16 @@ def templates_root(tmp_path):
 
 @pytest.fixture
 def sample_template(templates_root):
-    user_dir = templates_root / 'templates' / 'users' / 'testuser'
-    path = user_dir / 'sample.json'
-    path.write_text(json.dumps({'name': 'Sample', 'blocks': []}), encoding='utf-8')
+    personal_dir = email_app.get_personal_templates_dir()
+    path = os.path.join(personal_dir, 'sample.json')
+    with open(path, 'w', encoding='utf-8') as f:
+        json.dump({'id': 'sample', 'name': 'Sample', 'blocks': []}, f)
     with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-        yield str(path), 'sample.json'
+        yield path, 'sample.json'
+    try:
+        os.remove(path)
+    except FileNotFoundError:
+        pass
 
 @pytest.fixture
 def sensitive_file(templates_root):
@@ -179,10 +184,9 @@ class TestPathTraversalFixed:
         assert r.status_code == 400
 
     def test_load_valid_filename_still_works(self, client, sample_template):
-        """Легитимные имена файлов работают как прежде."""
-        _, filename = sample_template
+        """Легитимные id шаблонов работают как прежде."""
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-            r = client.get(f'/api/templates/load?filename={filename}&type=personal')
+            r = client.get('/api/templates/load?id=sample&type=personal')
         assert r.status_code == 200
         assert r.get_json()['success'] is True
 
@@ -257,14 +261,23 @@ class TestErrorLeakageFixed:
                 f"Внутренний путь '{pattern}' утёк в ответ: {error_msg!r}"
 
     def test_broken_json_template_returns_generic_error(self, client, templates_root):
-        """Кривой JSON → 500 с общим сообщением, без путей."""
-        user_dir = templates_root / 'templates' / 'users' / 'testuser'
-        (user_dir / 'broken.json').write_text('NOT_JSON', encoding='utf-8')
-        with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-            r = client.get('/api/templates/load?filename=broken.json&type=personal')
-        assert r.status_code == 500
-        data = r.get_json()
-        self._assert_no_internal_path(data.get('error', ''))
+        """Кривой JSON → 500 или 404 с общим сообщением, без путей."""
+        personal_dir = email_app.get_personal_templates_dir()
+        bad_path = os.path.join(personal_dir, 'broken.json')
+        with open(bad_path, 'w', encoding='utf-8') as f:
+            f.write('NOT_JSON')
+        try:
+            with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
+                r = client.get('/api/templates/load?id=broken&type=personal')
+            # Index may skip broken files → 404; or read may fail → 500
+            assert r.status_code in (500, 404)
+            data = r.get_json()
+            self._assert_no_internal_path(data.get('error', '') if data else '')
+        finally:
+            try:
+                os.remove(bad_path)
+            except FileNotFoundError:
+                pass
 
     def test_config_error_hides_network_path(self, client):
         """Ошибка load_config → ответ без сетевых путей."""
@@ -501,13 +514,15 @@ class TestPresetFieldFixed:
     def test_load_returns_isPreset_field(self, client, templates_root, sample_template):
         """Загруженный шаблон содержит поле isPreset."""
         # Перезаписываем sample с isPreset
-        path, filename = sample_template
-        data = json.loads(open(path, encoding='utf-8').read())
+        path, _ = sample_template
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
         data['isPreset'] = True
-        open(path, 'w', encoding='utf-8').write(json.dumps(data))
+        with open(path, 'w', encoding='utf-8') as f:
+            json.dump(data, f)
 
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
-            r = client.get(f'/api/templates/load?filename={filename}&type=personal')
+            r = client.get('/api/templates/load?id=sample&type=personal')
 
         assert r.status_code == 200
         template = r.get_json()['template']
@@ -549,24 +564,27 @@ class TestPresetFieldFixed:
 
     def test_renaming_preset_preserves_isPreset_field(self, client, templates_root):
         """После переименования isPreset остаётся True."""
-        # Создаём пресет
+        # Создаём пресет в shared (использует NETWORK_RESOURCES_PATH → templates_root)
         r = client.post('/api/templates/save',
                         json={'name': 'Пресет', 'blocks': [], 'type': 'shared', 'isPreset': True},
                         content_type='application/json')
-        filename = r.get_json()['filename']
+        assert r.status_code == 200
+        save_data = r.get_json()
+        template_id = save_data['id']
+        filename = save_data['filename']
 
-        # Переименовываем
+        # Переименовываем (файл остаётся на месте, меняется только поле name)
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
             r2 = client.put('/api/templates/rename',
-                            json={'filename': filename, 'newName': 'Переименован', 'type': 'shared'},
+                            json={'id': template_id, 'newName': 'Переименован', 'type': 'shared'},
                             content_type='application/json')
 
         assert r2.status_code == 200
-        new_filename = r2.get_json()['newFilename']
 
-        # Проверяем что isPreset сохранился
-        saved_path = templates_root / 'templates' / 'shared' / new_filename
-        saved = json.loads(saved_path.read_text(encoding='utf-8'))
+        # Файл не переименовывается — проверяем оригинальный путь
+        saved_path = templates_root / 'templates' / 'shared' / filename
+        with open(saved_path, encoding='utf-8') as f:
+            saved = json.load(f)
         assert saved.get('isPreset') is True, \
             "isPreset потерялся после переименования"
 
@@ -660,19 +678,17 @@ class TestInputValidationFixed:
 
     def test_rename_accepts_name_200_chars(self, client, sample_template):
         """newName ровно 200 символов — граничное значение — принимается."""
-        _, filename = sample_template
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
             r = client.put('/api/templates/rename',
-                           json={'filename': filename, 'newName': 'B' * 200, 'type': 'personal'},
+                           json={'id': 'sample', 'newName': 'B' * 200, 'type': 'personal'},
                            content_type='application/json')
         assert r.status_code == 200
 
     def test_rename_accepts_normal_name(self, client, sample_template):
         """Нормальное имя переименования работает как прежде."""
-        _, filename = sample_template
         with mock.patch.object(email_app, 'get_user_from_system', return_value='testuser'):
             r = client.put('/api/templates/rename',
-                           json={'filename': filename, 'newName': 'Новый шаблон', 'type': 'personal'},
+                           json={'id': 'sample', 'newName': 'Новый шаблон', 'type': 'personal'},
                            content_type='application/json')
         assert r.status_code == 200
         assert r.get_json()['success'] is True

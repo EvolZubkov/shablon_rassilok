@@ -132,6 +132,11 @@ class TestCheckNetworkAccess:
     """Тесты проверки доступности сетевого ресурса"""
 
     def test_returns_true_when_path_exists(self):
+        # _validate_resource_repo requires version.txt and static/ to exist
+        os.makedirs(os.path.join(FAKE_NETWORK, 'static'), exist_ok=True)
+        version_file = os.path.join(FAKE_NETWORK, 'version.txt')
+        with open(version_file, 'w') as f:
+            f.write('1.0')
         email_app.NETWORK_RESOURCES_PATH = FAKE_NETWORK
         assert email_app.check_network_access() is True
 
@@ -295,11 +300,11 @@ class TestTemplatesAPI:
         assert 'filename' in data
 
     def test_load_nonexistent_template_returns_404(self, client):
-        resp = client.get('/api/templates/load?filename=nonexistent.json&type=personal')
+        resp = client.get('/api/templates/load?id=nonexistent&type=personal')
         assert resp.status_code == 404
 
     def test_delete_nonexistent_template_returns_404(self, client):
-        resp = client.delete('/api/templates/delete?filename=ghost.json&type=personal')
+        resp = client.delete('/api/templates/delete?id=ghost&type=personal')
         assert resp.status_code == 404
 
 
@@ -411,22 +416,22 @@ class TestTemplateFullCycle:
         }
         resp = client.post('/api/templates/save', json=payload, content_type='application/json')
         assert resp.status_code == 200
-        filename = resp.get_json()['filename']
+        save_data = resp.get_json()
+        template_id = save_data['id']
 
         # 2. Загружаем
-        resp = client.get(f'/api/templates/load?filename={filename}&type=personal')
+        resp = client.get(f'/api/templates/load?id={template_id}&type=personal')
         assert resp.status_code == 200
         template = resp.get_json()['template']
         assert template['name'] == 'Lifecycle Test'
 
         # 3. Переименовываем
         resp = client.put('/api/templates/rename',
-                          json={'filename': filename, 'newName': 'Renamed', 'type': 'personal'},
+                          json={'id': template_id, 'newName': 'Renamed', 'type': 'personal'},
                           content_type='application/json')
         data = resp.get_json()
         assert data['success'] is True
-        new_filename = data['newFilename']
 
-        # 4. Удаляем
-        resp = client.delete(f'/api/templates/delete?filename={new_filename}&type=personal')
+        # 4. Удаляем (id не меняется при переименовании — файл тот же)
+        resp = client.delete(f'/api/templates/delete?id={template_id}&type=personal')
         assert resp.get_json()['success'] is True
