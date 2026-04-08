@@ -1,6 +1,6 @@
 @echo off
 setlocal
-chcp 65001 >/dev/null
+chcp 65001 >nul
 
 set "IMAGE_NAME=emailbuilder-alt-p10"
 set "CONTAINER_NAME=eb-builder-%RANDOM%"
@@ -12,7 +12,7 @@ echo   Pochtelye - ALT Linux p10 build
 echo ============================================
 echo.
 
-docker --version >/dev/null 2>&1
+docker --version >nul 2>&1
 if errorlevel 1 (
     echo [ERROR] Docker not found or not running
     pause
@@ -79,13 +79,13 @@ if errorlevel 1 (
     goto error
 )
 
-docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 -c "from PIL import Image; img=Image.open('/app/icon.ico'); img = img.convert('RGBA'); img.thumbnail((48,48)); img.save('/app/dist/linux/icon.png','PNG'); print('icon.png written')" || echo '[WARN] icon conversion failed'"
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/convert_icon.py || echo '[WARN] icon conversion failed'"
 if exist config.ini (
     if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
-    copy /y config.ini "%DIST_DIR%\config.ini" >/dev/null
+    copy /y config.ini "%DIST_DIR%\config.ini" >nul
 )
 
-docker exec %CONTAINER_NAME% bash -c "bash /app/make_installer.sh /app/dist/linux"
+docker exec %CONTAINER_NAME% bash -c "sed -i 's/\r//' /app/make_installer.sh && bash /app/make_installer.sh /app/dist/linux"
 if errorlevel 1 (
     echo [ERROR] Failed to create installer
     goto error
@@ -124,6 +124,6 @@ pause
 exit /b 0
 
 :cleanup
-docker stop %CONTAINER_NAME% >/dev/null 2>&1
-docker rm   %CONTAINER_NAME% >/dev/null 2>&1
+docker stop %CONTAINER_NAME% >nul 2>&1
+docker rm   %CONTAINER_NAME% >nul 2>&1
 exit /b 0
