@@ -1093,47 +1093,75 @@ function openImagePicker(blockId) {
     const block = findBlockById(UserAppState.blocks, blockId);
     if (!block) return;
 
-    // Берём или создаём скрытый file input
-    let fileInput = document.getElementById('image-file-input');
-    if (!fileInput) {
-        fileInput = document.createElement('input');
-        fileInput.type = 'file';
-        fileInput.accept = 'image/*';
-        fileInput.id = 'image-file-input';
-        fileInput.style.display = 'none';
-        document.body.appendChild(fileInput);
+    const modal = document.getElementById('image-editor-modal');
+    if (!modal) return;
+
+    const s = block.settings;
+
+    // Превью если картинка уже есть
+    const thumb = document.getElementById('image-preview-thumb');
+    const thumbImg = document.getElementById('image-thumb-img');
+    if (s.renderedImage || s.src) {
+        thumbImg.src = s.renderedImage || s.src;
+        thumb.style.display = 'block';
+    } else {
+        thumb.style.display = 'none';
     }
 
-    // Сбрасываем предыдущий обработчик
-    fileInput.onchange = null;
-    fileInput.value = '';
+    // URL
+    document.getElementById('image-url-input').value = s.url || '';
 
-    fileInput.onchange = (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-            pushUndoState();
-            block.settings.src = ev.target.result;
-
-            if (typeof renderImageToDataUrl === 'function') {
-                renderImageToDataUrl(block, (result) => {
-                    if (result) {
-                        block.settings.renderedImage = result.dataUrl;
-                        block.settings.renderedWidth = result.width;
-                        block.settings.renderedHeight = result.height;
-                    }
-                    renderUserCanvas();
-                });
-            } else {
-                renderUserCanvas();
-            }
+    // Кнопка выбора файла
+    document.getElementById('btn-change-image').onclick = () => {
+        let fileInput = document.getElementById('image-file-input');
+        if (!fileInput) {
+            fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.id = 'image-file-input';
+            fileInput.style.display = 'none';
+            document.body.appendChild(fileInput);
+        }
+        fileInput.onchange = null;
+        fileInput.value = '';
+        fileInput.onchange = (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = (ev) => {
+                s.src = ev.target.result;
+                thumbImg.src = ev.target.result;
+                thumb.style.display = 'block';
+            };
+            reader.readAsDataURL(file);
         };
-        reader.readAsDataURL(file);
+        fileInput.click();
     };
 
-    fileInput.click();
+    // Применить
+    document.getElementById('btn-apply-image').onclick = async () => {
+        pushUndoState();
+        s.url = document.getElementById('image-url-input').value.trim();
+
+        if (typeof renderImageToDataUrl === 'function' && s.src) {
+            renderImageToDataUrl(block, (result) => {
+                if (result) {
+                    s.renderedImage = result.dataUrl;
+                    s.renderedWidth = result.width;
+                    s.renderedHeight = result.height;
+                }
+                UserAppState.isDirty = true;
+                renderUserCanvas();
+            });
+        } else {
+            UserAppState.isDirty = true;
+            renderUserCanvas();
+        }
+
+        modal.style.display = 'none';
+    };
+
+    modal.style.display = 'flex';
 }
 
 /**
