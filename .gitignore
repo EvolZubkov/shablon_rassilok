@@ -3,3 +3,4 @@ dist/
 .lic
 .key
 .admin_hash
+node_modules/
