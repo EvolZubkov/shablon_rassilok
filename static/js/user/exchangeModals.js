@@ -199,7 +199,7 @@ const ExchangeModals = (() => {
           <div class="modal-overlay" onclick="ExchangeModals.closeMeeting()"></div>
           <div class="exc-panel exc-panel--md">
             <div class="exc-header">
-              <span class="exc-title">📅 Создать встречу</span>
+              <span class="exc-title">📅 Отправить встречу</span>
               <button class="exc-close" onclick="ExchangeModals.closeMeeting()">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               </button>
@@ -277,7 +277,7 @@ const ExchangeModals = (() => {
             <div class="exc-footer">
               <button class="exc-btn exc-btn--secondary" onclick="ExchangeModals.closeMeeting()">Отмена</button>
               <button id="meeting-send-btn" class="exc-btn exc-btn--primary"
-                      onclick="ExchangeModals.sendMeeting()">Создать встречу</button>
+                      onclick="ExchangeModals.sendMeeting()">Отправить встречу</button>
             </div>
           </div>
         </div>`);
@@ -576,7 +576,7 @@ const ExchangeModals = (() => {
         const badAddr = [...to, ...bcc].find(e => !_validateEmail(e));
         if (badAddr) { Toast.warning(`Некорректный адрес: ${badAddr}`); return; }
 
-        _setLoading('meeting-send-btn', true, 'Создать встречу');
+        _setLoading('meeting-send-btn', true, 'Отправить встречу');
         try {
             const html = await _generateHtml();
             const attachments = await _filesToBase64(_attachments.meeting);
@@ -603,7 +603,7 @@ const ExchangeModals = (() => {
         } catch {
             Toast.error('Нет связи с сервером');
         } finally {
-            _setLoading('meeting-send-btn', false, 'Создать встречу');
+            _setLoading('meeting-send-btn', false, 'Отправить встречу');
         }
     }
 
