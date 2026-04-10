@@ -150,6 +150,14 @@ function createSettingInput(label, value, blockId, settingKey, type = 'text', ex
         );
     });
 
+    if (type === 'number') {
+        attachDragScrubToNumberControl(group, input, {
+            min: input.min !== '' ? Number(input.min) : Number.NEGATIVE_INFINITY,
+            max: input.max !== '' ? Number(input.max) : Number.POSITIVE_INFINITY,
+            onApply: (value) => updateBlockSetting(blockId, settingKey, value)
+        });
+    }
+
     group.appendChild(labelEl);
     group.appendChild(input);
 
@@ -439,6 +447,64 @@ function handleFileUpload(event, blockId, settingKey) {
     event.target.value = '';
 }
 
+function attachDragScrubToNumberControl(target, input, options = {}) {
+    if (!target || !input) return;
+
+    const {
+        min = Number.NEGATIVE_INFINITY,
+        max = Number.POSITIVE_INFINITY,
+        onApply = null
+    } = options;
+
+    if (target === input) return;
+
+    target.style.cursor = 'ns-resize';
+
+    let dragging = false;
+    let startY = 0;
+    let startValue = 0;
+    let activePointerId = null;
+
+    const clampValue = (value) => Math.min(max, Math.max(min, value));
+
+    target.addEventListener('pointerdown', (e) => {
+        if (e.button !== 0) return;
+        if (e.target === input) return;
+
+        dragging = true;
+        activePointerId = e.pointerId;
+        startY = e.clientY;
+        startValue = Number(input.value) || 0;
+        target.setPointerCapture?.(e.pointerId);
+        e.preventDefault();
+        e.stopPropagation();
+    });
+
+    target.addEventListener('pointermove', (e) => {
+        if (!dragging || e.pointerId !== activePointerId) return;
+
+        const dy = startY - e.clientY;
+        let speed = 0.25;
+        if (e.shiftKey) speed = 2;
+        if (e.altKey) speed = 0.05;
+
+        const next = clampValue(startValue + dy * speed);
+        input.value = Number.isInteger(next) ? next : Number(next.toFixed(2));
+        if (typeof onApply === 'function') {
+            onApply(next);
+        }
+    });
+
+    const stopDragging = (e) => {
+        if (!dragging || e.pointerId !== activePointerId) return;
+        dragging = false;
+        activePointerId = null;
+    };
+
+    target.addEventListener('pointerup', stopDragging);
+    target.addEventListener('pointercancel', stopDragging);
+}
+
 // Универсальный компонент позиционирования (X/Y) с drag-scrub
 function createPositionInput(options) {
     const {
@@ -549,58 +615,10 @@ function createPositionInput(options) {
             applyValue(next);
         });
 
-        // Scrub: drag за label
-        let dragging = false;
-        let startX = 0;
-        let startVal = 0;
-
-        tag.addEventListener('pointerdown', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            dragging = true;
-            tag.setPointerCapture(e.pointerId);
-            startX = e.clientX;
-            startVal = Number(input.value) || 0;
-            tag.style.color = '#60a5fa';
-
-            // Отключаем drag карточки
-            const card = tag.closest('.text-element-card');
-            if (card) card.draggable = false;
-        });
-
-        tag.addEventListener('dragstart', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        });
-
-        tag.addEventListener('pointermove', (e) => {
-            if (!dragging) return;
-            const dx = e.clientX - startX;
-
-            let speed = 0.5;
-            if (e.shiftKey) speed = 2;
-            if (e.altKey) speed = 0.1;
-
-            const next = startVal + dx * speed;
-            applyValue(next);
-        });
-
-        tag.addEventListener('pointerup', () => {
-            dragging = false;
-            tag.style.color = '#9ca3af';
-
-            // Включаем drag карточки обратно
-            const card = tag.closest('.text-element-card');
-            if (card) card.draggable = true;
-        });
-
-        tag.addEventListener('pointercancel', () => {
-            dragging = false;
-            tag.style.color = '#9ca3af';
-
-            // Включаем drag карточки обратно
-            const card = tag.closest('.text-element-card');
-            if (card) card.draggable = true;
+        attachDragScrubToNumberControl(field, input, {
+            min,
+            max,
+            onApply: applyValue
         });
 
         return { tag, field };
@@ -712,58 +730,10 @@ function createPositionInputForTextElement(options) {
             applyValue(next);
         });
 
-        // Scrub drag
-        let dragging = false;
-        let startX = 0;
-        let startVal = 0;
-
-        tag.addEventListener('pointerdown', (e) => {
-            e.stopPropagation();
-            e.preventDefault();
-            dragging = true;
-            tag.setPointerCapture(e.pointerId);
-            startX = e.clientX;
-            startVal = Number(input.value) || 0;
-            tag.style.color = '#60a5fa';
-
-            // Отключаем drag карточки
-            const card = tag.closest('.text-element-card');
-            if (card) card.draggable = false;
-        });
-
-        tag.addEventListener('dragstart', (e) => {
-            e.preventDefault();
-            e.stopPropagation();
-        });
-
-        tag.addEventListener('pointermove', (e) => {
-            if (!dragging) return;
-            const dx = e.clientX - startX;
-
-            let speed = 0.5;
-            if (e.shiftKey) speed = 2;
-            if (e.altKey) speed = 0.1;
-
-            const next = startVal + dx * speed;
-            applyValue(next);
-        });
-
-        tag.addEventListener('pointerup', () => {
-            dragging = false;
-            tag.style.color = '#9ca3af';
-
-            // Включаем drag карточки обратно
-            const card = tag.closest('.text-element-card');
-            if (card) card.draggable = true;
-        });
-
-        tag.addEventListener('pointercancel', () => {
-            dragging = false;
-            tag.style.color = '#9ca3af';
-
-            // Включаем drag карточки обратно
-            const card = tag.closest('.text-element-card');
-            if (card) card.draggable = true;
+        attachDragScrubToNumberControl(field, input, {
+            min,
+            max,
+            onApply: applyValue
         });
 
         return { tag, field };
