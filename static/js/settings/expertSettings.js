@@ -24,10 +24,12 @@ function renderExpertSettings(container, block) {
             <div class="photo-mask">
                 <img id="expert-photo-img-${block.id}" src="${s.photo}" style="width: 100%; height: 100%; object-fit: cover; transform: rotate(-45deg) scale(${s.scale / 100}) translate(${s.positionX}%, ${s.positionY}%);">
             </div>
-            ${s.badgeIcon ? `<div class="expert-badge-preview"><img src="${s.badgeIcon}"></div>` : ''}
         </div>
     `;
     container.appendChild(previewGroup);
+    if (typeof updateExpertSettingsPreview === 'function') {
+        updateExpertSettingsPreview(block.id);
+    }
 
     container.appendChild(createFileUploadButton('Загрузить фото', block.id, 'photo'));
 
@@ -52,7 +54,7 @@ function renderExpertSettings(container, block) {
 
     // Выбор значка
     const badgeGroup = document.createElement('div');
-    badgeGroup.className = 'setting-group';
+    badgeGroup.className = 'setting-group expert-badge-settings';
 
     const badgeLabel = document.createElement('label');
     badgeLabel.className = 'setting-label';
@@ -126,10 +128,20 @@ function renderExpertSettings(container, block) {
         badgeGroup.appendChild(badgePositionGroup);
     }
     const removeBadgeBtn = document.createElement('button');
+    removeBadgeBtn.type = 'button';
     removeBadgeBtn.textContent = 'Убрать значок';
-    removeBadgeBtn.style.cssText = 'width: 100%; padding: 8px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px;';
+    removeBadgeBtn.style.cssText = 'width: 100%; min-height: 36px; padding: 8px 12px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer;';
+    removeBadgeBtn.disabled = !s.badgeIcon;
+    if (!s.badgeIcon) {
+        removeBadgeBtn.style.opacity = '0.5';
+        removeBadgeBtn.style.cursor = 'not-allowed';
+    }
     removeBadgeBtn.addEventListener('click', () => {
+        if (!block.settings.badgeIcon) return;
+        block.settings.badgeIcon = '';
+        block.settings.renderedExpert = null;
         updateBlockSetting(block.id, 'badgeIcon', '');
+        renderCanvas();
         renderSettings();
     });
     badgeGroup.appendChild(removeBadgeBtn);
@@ -222,5 +234,3 @@ function createExpertAlignToggle(label, value, blockId) {
     group.appendChild(wrap);
     return group;
 }
-
-

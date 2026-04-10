@@ -168,6 +168,9 @@ function createCompactNumberInput(label, value, blockId, settingKey) {
     input.addEventListener('input', (e) => {
         updateBlockSetting(blockId, settingKey, parseInt(e.target.value) || 0);
     });
+    attachDragScrubToNumberControl(wrapper, input, {
+        onApply: (next) => updateBlockSetting(blockId, settingKey, parseInt(next, 10) || 0)
+    });
 
     wrapper.appendChild(labelEl);
     wrapper.appendChild(input);
