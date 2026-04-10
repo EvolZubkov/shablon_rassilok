@@ -165,11 +165,16 @@ function refreshGradientPopupBody(popup, block) {
         const endXpx   = cxPx + dxPx;
         const endYpx   = cyPx + dyPx;
 
-        // Позиционируем хэндлы (transform: translate(-50%,-50%) учитывается в CSS)
-        handleStart.style.left = `${startXpx}px`;
-        handleStart.style.top  = `${startYpx}px`;
-        handleEnd.style.left   = `${endXpx}px`;
-        handleEnd.style.top    = `${endYpx}px`;
+        // Clamp handles to preview box bounds so they never escape into
+        // adjacent UI elements (e.g. the gradient bar below).
+        const R = 9; // half of 18px handle visual size
+        const clampX = (x) => Math.max(R, Math.min(boxW - R, x));
+        const clampY = (y) => Math.max(R, Math.min(boxH - R, y));
+
+        handleStart.style.left = `${clampX(startXpx)}px`;
+        handleStart.style.top  = `${clampY(startYpx)}px`;
+        handleEnd.style.left   = `${clampX(endXpx)}px`;
+        handleEnd.style.top    = `${clampY(endYpx)}px`;
 
         // SVG линия
         line.setAttribute('x1', startXpx);
@@ -323,24 +328,67 @@ function refreshGradientPopupBody(popup, block) {
     // Сохраняем для доступа снаружи (balance slider и т.д.)
     popup._updateHandlePositions = updateHandlePositions;
 
-    // Gradient bar под превью
+    // Gradient bar under preview — pins are draggable horizontally
     const barWrap = document.createElement('div');
     barWrap.className = 'grad-popup__bar-wrap';
     const gradBar = document.createElement('div');
     gradBar.className = 'grad-popup__bar';
     gradBar.style.background = buildGradientPreviewCss(s);
+
     const stops = getGradientStopsModel(s);
-    stops.forEach((stop, index) => {
+
+    /** Recompute bar gradient from current AppState (no full refresh). */
+    function _syncBarGradient() {
+        const bs = AppState.findBlockById(block.id).settings;
+        gradBar.style.background = buildGradientPreviewCss(bs);
+    }
+
+    stops.forEach((stop) => {
         const pin = document.createElement('div');
         pin.className = 'grad-popup__bar-pin';
-        if (index === stops.length - 1 && stop.position >= 99) {
-            pin.style.right = '2px'; pin.style.left = 'auto';
-        } else {
-            pin.style.left = `calc(${stop.position}% - 7px)`;
-        }
+        pin.style.cursor = 'ew-resize';
+        pin.style.touchAction = 'none';
+        // Position: center of pin (8px = half of 16px visual size incl. border)
+        const clampedPos = Math.max(0, Math.min(100, stop.position));
+        pin.style.left = `calc(${clampedPos}% - 8px)`;
         pin.style.background = stop.color;
+
+        pin.addEventListener('pointerdown', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            pin.setPointerCapture(e.pointerId);
+            pin.classList.add('grad-popup__bar-pin--dragging');
+
+            const barRect = gradBar.getBoundingClientRect();
+
+            const onMove = (ev) => {
+                const rawPct = ((ev.clientX - barRect.left) / barRect.width) * 100;
+                const pct = Math.round(Math.max(0, Math.min(100, rawPct)));
+                pin.style.left = `calc(${pct}% - 8px)`;
+                // Live-update state and bar gradient
+                updateGradientStop(block.id, stop.id, 'position', pct);
+                block.settings = AppState.findBlockById(block.id).settings;
+                _syncBarGradient();
+            };
+
+            const onUp = () => {
+                pin.releasePointerCapture(e.pointerId);
+                pin.classList.remove('grad-popup__bar-pin--dragging');
+                pin.removeEventListener('pointermove', onMove);
+                pin.removeEventListener('pointerup', onUp);
+                pin.removeEventListener('pointercancel', onUp);
+                // Full refresh to sync position inputs in the stop list
+                refreshGradientPopupBody(popup, block);
+            };
+
+            pin.addEventListener('pointermove', onMove);
+            pin.addEventListener('pointerup', onUp);
+            pin.addEventListener('pointercancel', onUp);
+        });
+
         gradBar.appendChild(pin);
     });
+
     barWrap.appendChild(gradBar);
     body.appendChild(barWrap);
 
