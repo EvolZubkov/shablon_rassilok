@@ -1,0 +1,723 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Admin Wireframe Final</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --line: #d0d5dd;
+      --line-strong: #98a2b3;
+      --text: #101828;
+      --muted: #667085;
+      --accent: #344054;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    [data-lucide] {
+      width: 16px;
+      height: 16px;
+      stroke-width: 2;
+      flex-shrink: 0;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-rows: 34px 52px 1fr;
+    }
+
+    .menu-bar {
+      display: flex;
+      align-items: center;
+      gap: 2px;
+      padding: 0 10px;
+      background: #eef2f6;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .menu-item {
+      padding: 5px 10px;
+      border-radius: 4px;
+    }
+
+    .menu-item.active {
+      background: #fff;
+      outline: 1px solid var(--line);
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 16px;
+      padding: 0 12px;
+      background: #fff;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .toolbar-left,
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .toolbar-center {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+      min-width: 0;
+      font-size: 13px;
+      color: var(--muted);
+      white-space: nowrap;
+    }
+
+    .toolbar-center strong {
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .button,
+    .icon-button,
+    .status-pill,
+    .subtab {
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .button {
+      min-height: 32px;
+      padding: 0 12px;
+      border-radius: 6px;
+    }
+
+    .icon-button {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      padding: 0;
+    }
+
+    .button.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 340px 1fr 340px;
+      gap: 12px;
+      padding: 12px;
+      min-height: 0;
+    }
+
+    .panel {
+      min-height: 0;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      background: var(--panel);
+      border: 1px solid var(--line);
+    }
+
+    .panel-head {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .panel-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .panel-note {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+
+    .search {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .search-box {
+      height: 36px;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .left-body,
+    .right-body,
+    .canvas-body {
+      padding: 12px;
+      overflow: auto;
+    }
+
+    .accordion {
+      display: grid;
+      gap: 8px;
+    }
+
+    .accordion-item {
+      border: 1px solid var(--line);
+      background: #fff;
+    }
+
+    .accordion-head {
+      min-height: 40px;
+      padding: 0 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      background: var(--panel-soft);
+    }
+
+    .accordion-item.active .accordion-head {
+      background: #eef2f6;
+      border-bottom: 1px solid var(--line);
+    }
+
+    .accordion-head-left {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .accordion-body {
+      display: none;
+      padding: 12px;
+    }
+
+    .accordion-item.active .accordion-body {
+      display: block;
+    }
+
+    .section {
+      margin-bottom: 16px;
+    }
+
+    .section:last-child {
+      margin-bottom: 0;
+    }
+
+    .section-label {
+      margin-bottom: 8px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .subtabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 8px;
+    }
+
+    .subtab {
+      min-height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .subtab.active {
+      background: #eef2f6;
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+    }
+
+    .tile,
+    .list-item {
+      border: 1px dashed var(--line-strong);
+      background: #fff;
+      font-size: 13px;
+    }
+
+    .tile {
+      min-height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      padding: 8px;
+    }
+
+    .list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .list-item {
+      padding: 10px;
+      line-height: 1.4;
+    }
+
+    .list-meta {
+      margin-top: 4px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .resource-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 8px;
+    }
+
+    .resource {
+      border: 1px dashed var(--line-strong);
+      background: #fff;
+      padding: 8px;
+    }
+
+    .resource-thumb {
+      height: 52px;
+      background: linear-gradient(135deg, #d0d5dd, #eaecf0);
+      margin-bottom: 6px;
+    }
+
+    .resource-label {
+      font-size: 11px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    .canvas-head {
+      padding: 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .status {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .status-pill {
+      min-height: 28px;
+      padding: 0 10px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .canvas-body {
+      flex: 1;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+      background: #eef2f6;
+    }
+
+    .block {
+      border: 1px solid var(--line-strong);
+      background: #fff;
+    }
+
+    .block.selected {
+      outline: 2px solid #101828;
+      outline-offset: -2px;
+    }
+
+    .block-head {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .block-title {
+      font-weight: 700;
+    }
+
+    .block-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .mini-btn {
+      width: 28px;
+      height: 28px;
+      border: 1px solid var(--line);
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .block-body {
+      padding: 12px;
+    }
+
+    .hero {
+      height: 220px;
+      border: 1px dashed var(--line-strong);
+      background: linear-gradient(135deg, #d0d5dd 0 50%, #eaecf0 50% 100%);
+      display: flex;
+      align-items: flex-end;
+      padding: 18px;
+      font-size: 22px;
+      font-weight: 700;
+      color: #475467;
+    }
+
+    .text-bar {
+      height: 16px;
+      width: 48%;
+      background: #d0d5dd;
+    }
+
+    .group-card {
+      border: 1px solid var(--line);
+      background: #fff;
+      padding: 12px;
+      margin-bottom: 12px;
+    }
+
+    .group-card:last-child {
+      margin-bottom: 0;
+    }
+
+    .group-title {
+      margin-bottom: 10px;
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--muted);
+    }
+
+    .field {
+      margin-bottom: 10px;
+    }
+
+    .field:last-child {
+      margin-bottom: 0;
+    }
+
+    .label {
+      margin-bottom: 6px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .value {
+      min-height: 34px;
+      border: 1px solid var(--line-strong);
+      background: #fff;
+      display: flex;
+      align-items: center;
+      padding: 0 10px;
+      font-size: 13px;
+    }
+
+    .range {
+      height: 8px;
+      border: 1px solid var(--line-strong);
+      background: linear-gradient(to right, #667085 0 58%, #eaecf0 58% 100%);
+    }
+
+    .preview-mock {
+      margin-top: 14px;
+      border: 1px dashed var(--line-strong);
+      background: #fff;
+    }
+
+    .preview-mock-head {
+      min-height: 40px;
+      padding: 0 10px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .preview-mock-title {
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .preview-mock-body {
+      height: 86px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: var(--muted);
+      font-size: 12px;
+      text-align: center;
+      padding: 10px;
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <div class="menu-bar">
+      <div class="menu-item active">Файл</div>
+      <div class="menu-item">Правка</div>
+      <div class="menu-item">Вид</div>
+      <div class="menu-item">Справка</div>
+    </div>
+
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="icon-button" title="Режим конструктора"><i data-lucide="drafting-compass"></i></div>
+        <div class="button"><i data-lucide="save"></i><span>Сохранить</span></div>
+        <div class="button"><i data-lucide="save-all"></i><span>Сохранить как</span></div>
+        <div class="button"><i data-lucide="mail"></i><span>Создать письмо</span></div>
+        <div class="button"><i data-lucide="calendar"></i><span>Создать встречу</span></div>
+      </div>
+
+      <div class="toolbar-center"></div>
+
+      <div class="toolbar-right">
+        <div class="icon-button" title="Предварительный просмотр"><i data-lucide="eye"></i></div>
+        <div class="icon-button" title="Тема интерфейса"><i data-lucide="sun-moon"></i></div>
+      </div>
+    </div>
+
+    <div class="layout">
+      <aside class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Левая рабочая панель</div>
+          <div class="panel-note">Аккордеон режимов: Блоки / Шаблоны / Ресурсы.</div>
+        </div>
+
+        <div class="search">
+          <div class="search-box"><i data-lucide="search"></i><span>Поиск в текущем разделе</span></div>
+        </div>
+
+        <div class="left-body">
+          <div class="accordion">
+            <div class="accordion-item active">
+              <div class="accordion-head">
+                <div class="accordion-head-left"><i data-lucide="blocks"></i><span>Блоки</span></div>
+                <i data-lucide="chevron-down"></i>
+              </div>
+              <div class="accordion-body">
+                <div class="section">
+                  <div class="section-label">Типы блоков</div>
+                  <div class="grid">
+                    <div class="tile">Баннер</div>
+                    <div class="tile">Текст</div>
+                    <div class="tile">Заголовок</div>
+                    <div class="tile">Кнопка</div>
+                    <div class="tile">Список</div>
+                    <div class="tile">Разделитель</div>
+                    <div class="tile">Картинка</div>
+                    <div class="tile">Отступ</div>
+                  </div>
+                </div>
+
+                <div class="section">
+                  <div class="section-label">Пресеты</div>
+                  <div class="subtabs">
+                    <div class="subtab active">Общие</div>
+                    <div class="subtab">Личные</div>
+                  </div>
+                  <div class="grid">
+                    <div class="tile">Hero-баннер</div>
+                    <div class="tile">Заголовок раздела</div>
+                    <div class="tile">CTA-блок</div>
+                    <div class="tile">Блок “Важно”</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div class="accordion-item">
+              <div class="accordion-head">
+                <div class="accordion-head-left"><i data-lucide="layout-template"></i><span>Шаблоны</span></div>
+                <i data-lucide="chevron-right"></i>
+              </div>
+              <div class="accordion-body">
+                <div class="section-label">Шаблоны</div>
+                <div class="subtabs">
+                  <div class="subtab active">Общие</div>
+                  <div class="subtab">Личные</div>
+                </div>
+                <div class="list">
+                  <div class="list-item">Еженедельный дайджест<div class="list-meta">Shared / Маркетинг</div></div>
+                  <div class="list-item">Сервисное уведомление<div class="list-meta">Personal / Операционный</div></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="accordion-item">
+              <div class="accordion-head">
+                <div class="accordion-head-left"><i data-lucide="images"></i><span>Ресурсы</span></div>
+                <i data-lucide="chevron-right"></i>
+              </div>
+              <div class="accordion-body">
+                <div class="section-label">Ресурсы</div>
+                <div class="subtabs">
+                  <div class="subtab active">Общие</div>
+                  <div class="subtab">Личные</div>
+                </div>
+                <div class="resource-grid">
+                  <div class="resource"><div class="resource-thumb"></div><div class="resource-label">Баннер</div></div>
+                  <div class="resource"><div class="resource-thumb"></div><div class="resource-label">Иконка</div></div>
+                  <div class="resource"><div class="resource-thumb"></div><div class="resource-label">Фото</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="preview-mock">
+            <div class="preview-mock-head">
+              <div class="preview-mock-title">Окно preview письма</div>
+              <div class="status">
+                <div class="icon-button" title="Светлая тема письма"><i data-lucide="sun"></i></div>
+                <div class="icon-button" title="Тёмная тема письма"><i data-lucide="moon"></i></div>
+                <div class="icon-button" title="Закрыть"><i data-lucide="x"></i></div>
+              </div>
+            </div>
+            <div class="preview-mock-body">Тема письма переключается только внутри окна предварительного просмотра</div>
+          </div>
+        </div>
+      </aside>
+
+      <main class="panel">
+        <div class="canvas-head">
+          <div class="status">
+            <div class="status-pill">Шаблон: Весенняя кампания</div>
+            <div class="status-pill">Статус: Не сохранено</div>
+          </div>
+          <div class="status">
+            <div class="status-pill">Выбран блок: Заголовок</div>
+            <div class="status-pill">2 блока</div>
+          </div>
+        </div>
+
+        <div class="canvas-body">
+          <section class="block">
+            <div class="block-head">
+              <div class="block-title">Баннер</div>
+              <div class="block-actions">
+                <div class="mini-btn"><i data-lucide="copy"></i></div>
+                <div class="mini-btn"><i data-lucide="trash-2"></i></div>
+              </div>
+            </div>
+            <div class="block-body">
+              <div class="hero">Заголовок баннера</div>
+            </div>
+          </section>
+
+          <section class="block selected">
+            <div class="block-head">
+              <div class="block-title">Заголовок</div>
+              <div class="block-actions">
+                <div class="mini-btn"><i data-lucide="move"></i></div>
+                <div class="mini-btn"><i data-lucide="trash-2"></i></div>
+              </div>
+            </div>
+            <div class="block-body">
+              <div class="text-bar"></div>
+            </div>
+          </section>
+        </div>
+      </main>
+
+      <aside class="panel">
+        <div class="panel-head">
+          <div class="panel-title">Настройки выбранного блока</div>
+          <div class="panel-note">Только свойства текущего блока. Системные настройки вынесены в меню Файл → Настройки.</div>
+        </div>
+
+        <div class="right-body">
+          <div class="group-card">
+            <div class="group-title">Содержимое</div>
+            <div class="field">
+              <div class="label">Текст заголовка</div>
+              <div class="value">Заголовок раздела</div>
+            </div>
+          </div>
+
+          <div class="group-card">
+            <div class="group-title">Типографика</div>
+            <div class="field">
+              <div class="label">Шрифт</div>
+              <div class="value">Rostelecom Light</div>
+            </div>
+            <div class="field">
+              <div class="label">Размер</div>
+              <div class="value">22 px</div>
+            </div>
+            <div class="field">
+              <div class="label">Выравнивание</div>
+              <div class="value">По левому краю</div>
+            </div>
+          </div>
+
+          <div class="group-card">
+            <div class="group-title">Размеры</div>
+            <div class="field">
+              <div class="label">Ширина</div>
+              <div class="range"></div>
+            </div>
+            <div class="field">
+              <div class="label">Отступы</div>
+              <div class="value">16 / 12 / 0 / 0</div>
+            </div>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>
