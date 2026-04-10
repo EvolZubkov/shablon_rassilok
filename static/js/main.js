@@ -1,21 +1,44 @@
 // main.js - Главный файл инициализации приложения
 
+function jslog(level, msg) {
+    const text = typeof msg === 'string' ? msg : JSON.stringify(msg);
+    console[level]?.(text);
+    fetch('/api/jslog', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ level, msg: text }),
+    }).catch(() => {});
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
-    console.log('🚀 Запуск Почтелье...');
-    
-    // СНАЧАЛА загружаем конфигурацию ресурсов (config.json)
-    console.log('[*] Загрузка конфигурации...');
-    await ConfigLoader.load();
-    
-    // ПОТОМ инициализируем приложение
-    init();
+    jslog('log', '[INIT] DOMContentLoaded fired');
+
+    try {
+        await ConfigLoader.load();
+        jslog('log', '[INIT] Config loaded OK');
+    } catch (e) {
+        jslog('error', '[INIT] ConfigLoader.load() threw: ' + e);
+    }
+
+    try {
+        init();
+    } catch (e) {
+        jslog('error', '[INIT] init() threw: ' + e);
+    }
 });
 
 function init() {
-    console.log('[*] Инициализация Почтелье...');
-    
+    jslog('log', '[INIT] init() started');
+
+    setupAdminShell();
+    jslog('log', '[INIT] setupAdminShell done');
+
     setupBlockButtons();
+    jslog('log', '[INIT] setupBlockButtons done');
+
     setupPreviewButton();
+    jslog('log', '[INIT] setupPreviewButton done');
+
     setupDownloadButton();
     setupCanvas();
     setupAdminUndo();
@@ -34,6 +57,14 @@ function init() {
     }
 
     console.log('✓ Почтелье готов к работе');
+}
+
+function setupAdminShell() {
+    setupAdminMenu();
+    setupSidebarAccordion();
+    setupSidebarSearch();
+    setupCanvasContextTracking();
+    setupInlinePresetLibrary();
 }
 
 function setupBlockButtons() {
@@ -59,13 +90,61 @@ function setupDownloadButton() {
 
 function setupPreviewButton() {
     const btnPreview = document.getElementById('btn-preview');
-    if (btnPreview) {
-        btnPreview.addEventListener('click', async () => {
-            console.log('[*] Открытие превью...');
-            const html = await generateEmailHTML();
-            openInlinePreview(html);
-            console.log('✓ Превью открыто');
-        });
+    const modal = document.getElementById('inline-preview-modal');
+    const btnClose = document.getElementById('inline-preview-close');
+    const themeSlot = document.getElementById('inline-preview-theme-slot');
+
+    if (btnClose) {
+        btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
+    }
+    if (modal) {
+        modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
+    }
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && modal?.style.display === 'flex') modal.style.display = 'none';
+    });
+
+    jslog('log', '[PREVIEW] btn-preview element found: ' + !!btnPreview);
+    if (!btnPreview) {
+        jslog('error', '[PREVIEW] #btn-preview NOT FOUND in DOM — handler not attached');
+        return;
+    }
+
+    if (themeSlot && typeof window.EmailPreviewTheme?.mount === 'function') {
+        window.EmailPreviewTheme.mount(themeSlot);
+    }
+
+    document.removeEventListener('email-preview-theme-change', handlePreviewThemeChange);
+    document.addEventListener('email-preview-theme-change', handlePreviewThemeChange);
+
+    btnPreview.onclick = async () => {
+        renderPreviewModal();
+    };
+    jslog('log', '[PREVIEW] onclick handler attached to #btn-preview');
+}
+
+async function renderPreviewModal() {
+    jslog('log', '[PREVIEW] onclick fired');
+    try {
+        const previewTheme = window.EmailPreviewTheme?.get?.() || 'light';
+        jslog('log', '[PREVIEW] theme: ' + previewTheme);
+        const html = await generateEmailHTML({ previewTheme });
+        openInlinePreview(html);
+        jslog('log', '[PREVIEW] done');
+    } catch (error) {
+        jslog('error', '[PREVIEW] Error: ' + error);
+        if (typeof Toast !== 'undefined') {
+            Toast.error('Ошибка генерации превью');
+        } else {
+            alert('Ошибка генерации превью');
+        }
+    }
+}
+
+function handlePreviewThemeChange() {
+    const modal = document.getElementById('inline-preview-modal');
+    if (modal?.style.display === 'flex') {
+        renderPreviewModal();
     }
 }
 
@@ -74,59 +153,235 @@ function setupPreviewButton() {
  * Не использует window.open() — не блокируется браузером.
  */
 function openInlinePreview(html) {
-    let modal = document.getElementById('inline-preview-modal');
-    if (!modal) {
-        modal = document.createElement('div');
-        modal.id = 'inline-preview-modal';
-        modal.style.cssText = `
-            position: fixed; inset: 0; z-index: 10000;
-            background: rgba(0,0,0,0.7);
-            display: flex; align-items: center; justify-content: center;
-        `;
-        modal.innerHTML = `
-            <div style="
-                background: #fff; border-radius: 8px;
-                width: 860px; max-width: 95vw;
-                height: 90vh; display: flex; flex-direction: column;
-                overflow: hidden; box-shadow: 0 20px 60px rgba(0,0,0,0.5);
-            ">
-                <div style="
-                    display: flex; align-items: center; justify-content: space-between;
-                    padding: 12px 16px; background: #1e293b; color: #e5e7eb;
-                    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-                    font-size: 14px;
-                ">
-                    <span>👁 Превью письма</span>
-                    <button id="inline-preview-close" style="
-                        background: none; border: none; color: #9ca3af;
-                        font-size: 20px; cursor: pointer; line-height: 1;
-                        padding: 0 4px;
-                    " title="Закрыть">✕</button>
-                </div>
-                <iframe id="inline-preview-frame"
-                    style="flex: 1; border: none; width: 100%;"
-                    sandbox="allow-same-origin">
-                </iframe>
-            </div>
-        `;
-        document.body.appendChild(modal);
-
-        document.getElementById('inline-preview-close').addEventListener('click', () => {
-            modal.style.display = 'none';
-        });
-        modal.addEventListener('click', (e) => {
-            if (e.target === modal) modal.style.display = 'none';
-        });
-        document.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape' && modal.style.display !== 'none') {
-                modal.style.display = 'none';
-            }
-        });
+    const modal = document.getElementById('inline-preview-modal');
+    const container = document.getElementById('inline-preview-container');
+    if (!modal || !container) {
+        jslog('error', '[PREVIEW] modal or container missing');
+        return;
     }
 
-    const frame = document.getElementById('inline-preview-frame');
+    container.innerHTML = '';
+    const frame = document.createElement('iframe');
+    frame.className = 'email-preview-frame';
+    frame.setAttribute('sandbox', 'allow-same-origin');
     frame.srcdoc = html;
+    container.appendChild(frame);
+
     modal.style.display = 'flex';
+    const rect = modal.getBoundingClientRect();
+    jslog('log', '[PREVIEW] modal display set to: ' + modal.style.display);
+    jslog('log', `[PREVIEW] modal rect: ${rect.width}x${rect.height} @ ${rect.left},${rect.top}`);
+}
+
+function setupAdminMenu() {
+    document.querySelectorAll('.menu-action').forEach((item) => {
+        item.addEventListener('click', async () => {
+            const action = item.dataset.action;
+            switch (action) {
+                case 'save':
+                    document.getElementById('btn-save-template')?.click();
+                    break;
+                case 'save-as':
+                    document.getElementById('btn-save-as-template')?.click();
+                    break;
+                case 'create-email':
+                    document.getElementById('btn-create-outlook')?.click();
+                    break;
+                case 'create-meeting':
+                    document.getElementById('btn-create-meeting')?.click();
+                    break;
+                case 'settings':
+                    document.getElementById('btn-exchange-settings')?.click();
+                    break;
+                case 'undo':
+                    if (AppState.canUndo) {
+                        AppState.undo();
+                        renderCanvas();
+                        renderSettings();
+                        showAdminUndoToast();
+                    }
+                    break;
+                case 'clear-canvas':
+                    TemplatesUI.clearCanvas();
+                    break;
+                case 'preview':
+                    document.getElementById('btn-preview')?.click();
+                    break;
+                case 'toggle-theme':
+                    document.getElementById('theme-toggle-btn')?.click();
+                    break;
+                case 'switch-mode':
+                    document.getElementById('btn-switch-mode')?.click();
+                    break;
+                case 'about':
+                    alert('Почтелье\nАдминистративный режим конструктора.');
+                    break;
+                case 'open-log':
+                    fetch('/api/open-log', { method: 'POST' }).catch(() => {
+                        window.open('/protocol.log', '_blank');
+                    });
+                    break;
+                case 'exit':
+                    fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
+                    window.close();
+                    break;
+                default:
+                    break;
+            }
+        });
+    });
+}
+
+function setupSidebarAccordion() {
+    const items = Array.from(document.querySelectorAll('.sidebar-accordion .accordion-item'));
+    items.forEach((item) => {
+        const trigger = item.querySelector('.accordion-trigger');
+        if (!trigger) return;
+        trigger.addEventListener('click', async () => {
+            items.forEach((other) => {
+                const isCurrent = other === item;
+                other.classList.toggle('active', isCurrent);
+                other.querySelector('.accordion-trigger')?.setAttribute('aria-expanded', isCurrent ? 'true' : 'false');
+            });
+
+            const panel = item.dataset.panel;
+            if (panel === 'templates' && typeof TemplatesUI !== 'undefined') {
+                await TemplatesUI.open();
+            }
+            if (panel === 'resources' && typeof UserResources !== 'undefined') {
+                await UserResources.open();
+            }
+        });
+    });
+}
+
+function setupSidebarSearch() {
+    const sidebarSearch = document.getElementById('sidebar-search-input');
+    if (!sidebarSearch) return;
+
+    sidebarSearch.addEventListener('input', (e) => {
+        const query = e.target.value.trim().toLowerCase();
+        const activePanel = document.querySelector('.sidebar-accordion .accordion-item.active')?.dataset.panel;
+        if (activePanel === 'templates') {
+            TemplatesUI.filterTemplates(query);
+            return;
+        }
+        if (activePanel === 'blocks') {
+            document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
+                const match = el.textContent.toLowerCase().includes(query);
+                el.style.display = match ? '' : 'none';
+            });
+            return;
+        }
+        if (activePanel === 'resources') {
+            document.querySelectorAll('.user-resources-panel--inline .templates-category-group').forEach((group) => {
+                const items = group.querySelectorAll('.ur-item');
+                let anyVisible = false;
+                items.forEach((item) => {
+                    const label = item.querySelector('.ur-item-label')?.textContent.toLowerCase() || '';
+                    const match = !query || label.includes(query);
+                    item.style.display = match ? '' : 'none';
+                    if (match) anyVisible = true;
+                });
+                group.style.display = (!query || anyVisible) ? '' : 'none';
+            });
+        }
+    });
+
+    // Clear search when switching accordion panels
+    document.querySelectorAll('.sidebar-accordion .accordion-trigger').forEach(btn => {
+        btn.addEventListener('click', () => {
+            sidebarSearch.value = '';
+            TemplatesUI.filterTemplates('');
+            document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile')
+                .forEach(el => el.style.display = '');
+        });
+    });
+}
+
+function setupCanvasContextTracking() {
+    const originalRenderCanvas = renderCanvas;
+    renderCanvas = function (...args) {
+        const result = originalRenderCanvas.apply(this, args);
+        updateCanvasContext();
+        return result;
+    };
+
+    const originalRenderSettings = renderSettings;
+    renderSettings = function (...args) {
+        const result = originalRenderSettings.apply(this, args);
+        updateCanvasContext();
+        return result;
+    };
+
+    updateCanvasContext();
+}
+
+function updateCanvasContext() {
+    const currentTemplateBadge = document.getElementById('current-template-badge');
+    const currentStatusBadge = document.getElementById('current-status-badge');
+    const selectedBlockBadge = document.getElementById('selected-block-badge');
+    const blockCountBadge = document.getElementById('block-count-badge');
+
+    const currentTemplate = window.TemplatesUI?.currentTemplate || null;
+    const hasBlocks = Array.isArray(AppState.blocks) && AppState.blocks.length > 0;
+    const selected = AppState.selectedBlockId ? AppState.findBlockById(AppState.selectedBlockId) : null;
+
+    if (currentTemplateBadge) {
+        currentTemplateBadge.textContent = `Шаблон: ${currentTemplate?.name || 'Новый'}`;
+    }
+    if (currentStatusBadge) {
+        currentStatusBadge.textContent = `Статус: ${currentTemplate ? 'Сохранено' : (hasBlocks ? 'Не сохранено' : 'Пустой холст')}`;
+    }
+    if (selectedBlockBadge) {
+        selectedBlockBadge.textContent = `Выбран блок: ${selected ? getBlockTypeName(selected.type) : 'нет'}`;
+    }
+    if (blockCountBadge) {
+        const count = AppState.blocks?.length || 0;
+        blockCountBadge.textContent = `${count} ${count === 1 ? 'блок' : count < 5 ? 'блока' : 'блоков'}`;
+    }
+}
+
+async function setupInlinePresetLibrary() {
+    const grid = document.getElementById('presets-grid');
+    const tabs = Array.from(document.querySelectorAll('#presets-scope-tabs .library-subtab'));
+    if (!grid || !tabs.length) return;
+
+    let presetCache = { shared: [], personal: [] };
+    let activeScope = 'shared';
+
+    const render = () => {
+        const presets = (presetCache[activeScope] || []).filter((template) => template.isPreset);
+        if (!presets.length) {
+            grid.innerHTML = '<div class="sidebar-placeholder">Нет доступных пресетов</div>';
+            return;
+        }
+        grid.innerHTML = '';
+        presets.forEach((template) => {
+            const button = document.createElement('button');
+            button.type = 'button';
+            button.className = 'preset-tile';
+            button.textContent = template.name;
+            button.addEventListener('click', () => TemplatesUI.insertPreset(template));
+            grid.appendChild(button);
+        });
+    };
+
+    tabs.forEach((tab) => {
+        tab.addEventListener('click', () => {
+            tabs.forEach((el) => el.classList.toggle('active', el === tab));
+            activeScope = tab.dataset.scope || 'shared';
+            render();
+        });
+    });
+
+    try {
+        const result = await TemplatesAPI.getList();
+        presetCache = result.templates || presetCache;
+        render();
+    } catch (_) {
+        grid.innerHTML = '<div class="sidebar-placeholder">Не удалось загрузить пресеты</div>';
+    }
 }
 
 // Функция скачивания HTML
@@ -206,3 +461,4 @@ window.deleteColumnBlock = deleteColumnBlock;
 window.selectBlock = selectBlock;
 window.handleColumnBlockDragStart = handleColumnBlockDragStart;
 window.updateColumnWidth = updateColumnWidth;
+window.updateCanvasContext = updateCanvasContext;
