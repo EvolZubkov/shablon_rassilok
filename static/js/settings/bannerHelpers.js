@@ -1,23 +1,29 @@
 // settings/gradientPopup.js — popup-редактор градиента (открывается кнопкой)
 
-function openGradientPopup(block, anchorEl) {
+function openGradientPopup(block, anchorEl, target = null) {
     // Закрываем если уже открыт
     if (_gradientPopupEl) {
-        const isForSameBlock = _gradientPopupEl.dataset.blockId === String(block.id);
+        const popupTarget = _gradientPopupEl.dataset.gradientTarget;
+        const nextTarget = target || getActiveBannerGradientTarget(block.settings);
+        const isForSameBlock = _gradientPopupEl.dataset.blockId === String(block.id) && popupTarget === nextTarget;
         closeGradientPopup();
         if (isForSameBlock) return; // toggle
     }
 
-    // Автоматически включаем градиент при открытии попапа
-    if (!block.settings.gradientEnabled) {
-        updateBlockSetting(block.id, 'gradientEnabled', true);
-        block.settings.gradientEnabled = true;
-        renderSettings(); // обновляем иконку в панели
+    const gradientTarget = target || getActiveBannerGradientTarget(block.settings);
+
+    // Автоматически включаем градиент при открытии попапа.
+    // renderSettings() is called by the button handler before openGradientPopup,
+    // so we only need to sync block.settings here.
+    if (!getBannerGradientSettingValue(block.settings, gradientTarget, 'gradientEnabled')) {
+        updateBannerGradientSetting(block.id, gradientTarget, 'gradientEnabled', true);
+        block.settings = AppState.findBlockById(block.id).settings;
     }
 
     const popup = document.createElement('div');
     popup.className = 'grad-popup';
     popup.dataset.blockId = String(block.id);
+    popup.dataset.gradientTarget = gradientTarget;
 
     // Header
     const header = document.createElement('div');
@@ -25,8 +31,7 @@ function openGradientPopup(block, anchorEl) {
 
     const modeLabel = document.createElement('span');
     modeLabel.className = 'grad-popup__mode';
-    const mode = (block.settings.rightImageMode || 'mask');
-    modeLabel.textContent = mode === 'mask' ? 'Target: Left block' : 'Target: Banner background';
+    modeLabel.textContent = `Target: ${getBannerGradientMeta(gradientTarget).label}`;
 
     const closeBtn = document.createElement('button');
     closeBtn.type = 'button';
@@ -37,37 +42,6 @@ function openGradientPopup(block, anchorEl) {
     header.appendChild(modeLabel);
     header.appendChild(closeBtn);
     popup.appendChild(header);
-
-    // Enable toggle + type row
-    const topRow = document.createElement('div');
-    topRow.className = 'grad-popup__top-row';
-
-    const enableBtn = document.createElement('button');
-    enableBtn.type = 'button';
-    enableBtn.className = 'grad-popup__enable-btn';
-    const isEnabled = Boolean(block.settings.gradientEnabled);
-    enableBtn.classList.toggle('grad-popup__enable-btn--on', isEnabled);
-    enableBtn.innerHTML = `
-        <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <defs><linearGradient id="gi_hdr" x1="0" y1="8" x2="16" y2="8" gradientUnits="userSpaceOnUse">
-            <stop offset="0%" stop-color="#ffffff" stop-opacity="0.15"/>
-            <stop offset="100%" stop-color="#9466FF"/>
-          </linearGradient></defs>
-          <rect x="1" y="1" width="14" height="14" rx="3" fill="url(#gi_hdr)" stroke="rgba(255,255,255,0.25)" stroke-width="1"/>
-          <line x1="4" y1="12" x2="12" y2="4" stroke="white" stroke-width="1.2" stroke-linecap="round"/>
-        </svg>
-        <span>Linear</span>`;
-    enableBtn.addEventListener('click', () => {
-        const next = !Boolean(block.settings.gradientEnabled);
-        updateBlockSetting(block.id, 'gradientEnabled', next);
-        block.settings.gradientEnabled = next;
-        enableBtn.classList.toggle('grad-popup__enable-btn--on', next);
-        refreshGradientPopupBody(popup, block);
-        renderSettings();
-    });
-
-    topRow.appendChild(enableBtn);
-    popup.appendChild(topRow);
 
     // Body (preview + stops + geometry) — в отдельной функции для рефреша
     const body = document.createElement('div');
@@ -91,6 +65,7 @@ function refreshGradientPopupBody(popup, block) {
     const body = popup.querySelector('.grad-popup__body');
     if (!body) return;
     body.innerHTML = '';
+    const target = popup.dataset.gradientTarget || getActiveBannerGradientTarget(block.settings);
 
     const s = AppState.findBlockById(block.id).settings;
     block.settings = s; // sync
@@ -102,7 +77,7 @@ function refreshGradientPopupBody(popup, block) {
     // Квадратный превью-блок
     const previewBox = document.createElement('div');
     previewBox.className = 'grad-preview__box';
-    previewBox.style.background = buildGradientPreviewCss(s);
+    previewBox.style.background = buildGradientPreviewCss(s, target);
 
     // SVG-слой для линии и хэндлов
     const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -138,10 +113,10 @@ function refreshGradientPopupBody(popup, block) {
     // Функция обновления позиций хэндлов по текущим настройкам
     function updateHandlePositions() {
         const bs = AppState.findBlockById(block.id).settings;
-        const angle   = Number(bs.gradientAngle   ?? 0);
-        const cx      = Number(bs.gradientCenterX ?? 50);
-        const cy      = Number(bs.gradientCenterY ?? 50);
-        const balance = Number(bs.gradientBalance ?? 100);
+        const angle = Number(getBannerGradientSettingValue(bs, target, 'gradientAngle') ?? 0);
+        const cx = Number(getBannerGradientSettingValue(bs, target, 'gradientCenterX') ?? 50);
+        const cy = Number(getBannerGradientSettingValue(bs, target, 'gradientCenterY') ?? 50);
+        const balance = Number(getBannerGradientSettingValue(bs, target, 'gradientBalance') ?? 100);
 
         // Используем ту же математику что в imageRenderers.getAdvancedBannerGradientConfig
         // но в % пространстве превью (квадрат, ratio корректируем через boxW/boxH)
@@ -178,14 +153,14 @@ function refreshGradientPopupBody(popup, block) {
         line.setAttribute('y2', endYpx);
 
         // Цвет хэндлов
-        const stops = getGradientStopsModel(bs);
+        const stops = getGradientStopsModel(bs, target);
         if (stops.length > 0) {
             handleStartDot.style.background = stops[0].color;
             handleEndDot.style.background   = stops[stops.length - 1].color;
         }
 
         // Фон превью
-        previewBox.style.background = buildGradientPreviewCss(bs);
+        previewBox.style.background = buildGradientPreviewCss(bs, target);
     }
 
     // Сохраняем функцию на popup для вызова из других мест
@@ -216,10 +191,10 @@ function refreshGradientPopupBody(popup, block) {
             const myPx = e.clientY - boxRect.top;
 
             const bs = AppState.findBlockById(block.id).settings;
-            const curAngle   = Number(bs.gradientAngle   ?? 0);
-            const curCX      = Number(bs.gradientCenterX ?? 50);
-            const curCY      = Number(bs.gradientCenterY ?? 50);
-            const curBalance = Number(bs.gradientBalance ?? 100);
+            const curAngle = Number(getBannerGradientSettingValue(bs, target, 'gradientAngle') ?? 0);
+            const curCX = Number(getBannerGradientSettingValue(bs, target, 'gradientCenterX') ?? 50);
+            const curCY = Number(getBannerGradientSettingValue(bs, target, 'gradientCenterY') ?? 50);
+            const curBalance = Number(getBannerGradientSettingValue(bs, target, 'gradientBalance') ?? 100);
 
             const rad  = curAngle * Math.PI / 180;
             const base = Math.sqrt(boxW * boxW + boxH * boxH);
@@ -251,14 +226,14 @@ function refreshGradientPopupBody(popup, block) {
 
             // Обновляем state напрямую (без renderBanner — слишком тяжело при drag)
             const blk = AppState.findBlockById(block.id);
-            blk.settings.gradientAngle   = newAngle;
-            blk.settings.gradientBalance = newBalance;
-            blk.settings.gradientCenterX = newCX;
-            blk.settings.gradientCenterY = newCY;
+            blk.settings[getBannerGradientKey(target, 'angle')] = newAngle;
+            blk.settings[getBannerGradientKey(target, 'balance')] = newBalance;
+            blk.settings[getBannerGradientKey(target, 'centerX')] = newCX;
+            blk.settings[getBannerGradientKey(target, 'centerY')] = newCY;
             block.settings = blk.settings;
 
             updateHandlePositions();
-            syncGeoFields(popup, block.id);
+            syncGeoFields(popup, block.id, target);
         });
 
         handle.addEventListener('pointerup', () => {
@@ -291,11 +266,11 @@ function refreshGradientPopupBody(popup, block) {
             const newCX = Math.round(Math.max(0, Math.min(100, ((ev.clientX - boxRect.left) / boxRect.width)  * 100)));
             const newCY = Math.round(Math.max(0, Math.min(100, ((ev.clientY - boxRect.top)  / boxRect.height) * 100)));
             const blk = AppState.findBlockById(block.id);
-            blk.settings.gradientCenterX = newCX;
-            blk.settings.gradientCenterY = newCY;
+            blk.settings[getBannerGradientKey(target, 'centerX')] = newCX;
+            blk.settings[getBannerGradientKey(target, 'centerY')] = newCY;
             block.settings = blk.settings;
             updateHandlePositions();
-            syncGeoFields(popup, block.id);
+            syncGeoFields(popup, block.id, target);
         };
 
         const onUp = () => {
@@ -328,17 +303,54 @@ function refreshGradientPopupBody(popup, block) {
     barWrap.className = 'grad-popup__bar-wrap';
     const gradBar = document.createElement('div');
     gradBar.className = 'grad-popup__bar';
-    gradBar.style.background = buildGradientPreviewCss(s);
-    const stops = getGradientStopsModel(s);
-    stops.forEach((stop, index) => {
+    gradBar.style.background = buildGradientPreviewCss(s, target);
+    const stops = getGradientStopsModel(s, target);
+
+    function syncBarGradient() {
+        const bs = AppState.findBlockById(block.id).settings;
+        gradBar.style.background = buildGradientPreviewCss(bs, target);
+    }
+
+    stops.forEach((stop) => {
         const pin = document.createElement('div');
         pin.className = 'grad-popup__bar-pin';
-        if (index === stops.length - 1 && stop.position >= 99) {
-            pin.style.right = '2px'; pin.style.left = 'auto';
-        } else {
-            pin.style.left = `calc(${stop.position}% - 7px)`;
-        }
+        pin.style.cursor = 'ew-resize';
+        pin.style.touchAction = 'none';
+        const clampedPos = Math.max(0, Math.min(100, stop.position));
+        pin.style.left = `calc(${clampedPos}% - 8px)`;
         pin.style.background = stop.color;
+
+        pin.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            pin.classList.add('grad-popup__bar-pin--dragging');
+
+            const barRect = gradBar.getBoundingClientRect();
+
+            const onMove = (ev) => {
+                const rawPct = ((ev.clientX - barRect.left) / barRect.width) * 100;
+                const pct = Math.round(Math.max(0, Math.min(100, rawPct)));
+                pin.style.left = `calc(${pct}% - 8px)`;
+                updateGradientStop(block.id, stop.id, 'position', pct, target);
+                block.settings = AppState.findBlockById(block.id).settings;
+                syncBarGradient();
+            };
+
+            const onUp = () => {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup', onUp);
+                document.removeEventListener('pointercancel', onUp);
+                pin.classList.remove('grad-popup__bar-pin--dragging');
+                refreshGradientPopupBody(popup, block);
+            };
+
+            document.addEventListener('pointermove', onMove);
+            document.addEventListener('pointerup', onUp);
+            document.addEventListener('pointercancel', onUp);
+        });
+
         gradBar.appendChild(pin);
     });
     barWrap.appendChild(gradBar);
@@ -358,9 +370,9 @@ function refreshGradientPopupBody(popup, block) {
     addStopBtn.className = 'grad-popup__icon-btn';
     addStopBtn.textContent = '+';
     addStopBtn.addEventListener('click', () => {
-        const cur = getGradientStopsModel(AppState.findBlockById(block.id).settings);
+        const cur = getGradientStopsModel(AppState.findBlockById(block.id).settings, target);
         const nextStops = [...cur, { id: Date.now(), color: '#FFFFFF', opacity: 100, position: 50 }];
-        updateBlockSetting(block.id, 'gradientStops', normalizeGradientStops(nextStops));
+        updateBannerGradientSetting(block.id, target, 'gradientStops', normalizeGradientStops(nextStops));
         block.settings = AppState.findBlockById(block.id).settings;
         refreshGradientPopupBody(popup, block);
     });
@@ -387,7 +399,7 @@ function refreshGradientPopupBody(popup, block) {
         posSuffix.className = 'grad-popup__mini-suffix';
         posSuffix.textContent = '%';
         posInput.addEventListener('change', (e) => {
-            updateGradientStop(block.id, stop.id, 'position', Number(e.target.value));
+            updateGradientStop(block.id, stop.id, 'position', Number(e.target.value), target);
             block.settings = AppState.findBlockById(block.id).settings;
             refreshGradientPopupBody(popup, block);
         });
@@ -401,19 +413,19 @@ function refreshGradientPopupBody(popup, block) {
         const swatch = document.createElement('div');
         swatch.className = 'grad-popup__stop-swatch';
         swatch.style.background = stop.color;
-        // Клик на swetch открывает нативный color picker
-        const hiddenColorPicker = document.createElement('input');
-        hiddenColorPicker.type = 'color';
-        hiddenColorPicker.value = stop.color;
-        hiddenColorPicker.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-        swatch.addEventListener('click', () => hiddenColorPicker.click());
-        hiddenColorPicker.addEventListener('input', (e) => {
-            swatch.style.background = e.target.value;
-            hexInput.value = e.target.value.replace('#', '').toUpperCase();
-            updateGradientStop(block.id, stop.id, 'color', e.target.value);
-            block.settings = AppState.findBlockById(block.id).settings;
-            // Обновить бар без полного рефреша
-            gradBar.style.background = buildGradientPreviewCss(block.settings);
+        swatch.addEventListener('click', () => {
+            pickColor({
+                title: 'Цвет точки',
+                currentColor: stop.color,
+                allowTransparent: false,
+                onApply: (chosen) => {
+                    swatch.style.background = chosen;
+                    hexInput.value = chosen.replace('#', '').toUpperCase();
+                    updateGradientStop(block.id, stop.id, 'color', chosen, target);
+                    block.settings = AppState.findBlockById(block.id).settings;
+                    gradBar.style.background = buildGradientPreviewCss(block.settings, target);
+                },
+            });
         });
 
         const hexInput = document.createElement('input');
@@ -424,14 +436,12 @@ function refreshGradientPopupBody(popup, block) {
         hexInput.addEventListener('change', (e) => {
             const hex = ensureHex(e.target.value);
             swatch.style.background = hex;
-            hiddenColorPicker.value = hex;
-            updateGradientStop(block.id, stop.id, 'color', hex);
+            updateGradientStop(block.id, stop.id, 'color', hex, target);
             block.settings = AppState.findBlockById(block.id).settings;
             refreshGradientPopupBody(popup, block);
         });
 
         colorWrap.appendChild(swatch);
-        colorWrap.appendChild(hiddenColorPicker);
         colorWrap.appendChild(hexInput);
 
         // Opacity стопа
@@ -446,7 +456,7 @@ function refreshGradientPopupBody(popup, block) {
         opSuffix2.className = 'grad-popup__mini-suffix';
         opSuffix2.textContent = '%';
         opInput.addEventListener('change', (e) => {
-            updateGradientStop(block.id, stop.id, 'opacity', Number(e.target.value));
+            updateGradientStop(block.id, stop.id, 'opacity', Number(e.target.value), target);
             block.settings = AppState.findBlockById(block.id).settings;
             refreshGradientPopupBody(popup, block);
         });
@@ -458,10 +468,16 @@ function refreshGradientPopupBody(popup, block) {
         removeBtn.type = 'button';
         removeBtn.className = 'grad-popup__icon-btn grad-popup__icon-btn--danger';
         removeBtn.textContent = '−';
+        if (stops.length <= 2) {
+            removeBtn.disabled = true;
+            removeBtn.title = 'Минимум два stop для градиента';
+            removeBtn.style.opacity = '0.45';
+            removeBtn.style.cursor = 'not-allowed';
+        }
         removeBtn.addEventListener('click', () => {
-            const cur = getGradientStopsModel(AppState.findBlockById(block.id).settings);
+            const cur = getGradientStopsModel(AppState.findBlockById(block.id).settings, target);
             if (cur.length <= 2) return;
-            updateBlockSetting(block.id, 'gradientStops', cur.filter(item => item.id !== stop.id));
+            updateBannerGradientSetting(block.id, target, 'gradientStops', cur.filter(item => item.id !== stop.id));
             block.settings = AppState.findBlockById(block.id).settings;
             refreshGradientPopupBody(popup, block);
         });
@@ -514,13 +530,13 @@ function refreshGradientPopupBody(popup, block) {
             fieldRow.appendChild(input);
         }
         input.addEventListener('input', (e) => {
-            updateBlockSetting(block.id, settingKey, Number(e.target.value));
+            updateBannerGradientSetting(block.id, target, settingKey, Number(e.target.value));
             block.settings = AppState.findBlockById(block.id).settings;
             // live update bar
-            gradBar.style.background = buildGradientPreviewCss(block.settings);
+            gradBar.style.background = buildGradientPreviewCss(block.settings, target);
             // live update preview box
             const prevBox = popup.querySelector('.grad-preview__box');
-            if (prevBox) prevBox.style.background = buildGradientPreviewCss(block.settings);
+            if (prevBox) prevBox.style.background = buildGradientPreviewCss(block.settings, target);
         });
         // НЕ вызываем renderSettings() on change — это уничтожит DOM попапа
         cell.appendChild(lbl);
@@ -528,12 +544,12 @@ function refreshGradientPopupBody(popup, block) {
         return { cell, input };
     }
 
-    const angleField   = makeGeoField('Angle',    'gradientAngle',   -360, 360, 1, '°', Number(s.gradientAngle   ?? 0));
+    const angleField   = makeGeoField('Angle',    'gradientAngle',   -360, 360, 1, '°', Number(getBannerGradientSettingValue(s, target, 'gradientAngle') ?? 0));
     angleField.input.classList.add('grad-geo-angle');
     geoGrid.appendChild(angleField.cell);
 
-    const cxField = makeGeoField('Center X', 'gradientCenterX', 0, 100, 1, '', Number(s.gradientCenterX ?? 50));
-    const cyField = makeGeoField('Center Y', 'gradientCenterY', 0, 100, 1, '', Number(s.gradientCenterY ?? 50));
+    const cxField = makeGeoField('Center X', 'gradientCenterX', 0, 100, 1, '', Number(getBannerGradientSettingValue(s, target, 'gradientCenterX') ?? 50));
+    const cyField = makeGeoField('Center Y', 'gradientCenterY', 0, 100, 1, '', Number(getBannerGradientSettingValue(s, target, 'gradientCenterY') ?? 50));
     cxField.input.classList.add('grad-geo-cx');
     cyField.input.classList.add('grad-geo-cy');
     geoGrid.appendChild(cxField.cell);
@@ -550,18 +566,18 @@ function refreshGradientPopupBody(popup, block) {
     const balSlider = document.createElement('input');
     balSlider.type = 'range';
     balSlider.min = 1; balSlider.max = 200; balSlider.step = 1;
-    balSlider.value = Number(s.gradientBalance ?? 100);
+    balSlider.value = Number(getBannerGradientSettingValue(s, target, 'gradientBalance') ?? 100);
     balSlider.className = 'grad-popup__balance-slider grad-geo-balance-slider';
     const balValue = document.createElement('div');
     balValue.className = 'grad-popup__balance-value';
     balValue.textContent = `${balSlider.value}%`;
     balSlider.addEventListener('input', (e) => {
         balValue.textContent = `${e.target.value}%`;
-        updateBlockSetting(block.id, 'gradientBalance', Number(e.target.value));
+        updateBannerGradientSetting(block.id, target, 'gradientBalance', Number(e.target.value));
         block.settings = AppState.findBlockById(block.id).settings;
-        gradBar.style.background = buildGradientPreviewCss(block.settings);
+        gradBar.style.background = buildGradientPreviewCss(block.settings, target);
         const prevBox = popup.querySelector('.grad-preview__box');
-        if (prevBox) prevBox.style.background = buildGradientPreviewCss(block.settings);
+        if (prevBox) prevBox.style.background = buildGradientPreviewCss(block.settings, target);
         // обновляем хэндлы
         const updateFn = popup._updateHandlePositions;
         if (updateFn) updateFn();
@@ -577,9 +593,10 @@ function refreshGradientPopupBody(popup, block) {
 }
 
 // Синхронизирует поля Geometry в попапе без полного рефреша
-function syncGeoFields(popup, blockId) {
+function syncGeoFields(popup, blockId, target = null) {
     const bs = AppState.findBlockById(blockId).settings;
     if (!bs || !popup) return;
+    const gradientTarget = target || popup?.dataset?.gradientTarget || getActiveBannerGradientTarget(bs);
 
     const angleInput   = popup.querySelector('.grad-geo-angle');
     const balanceInput = popup.querySelector('.grad-geo-balance-slider');
@@ -587,11 +604,11 @@ function syncGeoFields(popup, blockId) {
     const cxInput      = popup.querySelector('.grad-geo-cx');
     const cyInput      = popup.querySelector('.grad-geo-cy');
 
-    if (angleInput)   angleInput.value   = Math.round(Number(bs.gradientAngle ?? 0));
-    if (cxInput)      cxInput.value      = Math.round(Number(bs.gradientCenterX ?? 50));
-    if (cyInput)      cyInput.value      = Math.round(Number(bs.gradientCenterY ?? 50));
-    if (balanceInput) balanceInput.value = Math.round(Number(bs.gradientBalance ?? 100));
-    if (balanceValue) balanceValue.textContent = `${Math.round(Number(bs.gradientBalance ?? 100))}%`;
+    if (angleInput)   angleInput.value   = Math.round(Number(getBannerGradientSettingValue(bs, gradientTarget, 'gradientAngle') ?? 0));
+    if (cxInput)      cxInput.value      = Math.round(Number(getBannerGradientSettingValue(bs, gradientTarget, 'gradientCenterX') ?? 50));
+    if (cyInput)      cyInput.value      = Math.round(Number(getBannerGradientSettingValue(bs, gradientTarget, 'gradientCenterY') ?? 50));
+    if (balanceInput) balanceInput.value = Math.round(Number(getBannerGradientSettingValue(bs, gradientTarget, 'gradientBalance') ?? 100));
+    if (balanceValue) balanceValue.textContent = `${Math.round(Number(getBannerGradientSettingValue(bs, gradientTarget, 'gradientBalance') ?? 100))}%`;
 }
 
 function positionGradientPopup(popup, anchorEl) {
@@ -621,7 +638,7 @@ function _outsideClickHandler(e) {
         document.removeEventListener('mousedown', _outsideClickHandler);
         return;
     }
-    if (!_gradientPopupEl.contains(e.target) && !e.target.closest('.color-gradient-btn')) {
+    if (!_gradientPopupEl.contains(e.target) && !e.target.closest('.color-gradient-btn') && !e.target.closest('.banner-gradient-toggle') && !e.target.closest('.banner-gradient-preview')) {
         closeGradientPopup();
         document.removeEventListener('mousedown', _outsideClickHandler);
     }
