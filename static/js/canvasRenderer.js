@@ -3,6 +3,9 @@
 function renderCanvas() {
     const canvas = document.getElementById('canvas');
 
+    // Preserve scroll position — full innerHTML reset would reset scrollTop to 0.
+    const savedScroll = canvas.scrollTop;
+
     if (AppState.blocks.length === 0) {
         canvas.innerHTML = `
             <div class="canvas-empty">
@@ -27,6 +30,8 @@ function renderCanvas() {
         const blockElement = createBlockElement(block, index);
         canvas.appendChild(blockElement);
     });
+
+    canvas.scrollTop = savedScroll;
 }
 
 function createBlockElement(block, index) {
