@@ -1,5 +1,12 @@
 /* theme-variables.css - CSS переменные для светлой и тёмной темы */
 
+html.theme-switching *,
+html.theme-switching *::before,
+html.theme-switching *::after {
+    transition: none !important;
+    animation: none !important;
+}
+
 /* ===== ТЁМНАЯ ТЕМА (по умолчанию) ===== */
 :root,
 [data-theme="dark"] {
@@ -91,88 +98,88 @@
 /* ===== СВЕТЛАЯ ТЕМА ===== */
 [data-theme="light"] {
     /* Основные фоны */
-    --bg-primary: #f8fafc;
-    --bg-secondary: #ffffff;
-    --bg-tertiary: #f1f5f9;
-    --bg-input: #ffffff;
-    --bg-hover: #e2e8f0;
-    --bg-selected: #fff7ed;
+    --bg-primary: #f3f1eb;
+    --bg-secondary: #fffdf8;
+    --bg-tertiary: #e7e2d8;
+    --bg-input: #fffdfa;
+    --bg-hover: #ddd7cb;
+    --bg-selected: #ece7dc;
 
     /* Границы */
-    --border-primary: #e2e8f0;
-    --border-secondary: #cbd5e1;
-    --border-color: #cbd5e1;
-    --border-tertiary: #94a3b8;
-    --border-hover: #64748b;
-    --border-focus: #f97316;
-    --border-dashed: #94a3b8;
+    --border-primary: #d7d0c3;
+    --border-secondary: #c5bcad;
+    --border-color: #c5bcad;
+    --border-tertiary: #a79b89;
+    --border-hover: #746b5f;
+    --border-focus: #9a7441;
+    --border-dashed: #a79b89;
 
     /* Текст - ВАЖНО: тёмные цвета для читаемости */
-    --text-primary: #0f172a;
-    --text-secondary: #1e293b;
-    --text-tertiary: #334155;
-    --text-muted: #64748b;
-    --text-disabled: #94a3b8;
-    --text-placeholder: #94a3b8;
+    --text-primary: #1f2329;
+    --text-secondary: #343a40;
+    --text-tertiary: #4a525b;
+    --text-muted: #6d737c;
+    --text-disabled: #a19a90;
+    --text-placeholder: #8e877d;
 
     /* Акцентные цвета */
-    --accent-primary: #f97316;
-    --accent-primary-hover: #ea580c;
-    --accent-secondary: #3b82f6;
-    --accent-secondary-hover: #2563eb;
-    --accent-success: #10b981;
-    --accent-success-hover: #059669;
-    --accent-danger: #dc2626;
-    --accent-danger-hover: #b91c1c;
-    --accent-purple: #8b5cf6;
-    --accent-purple-hover: #7c3aed;
+    --accent-primary: #9a7441;
+    --accent-primary-hover: #7d5d33;
+    --accent-secondary: #495869;
+    --accent-secondary-hover: #394553;
+    --accent-success: #3b7d5b;
+    --accent-success-hover: #2d6247;
+    --accent-danger: #a74a43;
+    --accent-danger-hover: #893a34;
+    --accent-purple: #6e6798;
+    --accent-purple-hover: #59547c;
 
     /* Тени */
-    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.05);
-    --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-    --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.15);
-    --shadow-panel: 4px 0 12px rgba(0, 0, 0, 0.1);
+    --shadow-sm: 0 4px 8px rgba(31, 35, 41, 0.04);
+    --shadow-md: 0 8px 24px rgba(31, 35, 41, 0.08);
+    --shadow-lg: 0 16px 32px rgba(31, 35, 41, 0.12);
+    --shadow-panel: 4px 0 16px rgba(31, 35, 41, 0.08);
 
     /* Специальные */
-    --canvas-bg: #f1f5f9;
-    --block-bg: #ffffff;
-    --block-content-bg: #f8fafc;
-    --modal-overlay: rgba(0, 0, 0, 0.5);
-    --modal-bg: #ffffff;
-    --scrollbar-track: #e2e8f0;
-    --scrollbar-thumb: #94a3b8;
-    --scrollbar-thumb-hover: #64748b;
+    --canvas-bg: #ece8df;
+    --block-bg: #fffdf8;
+    --block-content-bg: #f6f2ea;
+    --modal-overlay: rgba(31, 35, 41, 0.28);
+    --modal-bg: #fffdf8;
+    --scrollbar-track: #e4ded2;
+    --scrollbar-thumb: #b3aa9b;
+    --scrollbar-thumb-hover: #8a8174;
 
     /* Карточки и секции */
-    --card-bg: #ffffff;
-    --card-border: #e2e8f0;
-    --section-header-color: #64748b;
+    --card-bg: #fffdf8;
+    --card-border: #d7d0c3;
+    --section-header-color: #6d737c;
 
     /* Табы и переключатели */
-    --tab-bg: #e2e8f0;
-    --tab-active-bg: #f97316;
-    --tab-text: #64748b;
+    --tab-bg: #e2ddd3;
+    --tab-active-bg: #9a7441;
+    --tab-text: #6d737c;
     --tab-active-text: #ffffff;
 
     /* Слайдеры */
-    --slider-track: #cbd5e1;
-    --slider-fill: #3b82f6;
-    --slider-thumb: #ffffff;
+    --slider-track: #d0c8bb;
+    --slider-fill: #9a7441;
+    --slider-thumb: #fffdf8;
     /* Exchange-модалка */
-    --exchange-modal-bg: #ffffff;
-    --exchange-modal-border: #d7deea;
-    --exchange-modal-close-bg: #e8edf5;
-    --exchange-modal-close-color: #4a5568;
-    --exchange-modal-close-hover-bg: #d1d9e6;
-    --input-bg: #ffffff;
-    --input-border: #c7d2e3;
-    --input-border-hover: #9fb0ca;
-    --input-border-focus: #7c3aed;
-    --input-focus-ring: rgba(124, 58, 237, 0.18);
-    --input-text: #111827;
-    --input-placeholder: #94a3b8;
-    --exchange-btn-secondary-bg: #e2e8f0;
-    --exchange-btn-secondary-hover: #cbd5e1;
+    --exchange-modal-bg: #fffdf8;
+    --exchange-modal-border: #d4cdbf;
+    --exchange-modal-close-bg: #e9e3d9;
+    --exchange-modal-close-color: #4a525b;
+    --exchange-modal-close-hover-bg: #ddd6ca;
+    --input-bg: #fffdfa;
+    --input-border: #c9c0b1;
+    --input-border-hover: #aca293;
+    --input-border-focus: #9a7441;
+    --input-focus-ring: rgba(154, 116, 65, 0.18);
+    --input-text: #1f2329;
+    --input-placeholder: #8e877d;
+    --exchange-btn-secondary-bg: #e7e2d8;
+    --exchange-btn-secondary-hover: #ddd7cb;
 }
 
 /* ===== ПРИМЕНЕНИЕ ПЕРЕМЕННЫХ ===== */
@@ -1162,25 +1169,40 @@ body,
 .modal-preview-email {
   width: 860px;
   max-width: 95vw;
-  height: 90vh;
+  /* Use a fixed viewport height minus safe margins so the modal never
+     overflows the screen.  The inner iframe then fills the remaining space
+     after the header row. */
+  height: min(90vh, calc(100vh - 32px));
 }
 
 .modal-preview-email-body {
-  padding: 0;
+  padding: 0 !important;
   overflow: hidden;
+  /* Must be a block-formatting context so the child iframe fills it. */
+  display: flex;
+  flex-direction: column;
 }
 
 .preview-container--frame {
   max-width: none;
+  flex: 1;
+  /* Fallback for browsers that don't respect flex: 1 on block children. */
   height: 100%;
   background: #ffffff;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.preview-container--frame iframe {
+.email-preview-frame {
   display: block;
+  flex: 1;
   width: 100%;
+  /* height: 100% alone does not work when the parent is a flex container —
+     flex: 1 above already sizes it correctly.  The explicit height + min-height
+     act as a fallback for non-flex layout paths. */
   height: 100%;
-  min-height: 640px;
+  min-height: 0;
   border: none;
   background: #ffffff;
 }
