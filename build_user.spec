@@ -23,6 +23,7 @@ def maybe(src, dst):
 
 # ── Static assets ─────────────────────────────────────────────────────────────
 raw_datas = [
+    maybe('icon.ico', '.'),
     maybe('static',                    'static'),
     maybe('js',                        'js'),
     maybe('templates',                 'templates'),

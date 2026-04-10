@@ -12,13 +12,16 @@ function renderTextSettings(container, block) {
     // Перехватываем изменения — конвертируем plain text → simple HTML при сохранении
     const ta = textarea.querySelector('textarea');
     if (ta) {
-        // Убираем стандартный oninput/onchange который мог быть назначен в createSettingTextarea
-        ta.addEventListener('change', (e) => {
+        // Apply typography on blur (not on every keystroke — avoids cursor jumps).
+        // Use 'blur' rather than 'change' so it fires even when the settings panel
+        // is about to be rebuilt (e.g. user clicks another block on canvas).
+        ta.addEventListener('blur', (e) => {
             let simpleHTML = TextSanitizer.sanitize(e.target.value, true);
             simpleHTML = TextSanitizer.applyTypography(simpleHTML);
-            // Reflect typography back so the user sees guillemets and NBSP in the textarea
+            // Reflect guillemets, em-dashes back into the textarea
             e.target.value = TextSanitizer.toPlainText(simpleHTML);
             updateBlockSetting(block.id, 'content', simpleHTML);
+            renderCanvas();
         });
 
         ta.addEventListener('input', (e) => {

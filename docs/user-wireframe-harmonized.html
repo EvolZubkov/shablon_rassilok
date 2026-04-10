@@ -1,0 +1,630 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Wireframe Harmonized</title>
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <style>
+    :root {
+      --bg: #f3f4f6;
+      --panel: #ffffff;
+      --panel-soft: #f8fafc;
+      --line: #d0d5dd;
+      --line-strong: #98a2b3;
+      --text: #101828;
+      --muted: #667085;
+      --accent: #344054;
+      --accent-soft: #eef2f6;
+      --canvas: #e9eef5;
+      --mail: #ffffff;
+      --mail-line: #e5e7eb;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Arial, sans-serif;
+    }
+
+    [data-lucide] {
+      width: 16px;
+      height: 16px;
+      stroke-width: 2;
+      flex-shrink: 0;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      gap: 24px;
+      padding: 24px;
+    }
+
+    .screen {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      box-shadow: 0 12px 32px rgba(16, 24, 40, 0.08);
+      overflow: hidden;
+    }
+
+    .screen-title {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    .toolbar {
+      display: grid;
+      grid-template-columns: auto 1fr auto;
+      align-items: center;
+      gap: 16px;
+      min-height: 56px;
+      padding: 0 16px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+    }
+
+    .toolbar-left,
+    .toolbar-center,
+    .toolbar-right {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+    }
+
+    .toolbar-center {
+      justify-content: center;
+    }
+
+    .app-mark {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+    }
+
+    .logo-dot {
+      width: 28px;
+      height: 28px;
+      border-radius: 8px;
+      background: var(--accent);
+      color: #fff;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 12px;
+      font-weight: 700;
+    }
+
+    .app-name {
+      font-size: 16px;
+      font-weight: 700;
+    }
+
+    .search {
+      width: 320px;
+      max-width: 100%;
+      height: 36px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: var(--panel-soft);
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .btn,
+    .pill,
+    .subtab {
+      min-height: 32px;
+      border: 1px solid var(--line-strong);
+      border-radius: 8px;
+      background: #fff;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 12px;
+      font-size: 13px;
+      color: var(--text);
+    }
+
+    .btn.icon {
+      width: 32px;
+      justify-content: center;
+      padding: 0;
+    }
+
+    .btn.primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #fff;
+    }
+
+    .btn.soft {
+      background: var(--accent-soft);
+    }
+
+    .subbar {
+      min-height: 48px;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .subtabs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .subtab {
+      min-height: 28px;
+      border-radius: 999px;
+      padding: 0 10px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .subtab.active {
+      background: var(--accent-soft);
+      color: var(--text);
+      font-weight: 700;
+    }
+
+    .content {
+      padding: 20px;
+      background: var(--canvas);
+    }
+
+    .template-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+    }
+
+    .template-card {
+      border: 1px solid var(--line);
+      background: var(--panel);
+      border-radius: 12px;
+      overflow: hidden;
+    }
+
+    .template-preview {
+      height: 180px;
+      background: linear-gradient(180deg, #ffffff 0 64%, #eef2f6 64% 100%);
+      border-bottom: 1px solid var(--line);
+      position: relative;
+      padding: 14px;
+    }
+
+    .mail-mini {
+      border: 1px solid var(--mail-line);
+      border-radius: 8px;
+      overflow: hidden;
+      height: 100%;
+      background: #fff;
+    }
+
+    .mail-mini-hero {
+      height: 52%;
+      background: linear-gradient(135deg, #d0d5dd 0 55%, #eaecf0 55% 100%);
+    }
+
+    .mail-mini-copy {
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .line {
+      height: 10px;
+      background: #d0d5dd;
+      border-radius: 999px;
+    }
+
+    .line.short { width: 52%; }
+    .line.mid { width: 70%; }
+
+    .template-meta {
+      padding: 14px;
+      display: grid;
+      gap: 8px;
+    }
+
+    .template-name {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .template-caption {
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: 280px minmax(0, 1fr);
+      min-height: 720px;
+    }
+
+    .sidebar {
+      border-right: 1px solid var(--line);
+      background: var(--panel);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+
+    .sidebar-head {
+      padding: 16px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+    }
+
+    .sidebar-title {
+      font-size: 14px;
+      font-weight: 700;
+    }
+
+    .sidebar-note {
+      margin-top: 4px;
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.4;
+    }
+
+    .sidebar-body {
+      padding: 16px;
+      display: grid;
+      gap: 12px;
+      align-content: start;
+    }
+
+    .side-card {
+      border: 1px solid var(--line);
+      background: #fff;
+      border-radius: 10px;
+      padding: 12px;
+    }
+
+    .side-card-title {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 10px;
+    }
+
+    .side-card p {
+      font-size: 13px;
+      line-height: 1.45;
+      color: var(--muted);
+    }
+
+    .canvas-wrap {
+      display: grid;
+      grid-template-rows: 48px 1fr;
+      min-height: 0;
+      background: var(--canvas);
+    }
+
+    .context-bar {
+      padding: 8px 16px;
+      background: var(--panel-soft);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .context-left,
+    .context-right {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .canvas {
+      padding: 24px;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      overflow: auto;
+    }
+
+    .mail {
+      width: 640px;
+      max-width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      background: var(--mail);
+      box-shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      overflow: hidden;
+    }
+
+    .mail-head {
+      padding: 14px 18px;
+      background: #f8fafc;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 13px;
+    }
+
+    .mail-body {
+      padding: 20px;
+      display: grid;
+      gap: 16px;
+    }
+
+    .hero {
+      height: 220px;
+      border: 1px solid var(--mail-line);
+      border-radius: 12px;
+      background: linear-gradient(135deg, #d0d5dd 0 55%, #eaecf0 55% 100%);
+      display: flex;
+      align-items: flex-end;
+      padding: 20px;
+      font-size: 28px;
+      font-weight: 700;
+      color: #475467;
+    }
+
+    .text-block {
+      border: 1px solid var(--mail-line);
+      border-radius: 10px;
+      padding: 16px;
+      display: grid;
+      gap: 10px;
+      background: #fff;
+    }
+
+    .modal-mock {
+      position: absolute;
+      top: 84px;
+      right: 24px;
+      width: 280px;
+      border: 1px dashed var(--line-strong);
+      border-radius: 12px;
+      background: rgba(255,255,255,0.95);
+      backdrop-filter: blur(4px);
+      overflow: hidden;
+    }
+
+    .modal-mock-head {
+      min-height: 40px;
+      padding: 0 12px;
+      border-bottom: 1px solid var(--line);
+      background: var(--panel-soft);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      font-size: 13px;
+      font-weight: 700;
+    }
+
+    .modal-mock-body {
+      padding: 12px;
+      display: grid;
+      gap: 8px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <section class="screen">
+      <div class="screen-title">User Mode / Start Screen</div>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="app-mark">
+            <div class="logo-dot">P</div>
+            <div class="app-name">Почтелье</div>
+          </div>
+        </div>
+        <div class="toolbar-center">
+          <div class="search">
+            <i data-lucide="search"></i>
+            <span>Поиск шаблонов</span>
+          </div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn icon" title="Тема интерфейса"><i data-lucide="sun-moon"></i></button>
+        </div>
+      </div>
+      <div class="subbar">
+        <div class="subtabs">
+          <div class="subtab active">Все шаблоны</div>
+          <div class="subtab">Маркетинг</div>
+          <div class="subtab">Сервисные</div>
+          <div class="subtab">Обучение</div>
+        </div>
+        <div class="context-right">
+          <div class="pill">12 шаблонов</div>
+        </div>
+      </div>
+      <div class="content">
+        <div class="template-grid">
+          <div class="template-card">
+            <div class="template-preview">
+              <div class="mail-mini">
+                <div class="mail-mini-hero"></div>
+                <div class="mail-mini-copy">
+                  <div class="line mid"></div>
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+            </div>
+            <div class="template-meta">
+              <div class="template-name">Весенняя кампания</div>
+              <div class="template-caption">Маркетинг</div>
+            </div>
+          </div>
+          <div class="template-card">
+            <div class="template-preview">
+              <div class="mail-mini">
+                <div class="mail-mini-hero"></div>
+                <div class="mail-mini-copy">
+                  <div class="line mid"></div>
+                  <div class="line short"></div>
+                  <div class="line short"></div>
+                </div>
+              </div>
+            </div>
+            <div class="template-meta">
+              <div class="template-name">Сервисное уведомление</div>
+              <div class="template-caption">Операционные</div>
+            </div>
+          </div>
+          <div class="template-card">
+            <div class="template-preview">
+              <div class="mail-mini">
+                <div class="mail-mini-hero"></div>
+                <div class="mail-mini-copy">
+                  <div class="line mid"></div>
+                  <div class="line mid"></div>
+                  <div class="line short"></div>
+                </div>
+              </div>
+            </div>
+            <div class="template-meta">
+              <div class="template-name">Приглашение</div>
+              <div class="template-caption">HR</div>
+            </div>
+          </div>
+          <div class="template-card">
+            <div class="template-preview">
+              <div class="mail-mini">
+                <div class="mail-mini-hero"></div>
+                <div class="mail-mini-copy">
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                  <div class="line short"></div>
+                </div>
+              </div>
+            </div>
+            <div class="template-meta">
+              <div class="template-name">Напоминание</div>
+              <div class="template-caption">Обучение</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="screen">
+      <div class="screen-title">User Mode / Editor Screen</div>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <button class="btn soft"><i data-lucide="arrow-left"></i><span>К шаблонам</span></button>
+          <button class="btn"><i data-lucide="mail"></i><span>Создать письмо</span></button>
+          <button class="btn"><i data-lucide="calendar"></i><span>Создать встречу</span></button>
+          <button class="btn icon" title="Предварительный просмотр"><i data-lucide="eye"></i></button>
+        </div>
+        <div class="toolbar-center">
+          <div class="pill">Шаблон: Весенняя кампания</div>
+          <div class="pill">Статус: Черновик</div>
+        </div>
+        <div class="toolbar-right">
+          <button class="btn icon" title="Тема интерфейса"><i data-lucide="sun-moon"></i></button>
+        </div>
+      </div>
+      <div class="layout">
+        <aside class="sidebar">
+          <div class="sidebar-head">
+            <div class="sidebar-title">Подсказки и действия</div>
+            <div class="sidebar-note">У пользователя слева не библиотека блоков, а лёгкая контекстная панель.</div>
+          </div>
+          <div class="sidebar-body">
+            <div class="side-card">
+              <div class="side-card-title">Редактируемо</div>
+              <p>Текст, ссылки, изображения, кнопки, отдельные параметры баннера.</p>
+            </div>
+            <div class="side-card">
+              <div class="side-card-title">Быстрые действия</div>
+              <p>Предпросмотр, создать письмо, создать встречу, сохранить личную копию при необходимости.</p>
+            </div>
+            <div class="side-card">
+              <div class="side-card-title">Подсветка</div>
+              <p>Пустые и проблемные поля должны отмечаться тем же языком состояния, что и в admin-режиме.</p>
+            </div>
+          </div>
+        </aside>
+        <main class="canvas-wrap">
+          <div class="context-bar">
+            <div class="context-left">
+              <div class="pill">Редактирование письма</div>
+            </div>
+            <div class="context-right">
+              <div class="pill">3 изменённых блока</div>
+            </div>
+          </div>
+          <div class="canvas">
+            <div class="mail">
+              <div class="mail-head">
+                <span>Прямое редактирование на холсте</span>
+                <span>Без правой панели настроек</span>
+              </div>
+              <div class="mail-body">
+                <div class="hero">Заголовок баннера</div>
+                <div class="text-block">
+                  <div class="line mid"></div>
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+                <div class="text-block">
+                  <div class="line short"></div>
+                  <div class="line mid"></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="modal-mock">
+              <div class="modal-mock-head">
+                <span>Preview письма</span>
+                <div style="display:flex;gap:8px;align-items:center">
+                  <button class="btn icon" title="Светлая тема письма"><i data-lucide="sun"></i></button>
+                  <button class="btn icon" title="Тёмная тема письма"><i data-lucide="moon"></i></button>
+                </div>
+              </div>
+              <div class="modal-mock-body">
+                <div>Переключатель светлая/тёмная тема письма живёт только внутри preview, как и в admin-режиме.</div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    lucide.createIcons();
+  </script>
+</body>
+</html>

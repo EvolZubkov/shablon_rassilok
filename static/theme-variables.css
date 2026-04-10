@@ -14,6 +14,7 @@
     /* Границы */
     --border-primary: #1f2937;
     --border-secondary: #334155;
+    --border-color: #334155;
     --border-tertiary: #374151;
     --border-hover: #475569;
     --border-focus: #f97316;
@@ -100,6 +101,7 @@
     /* Границы */
     --border-primary: #e2e8f0;
     --border-secondary: #cbd5e1;
+    --border-color: #cbd5e1;
     --border-tertiary: #94a3b8;
     --border-hover: #64748b;
     --border-focus: #f97316;
@@ -218,6 +220,7 @@ body {
 
 .canvas-header {
     position: relative;
+    overflow: visible;
     border-bottom-color: var(--border-primary);
     background: var(--bg-primary);
 }
@@ -227,6 +230,7 @@ body {
     margin: 0;
     text-align: center;
     color: var(--text-primary);
+    pointer-events: none;
 }
 
 .canvas-content {
@@ -1104,6 +1108,7 @@ body,
   display: flex;
   align-items: center;
   gap: 12px;
+  z-index: 5;
 }
 
 .canvas-header-actions-left {
@@ -1111,10 +1116,71 @@ body,
 }
 
 .canvas-header-actions-right {
-  right: 16px;
+  right: 220px;
+}
+
+.canvas-header-actions {
+  position: relative;
+  z-index: 5;
+}
+
+.canvas-header-actions .btn-preview,
+.canvas-header-actions .email-theme-toggle,
+.canvas-header-actions-right .btn-preview,
+.canvas-header-actions-right .email-theme-toggle,
+.canvas-header-actions-right .theme-toggle-btn {
+  position: relative;
+  z-index: 6;
+  pointer-events: auto;
 }
 
 /* убираем старый отступ справа, чтобы работал gap */
 .theme-toggle-btn {
   margin-right: 0;
+}
+
+/* ===== INLINE PREVIEW MODAL ===== */
+#inline-preview-modal {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 10000;
+}
+
+#inline-preview-close {
+  background: none;
+  border: none;
+  color: #9ca3af;
+  font-size: 20px;
+  cursor: pointer;
+  line-height: 1;
+  padding: 0 4px;
+}
+
+.modal-preview-email {
+  width: 860px;
+  max-width: 95vw;
+  height: 90vh;
+}
+
+.modal-preview-email-body {
+  padding: 0;
+  overflow: hidden;
+}
+
+.preview-container--frame {
+  max-width: none;
+  height: 100%;
+  background: #ffffff;
+}
+
+.preview-container--frame iframe {
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 640px;
+  border: none;
+  background: #ffffff;
 }

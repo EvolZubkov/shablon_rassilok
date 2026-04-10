@@ -26,8 +26,8 @@ const UserResources = (() => {
     let _shared = null;
     /** Whether the current session has admin rights. */
     let _isAdmin = false;
-    /** Active tab: 'personal' | 'shared' */
-    let _activeTab = 'personal';
+    /** Active tab: 'shared' | 'personal' */
+    let _activeTab = 'shared';
 
     const CATEGORY_LABELS = {
         'icons':              'Иконки (важно)',
@@ -162,17 +162,6 @@ const UserResources = (() => {
         const tabBar = document.createElement('div');
         tabBar.className = 'ur-tab-bar';
 
-        const tabPersonal = document.createElement('button');
-        tabPersonal.type = 'button';
-        tabPersonal.className = 'ur-tab' + (_activeTab === 'personal' ? ' ur-tab--active' : '');
-        tabPersonal.textContent = 'Мои';
-
-        tabPersonal.addEventListener('click', () => {
-            _activeTab = 'personal';
-            _renderPanel();
-        });
-        tabBar.appendChild(tabPersonal);
-
         if (_isAdmin) {
             const tabShared = document.createElement('button');
             tabShared.type = 'button';
@@ -184,6 +173,17 @@ const UserResources = (() => {
             });
             tabBar.appendChild(tabShared);
         }
+
+        const tabPersonal = document.createElement('button');
+        tabPersonal.type = 'button';
+        tabPersonal.className = 'ur-tab' + (_activeTab === 'personal' ? ' ur-tab--active' : '');
+        tabPersonal.textContent = 'Личные';
+
+        tabPersonal.addEventListener('click', () => {
+            _activeTab = 'personal';
+            _renderPanel();
+        });
+        tabBar.appendChild(tabPersonal);
 
         body.appendChild(tabBar);
 
@@ -197,16 +197,23 @@ const UserResources = (() => {
     }
 
     function _buildSection(category, items, isEdit) {
-        const section = document.createElement('div');
-        section.className = 'ur-section';
+        const group = document.createElement('div');
+        group.className = 'templates-category-group';
 
-        const header = document.createElement('div');
-        header.className = 'ur-section-header';
+        // Header row: collapse button + optional upload label
+        const row = document.createElement('div');
+        row.className = 'ur-category-row';
 
-        const title = document.createElement('span');
-        title.className = 'ur-section-title';
-        title.textContent = CATEGORY_LABELS[category] || category;
-        header.appendChild(title);
+        const headerBtn = document.createElement('button');
+        headerBtn.type = 'button';
+        headerBtn.className = 'templates-category-header';
+        headerBtn.setAttribute('aria-expanded', 'true');
+        headerBtn.innerHTML =
+            `<span class="tcg-title">${CATEGORY_LABELS[category] || category}</span>` +
+            `<svg class="tcg-chevron" width="14" height="14" viewBox="0 0 24 24" ` +
+            `fill="none" stroke="currentColor" stroke-width="2">` +
+            `<polyline points="6 9 12 15 18 9"></polyline></svg>`;
+        row.appendChild(headerBtn);
 
         if (isEdit) {
             const uploadLabel = document.createElement('label');
@@ -224,6 +231,7 @@ const UserResources = (() => {
                 if (result.success) {
                     Toast.success('Файл загружен');
                     await load();
+                    if (typeof ConfigLoader !== 'undefined') await ConfigLoader.load();
                     _renderPanel();
                     if (typeof renderSettings === 'function') renderSettings();
                 } else {
@@ -232,24 +240,35 @@ const UserResources = (() => {
                 fileInput.value = '';
             });
             uploadLabel.appendChild(fileInput);
-            header.appendChild(uploadLabel);
+            row.appendChild(uploadLabel);
         }
 
-        section.appendChild(header);
+        group.appendChild(row);
+
+        // Collapsible body
+        const body = document.createElement('div');
+        body.className = 'templates-category-body';
+
+        headerBtn.addEventListener('click', () => {
+            const open = headerBtn.getAttribute('aria-expanded') === 'true';
+            headerBtn.setAttribute('aria-expanded', String(!open));
+            body.classList.toggle('templates-category-body--collapsed', open);
+        });
 
         if (!items.length) {
             const empty = document.createElement('p');
             empty.className = 'ur-empty';
             empty.textContent = 'Нет ресурсов';
-            section.appendChild(empty);
+            body.appendChild(empty);
         } else {
             const grid = document.createElement('div');
             grid.className = 'ur-grid';
             items.forEach(item => grid.appendChild(_buildCard(category, item, isEdit)));
-            section.appendChild(grid);
+            body.appendChild(grid);
         }
 
-        return section;
+        group.appendChild(body);
+        return group;
     }
 
     function _buildCard(category, item, isEdit) {
@@ -283,6 +302,7 @@ const UserResources = (() => {
             if (result.success) {
                 Toast.success('Удалено');
                 await load();
+                if (typeof ConfigLoader !== 'undefined') await ConfigLoader.load();
                 _renderPanel();
                 if (typeof renderSettings === 'function') renderSettings();
             } else {
@@ -303,7 +323,9 @@ const UserResources = (() => {
                 if (result.success) {
                     Toast.success('Опубликовано');
                     await load();
+                    if (typeof ConfigLoader !== 'undefined') await ConfigLoader.load();
                     _renderPanel();
+                    if (typeof renderSettings === 'function') renderSettings();
                 } else {
                     Toast.error(result.error || 'Ошибка публикации');
                 }

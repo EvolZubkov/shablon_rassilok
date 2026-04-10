@@ -69,6 +69,19 @@ describe('TextSanitizer.sanitize — plain text', () => {
             .toContain('href="mailto:a@rt.ru"')
     })
 
+    test('голый email-адрес → mailto-ссылка', () => {
+        const r = TextSanitizer.sanitize('Пишите на user@example.com пожалуйста', true)
+        expect(r).toContain('href="mailto:user@example.com"')
+        expect(r).toContain('>user@example.com<')
+    })
+
+    test('email в середине текста не ломает соседние слова', () => {
+        const r = TextSanitizer.sanitize('До user@example.com после', true)
+        expect(r).toContain('href="mailto:user@example.com"')
+        expect(r).toContain('До')
+        expect(r).toContain('после')
+    })
+
     test('javascript: не становится кликабельной ссылкой', () => {
         const r = TextSanitizer.sanitize('[клик](javascript:alert(1))', true)
         expect(r).not.toContain('<a href="javascript:')
@@ -348,6 +361,11 @@ describe('TextSanitizer.applyTypography — неразрывные пробел�
         expect(r).toContain(`между${NBSP}делом`)
     })
 
+    test('любое слово из 3 букв получает неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>мир дому</p>')
+        expect(r).toContain(`мир${NBSP}дому`)
+    })
+
     test('союз «и» → неразрывный пробел', () => {
         const r = TextSanitizer.applyTypography('<p>мама и папа</p>')
         expect(r).toContain(`и${NBSP}папа`)
@@ -368,6 +386,11 @@ describe('TextSanitizer.applyTypography — неразрывные пробел�
 
     test('длинное слово не из списка → обычный пробел', () => {
         const r = TextSanitizer.applyTypography('<p>программа запущена</p>')
+        expect(r).not.toContain(NBSP)
+    })
+
+    test('слово из 4 букв вне словаря не получает неразрывный пробел', () => {
+        const r = TextSanitizer.applyTypography('<p>тема письма</p>')
         expect(r).not.toContain(NBSP)
     })
 

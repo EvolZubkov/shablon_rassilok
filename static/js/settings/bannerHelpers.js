@@ -673,8 +673,11 @@ function deleteBannerTextElement(blockId, textElId) {
 
     block.settings.textElements = block.settings.textElements.filter(el => el.id !== textElId);
 
+    renderBannerToDataUrl(block, (dataUrl) => {
+        block.settings.renderedBanner = dataUrl || null;
+        renderCanvas();
+    });
     renderSettings();
-    renderCanvas();
 }
 
 function updateBannerTextElement(blockId, textElId, key, value) {

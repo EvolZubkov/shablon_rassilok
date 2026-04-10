@@ -419,11 +419,24 @@ function handleFileUpload(event, blockId, settingKey) {
     if (file && file.type.startsWith('image/')) {
         const reader = new FileReader();
         reader.onload = (e) => {
+            const pairedSettingMap = {
+                rightImageCustom: 'rightImage',
+                logoCustom: 'logo',
+                iconCustom: 'icon',
+                bulletCustom: 'bulletType',
+            };
+            const pairedSetting = pairedSettingMap[settingKey];
+            if (pairedSetting) {
+                updateBlockSetting(blockId, pairedSetting, '');
+            }
             updateBlockSetting(blockId, settingKey, e.target.result);
             renderSettings();
+            event.target.value = '';
         };
         reader.readAsDataURL(file);
+        return;
     }
+    event.target.value = '';
 }
 
 // Универсальный компонент позиционирования (X/Y) с drag-scrub

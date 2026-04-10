@@ -92,12 +92,39 @@ const Toast = (() => {
         setTimeout(() => el.remove(), 200);
     }
 
+    /**
+     * Show a persistent loading toast.
+     *
+     * Returns a controller object:
+     *   • resolve(type, msg) — replace the toast with a final success/error/info message
+     *   • dismiss()          — remove silently
+     *
+     * @param {string} message
+     * @returns {{ resolve: (type: string, msg: string) => void, dismiss: () => void }}
+     */
+    function loading(message) {
+        const el = show('\u23F3 ' + message, 'info', 9e8);
+        return {
+            resolve(type, msg) {
+                if (!el || !el.parentNode) return;
+                clearTimeout(el._timer);
+                const style = COLORS[type] || COLORS.info;
+                el.style.background = style.bg;
+                el.style.borderColor = style.border;
+                el.textContent = msg;
+                el._timer = setTimeout(() => dismiss(el), DEFAULT_DURATION);
+            },
+            dismiss() { dismiss(el); },
+        };
+    }
+
     return {
         show,
         success: (msg, dur) => show(msg, 'success', dur),
         error:   (msg, dur) => show(msg, 'error',   dur),
         info:    (msg, dur) => show(msg, 'info',    dur),
         warning: (msg, dur) => show(msg, 'warning', dur),
+        loading,
     };
 })();
 

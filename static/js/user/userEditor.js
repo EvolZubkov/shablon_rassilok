@@ -208,6 +208,18 @@ function renderUserCanvas() {
 
     canvas.innerHTML = '';
 
+    if (!Array.isArray(UserAppState.blocks) || UserAppState.blocks.length === 0) {
+        canvas.innerHTML = `
+            <div class="user-canvas-empty">
+                <div class="user-canvas-empty-icon">+</div>
+                <h2>Письмо пока пустое</h2>
+                <p>Вернитесь к шаблонам или выберите готовую основу на стартовом экране.</p>
+            </div>
+        `;
+        window.updateUserEditorMeta?.();
+        return;
+    }
+
     UserAppState.blocks.forEach((block, index) => {
         const blockElement = createUserBlockElement(block, index);
         canvas.appendChild(blockElement);
@@ -215,6 +227,7 @@ function renderUserCanvas() {
 
     // Инициализируем inline-редактирование
     initInlineEditing();
+    window.updateUserEditorMeta?.();
 }
 
 /**
@@ -237,6 +250,7 @@ function createUserBlockElement(block, index) {
 
             if (shouldHighlightBlock(childBlock)) {
                 childEl.classList.add('needs-attention');
+                childEl.appendChild(makeAttentionBadge());
             }
 
             childEl.appendChild(makeDeleteBtn(childId));
@@ -252,12 +266,50 @@ function createUserBlockElement(block, index) {
 
         if (shouldHighlightBlock(block)) {
             wrapper.classList.add('needs-attention');
+            wrapper.appendChild(makeAttentionBadge(block));
         }
 
         wrapper.appendChild(makeDeleteBtn(block.id));
     }
 
     return wrapper;
+}
+
+/**
+ * Build a human-readable tooltip message explaining what needs to be configured.
+ * @param {Object} block
+ * @returns {string}
+ */
+function _attentionMessage(block) {
+    if (block.type === 'button') {
+        const url = String(block.settings?.url || '').trim();
+        if (!url) return 'Укажите ссылку для кнопки';
+        // URL present but block is still flagged (matches original template value)
+        return 'Проверьте ссылку — используется исходное значение шаблона';
+    }
+    if (block.type === 'banner') {
+        return 'Настройте параметры баннера: обновите логотип, иконки и заголовок';
+    }
+    return 'Блок требует настройки перед отправкой';
+}
+
+/**
+ * Create the orange warning badge shown on blocks that need configuration.
+ * @param {Object} block - The block being rendered.
+ * @returns {HTMLElement}
+ */
+function makeAttentionBadge(block) {
+    const badge = document.createElement('div');
+    badge.className = 'block-attention-badge';
+    badge.dataset.tooltip = _attentionMessage(block);
+    badge.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="m10.29 3.86-8.18 14.14A2 2 0 0 0 3.84 21h16.32a2 2 0 0 0 1.73-3l-8.18-14.14a2 2 0 0 0-3.42 0z"></path>
+            <path d="M12 9v4"></path>
+            <path d="M12 17h.01"></path>
+        </svg>
+    `;
+    return badge;
 }
 
 /**
