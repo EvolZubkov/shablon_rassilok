@@ -69,6 +69,19 @@ describe('TextSanitizer.sanitize — plain text', () => {
             .toContain('href="mailto:a@rt.ru"')
     })
 
+    test('голый email-адрес → mailto-ссылка', () => {
+        const r = TextSanitizer.sanitize('Пишите на user@example.com пожалуйста', true)
+        expect(r).toContain('href="mailto:user@example.com"')
+        expect(r).toContain('>user@example.com<')
+    })
+
+    test('email в середине текста не ломает соседние слова', () => {
+        const r = TextSanitizer.sanitize('До user@example.com после', true)
+        expect(r).toContain('href="mailto:user@example.com"')
+        expect(r).toContain('До')
+        expect(r).toContain('после')
+    })
+
     test('javascript: не становится кликабельной ссылкой', () => {
         const r = TextSanitizer.sanitize('[клик](javascript:alert(1))', true)
         expect(r).not.toContain('<a href="javascript:')
