@@ -5,16 +5,30 @@ const ThemeManager = {
     DARK_THEME: 'dark',
     LIGHT_THEME: 'light',
 
+    resolveInitialTheme() {
+        const savedTheme = localStorage.getItem(this.STORAGE_KEY);
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        return savedTheme || (prefersDark ? this.DARK_THEME : this.DARK_THEME);
+    },
+
+    suspendTransitions(callback) {
+        document.documentElement.classList.add('theme-switching');
+        try {
+            callback();
+        } finally {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    document.documentElement.classList.remove('theme-switching');
+                });
+            });
+        }
+    },
+
     /**
      * Инициализация темы при загрузке
      */
     init() {
-        const savedTheme = localStorage.getItem(this.STORAGE_KEY);
-        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-
-        // Приоритет: сохранённая тема > системная > тёмная по умолчанию
-        const theme = savedTheme || (prefersDark ? this.DARK_THEME : this.DARK_THEME);
-
+        const theme = this.resolveInitialTheme();
         this.applyTheme(theme);
         this.createToggleButton();
 
@@ -25,11 +39,12 @@ const ThemeManager = {
      * Применяет тему к документу
      */
     applyTheme(theme) {
-        document.documentElement.setAttribute('data-theme', theme);
-        localStorage.setItem(this.STORAGE_KEY, theme);
-
-        // Обновляем иконку кнопки если она существует
-        this.updateToggleIcon(theme);
+        const next = theme === this.LIGHT_THEME ? this.LIGHT_THEME : this.DARK_THEME;
+        this.suspendTransitions(() => {
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem(this.STORAGE_KEY, next);
+            this.updateToggleIcon(next);
+        });
     },
 
     /**
@@ -113,8 +128,7 @@ const ThemeManager = {
 
 // Автоматическая инициализация при загрузке DOM
 document.addEventListener('DOMContentLoaded', () => {
-    // Небольшая задержка чтобы основной UI успел загрузиться
-    setTimeout(() => ThemeManager.init(), 100);
+    ThemeManager.init();
 });
 
 // Экспортируем для использования извне

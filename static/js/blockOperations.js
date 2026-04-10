@@ -249,7 +249,12 @@ function updateBlockSetting(blockId, key, value) {
         }
     }
 
-    if (block.type === 'banner' && ['gradientEnabled', 'gradientUiExpanded'].includes(key)) {
+    if (block.type === 'banner' && [
+        'gradientEnabled',
+        'gradientUiExpanded',
+        'backgroundGradientEnabled',
+        'leftBlockGradientEnabled'
+    ].includes(key)) {
         value = value === true || value === 'true';
     }
 
@@ -260,7 +265,15 @@ function updateBlockSetting(blockId, key, value) {
         'gradientCenterY',
         'gradientBalance',
         'gradientStart',
-        'gradientEnd'
+        'gradientEnd',
+        'backgroundGradientAngle',
+        'backgroundGradientCenterX',
+        'backgroundGradientCenterY',
+        'backgroundGradientBalance',
+        'leftBlockGradientAngle',
+        'leftBlockGradientCenterX',
+        'leftBlockGradientCenterY',
+        'leftBlockGradientBalance'
     ].includes(key)) {
         value = Number(value);
     }

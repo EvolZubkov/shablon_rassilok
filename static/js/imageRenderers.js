@@ -89,17 +89,10 @@ function renderBannerToDataUrl(block, callback) {
     const LEFT_BLOCK_ANGLE = 13; // градусов
 
     // Цвета
-    const backgroundColor = s.backgroundColor || '#7700FF';
-    const gradientEnabled = Boolean(s.gradientEnabled);
-
-    const gradientAngle = Number.isFinite(Number(s.gradientAngle)) ? Number(s.gradientAngle) : 0;
-    const gradientCenterX = Number.isFinite(Number(s.gradientCenterX)) ? Number(s.gradientCenterX) : 50;
-    const gradientCenterY = Number.isFinite(Number(s.gradientCenterY)) ? Number(s.gradientCenterY) : 50;
-    const gradientBalance = Number.isFinite(Number(s.gradientBalance)) ? Number(s.gradientBalance) : 100;
-
-    const gradientStops = getBannerGradientStopsForRender(s);
-
-    const leftBlockColor = s.leftBlockColor || '#1D2533';
+    const backgroundColor = s.backgroundColor != null ? s.backgroundColor : '#7700FF';
+    const backgroundGradient = getBannerTargetGradientForRender(s, 'background');
+    const leftBlockGradient = getBannerTargetGradientForRender(s, 'leftBlock');
+    const leftBlockColor = s.leftBlockColor != null ? s.leftBlockColor : '#1D2533';
     const textElements = s.textElements || [];
 
     // Загружаем все необходимые изображения
@@ -145,15 +138,15 @@ function renderBannerToDataUrl(block, callback) {
         // === 1. Рисуем общий фон баннера ===
         const mode = s.rightImageMode || 'mask';
 
-        if (gradientEnabled && mode === 'rounded') {
+        if (backgroundGradient.enabled) {
             ctx.fillStyle = createBannerGradientFillStyle(ctx, {
                 width: WIDTH,
                 height: HEIGHT,
-                angle: gradientAngle,
-                centerX: gradientCenterX,
-                centerY: gradientCenterY,
-                balance: gradientBalance,
-                stops: gradientStops
+                angle: backgroundGradient.angle,
+                centerX: backgroundGradient.centerX,
+                centerY: backgroundGradient.centerY,
+                balance: backgroundGradient.balance,
+                stops: backgroundGradient.stops
             });
         } else {
             ctx.fillStyle = backgroundColor;
@@ -195,13 +188,13 @@ function renderBannerToDataUrl(block, callback) {
 
         // === 3. Рисуем левый повёрнутый блок ===
         if (mode === 'mask') {
-            if (gradientEnabled) {
+            if (leftBlockGradient.enabled) {
                 drawLeftBlockWithGradient(ctx, {
-                    angle: gradientAngle,
-                    centerX: gradientCenterX,
-                    centerY: gradientCenterY,
-                    balance: gradientBalance,
-                    stops: gradientStops,
+                    angle: leftBlockGradient.angle,
+                    centerX: leftBlockGradient.centerX,
+                    centerY: leftBlockGradient.centerY,
+                    balance: leftBlockGradient.balance,
+                    stops: leftBlockGradient.stops,
                     width: WIDTH,
                     height: HEIGHT,
                     borderRadius: BORDER_RADIUS,
@@ -231,7 +224,7 @@ function renderBannerToDataUrl(block, callback) {
         // поэтому при градиенте всегда используем белый текст.
         // При обычной заливке: mask → leftBlockColor, rounded → backgroundColor
         let textBgColor;
-        if (gradientEnabled) {
+        if ((mode === 'rounded' && backgroundGradient.enabled) || (mode === 'mask' && leftBlockGradient.enabled)) {
             textBgColor = '#000000'; // принудительно тёмный фон → белый текст
         } else {
             textBgColor = (mode === 'rounded') ? backgroundColor : leftBlockColor;
@@ -1678,8 +1671,8 @@ function getBannerGradientStopsForRender(settings) {
     // rounded → градиент на фоне, стартовый цвет = backgroundColor
     const mode = settings.rightImageMode || 'mask';
     const baseColor = (mode === 'mask')
-        ? (settings.leftBlockColor || '#1D2533')
-        : (settings.backgroundColor || '#7700FF');
+        ? (settings.leftBlockColor != null ? settings.leftBlockColor : '#1D2533')
+        : (settings.backgroundColor != null ? settings.backgroundColor : '#7700FF');
 
     return normalizeRenderGradientStops([
         {
@@ -1695,6 +1688,29 @@ function getBannerGradientStopsForRender(settings) {
             position: Number(settings.gradientEnd ?? 100)
         }
     ]);
+}
+
+function getBannerTargetGradientForRender(settings, target) {
+    if (typeof getBannerGradientState === 'function') {
+        const state = getBannerGradientState(settings, target);
+        return {
+            enabled: Boolean(state.enabled),
+            angle: Number(state.angle ?? 0),
+            centerX: Number(state.centerX ?? 50),
+            centerY: Number(state.centerY ?? 50),
+            balance: Number(state.balance ?? 100),
+            stops: normalizeRenderGradientStops(state.stops || [])
+        };
+    }
+
+    return {
+        enabled: Boolean(settings.gradientEnabled),
+        angle: Number(settings.gradientAngle ?? 0),
+        centerX: Number(settings.gradientCenterX ?? 50),
+        centerY: Number(settings.gradientCenterY ?? 50),
+        balance: Number(settings.gradientBalance ?? 100),
+        stops: getBannerGradientStopsForRender(settings)
+    };
 }
 
 function normalizeRenderGradientStops(stops) {

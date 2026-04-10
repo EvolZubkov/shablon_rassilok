@@ -23,10 +23,27 @@ const UserThemeUI = {
     DARK_THEME: 'dark',
     LIGHT_THEME: 'light',
 
-    init() {
+    resolveInitialTheme() {
         const savedTheme = localStorage.getItem(this.STORAGE_KEY);
         const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        const theme = savedTheme || (prefersDark ? this.DARK_THEME : this.DARK_THEME);
+        return savedTheme || (prefersDark ? this.DARK_THEME : this.DARK_THEME);
+    },
+
+    suspendTransitions(callback) {
+        document.documentElement.classList.add('theme-switching');
+        try {
+            callback();
+        } finally {
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    document.documentElement.classList.remove('theme-switching');
+                });
+            });
+        }
+    },
+
+    init() {
+        const theme = this.resolveInitialTheme();
         this.applyTheme(theme);
         this.bindButton('theme-toggle-btn-user-start');
         this.bindButton('theme-toggle-btn-user-editor');
@@ -43,9 +60,11 @@ const UserThemeUI = {
 
     applyTheme(theme) {
         const next = theme === this.LIGHT_THEME ? this.LIGHT_THEME : this.DARK_THEME;
-        document.documentElement.setAttribute('data-theme', next);
-        localStorage.setItem(this.STORAGE_KEY, next);
-        this.syncButtons();
+        this.suspendTransitions(() => {
+            document.documentElement.setAttribute('data-theme', next);
+            localStorage.setItem(this.STORAGE_KEY, next);
+            this.syncButtons();
+        });
     },
 
     toggle() {
