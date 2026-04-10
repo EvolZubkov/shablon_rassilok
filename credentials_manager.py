@@ -5,6 +5,8 @@ credentials_manager.py — хранение учётных данных Exchange
 Файл credentials.json хранится рядом с .exe (или app.py).
 """
 
+from __future__ import annotations
+
 import os
 import sys
 import json

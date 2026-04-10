@@ -3,6 +3,8 @@
 Главный файл приложения с системой кеширования и управлением ресурсами
 """
 
+from __future__ import annotations
+
 from _version import __version__
 
 from flask import abort
@@ -19,11 +21,15 @@ import json
 import shutil
 import hashlib
 from datetime import datetime
-from flask import Flask, send_from_directory, request, jsonify
+from typing import Optional
+from flask import Flask, send_from_directory, request, jsonify, send_file
 from werkzeug.utils import secure_filename
 import atexit
 import signal
 import base64
+import logging
+import logging.handlers
+import subprocess
 
 # On Linux, probe IPv6 kernel support before the first QApplication is
 # created.  If AF_INET6 is unavailable (e.g. ipv6.disable=1 in the kernel
@@ -217,7 +223,123 @@ else:
     CACHE_DIR = os.path.join(BASE_DIR, 'cache')
 
 # Создаём необходимые директории
+os.makedirs(CACHE_BASE, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# ============================================================================
+# ЛОГИРОВАНИЕ В ФАЙЛ (protocol.log)
+# ============================================================================
+
+LOG_FILE = os.path.join(CACHE_BASE, 'protocol.log')
+_ACTIVE_LOG_FILE = None
+
+
+def _build_rotating_log_handler(path: str) -> logging.Handler:
+    handler = logging.handlers.RotatingFileHandler(
+        path, maxBytes=5 * 1024 * 1024, backupCount=3, encoding='utf-8',
+    )
+    handler.setFormatter(
+        logging.Formatter('%(asctime)s %(message)s', datefmt='%Y-%m-%d %H:%M:%S')
+    )
+    return handler
+
+
+_log_candidates = [
+    LOG_FILE,
+    os.path.join(EXE_DIR, 'protocol.log'),
+]
+
+_last_log_exc = None
+for _cand in _log_candidates:
+    try:
+        os.makedirs(os.path.dirname(_cand), exist_ok=True)
+        _log_file_handler = _build_rotating_log_handler(_cand)
+        _ACTIVE_LOG_FILE = _cand
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.DEBUG)
+        root_logger.addHandler(_log_file_handler)
+        break
+    except Exception as _log_exc:
+        _last_log_exc = _log_exc
+        _log_file_handler = None  # type: ignore[assignment]
+else:
+    print(f'⚠️  Не удалось открыть protocol.log: {_last_log_exc}')
+
+
+class _TeeStream:
+    """Duplicate writes to the original stream (stdout/stderr) and protocol.log.
+
+    Buffers incoming text and flushes each complete line to the rotating log
+    file with a timestamp.  Partial lines are written on explicit
+    :meth:`flush` calls so tracebacks and progress output are never lost.
+    Thread-safe: a per-instance lock serialises access to the line buffer.
+    """
+
+    def __init__(self, original):
+        self._orig = original
+        self._buf = ''
+        self._lock = threading.Lock()
+
+    def _emit(self, line: str) -> None:
+        """Emit a single line to the log file (caller must hold self._lock)."""
+        if _log_file_handler is None:
+            return
+        record = logging.LogRecord(
+            name='stdout', level=logging.INFO,
+            pathname='', lineno=0,
+            msg=line, args=(), exc_info=None,
+        )
+        _log_file_handler.emit(record)
+        try:
+            _log_file_handler.flush()
+        except Exception:
+            pass
+
+    def write(self, data: str) -> None:
+        if self._orig is not None:
+            try:
+                self._orig.write(data)
+            except Exception:
+                pass
+        with self._lock:
+            self._buf += data
+            while '\n' in self._buf:
+                line, self._buf = self._buf.split('\n', 1)
+                self._emit(line)
+
+    def flush(self) -> None:
+        if self._orig is not None:
+            try:
+                self._orig.flush()
+            except Exception:
+                pass
+        with self._lock:
+            if self._buf.strip():
+                self._emit(self._buf)
+                self._buf = ''
+
+    def isatty(self) -> bool:
+        return False
+
+    def fileno(self) -> int:
+        if self._orig is not None and hasattr(self._orig, 'fileno'):
+            return self._orig.fileno()
+        raise OSError('protocol log stream has no file descriptor')
+
+    @property
+    def encoding(self) -> str:
+        return getattr(self._orig, 'encoding', 'utf-8') or 'utf-8'
+
+    @property
+    def errors(self) -> str:
+        return getattr(self._orig, 'errors', 'replace') or 'replace'
+
+
+sys.stdout = _TeeStream(sys.stdout)
+sys.stderr = _TeeStream(sys.stderr)
+
+if _ACTIVE_LOG_FILE:
+    print(f'📝 protocol.log: {_ACTIVE_LOG_FILE}')
 
 # Пути к файлам версий
 CACHE_VERSION_FILE = os.path.join(CACHE_BASE, 'cache_version.txt')
@@ -236,6 +358,13 @@ app = Flask(__name__,
             static_folder=STATIC_DIR,
             template_folder=STATIC_DIR)
 
+# Route Flask's own logger into protocol.log.  Suppress propagation to root
+# to avoid duplicate entries (root already has _log_file_handler).
+if _log_file_handler is not None:
+    app.logger.addHandler(_log_file_handler)
+    app.logger.propagate = False
+    app.logger.setLevel(logging.DEBUG)
+
 # Qt application instance shared between the splash screen and the main window.
 # Created once in show_splash() and reused in _run_webview_or_browser().
 _qt_app = None
@@ -249,6 +378,16 @@ _heartbeat_timeout = 20  # секунд (интервал пинга 5 с + за
 def api_heartbeat():
     global _last_heartbeat
     _last_heartbeat = time.time()
+    return jsonify({'ok': True})
+
+
+@app.route('/api/jslog', methods=['POST'])
+def api_jslog():
+    """Receives console.log messages from the embedded browser and prints them to protocol.log."""
+    data = request.get_json(silent=True) or {}
+    level = data.get('level', 'log').upper()
+    msg   = data.get('msg', '')
+    print(f'[JS:{level}] {msg}')
     return jsonify({'ok': True})
 
 
@@ -306,6 +445,37 @@ def set_cache_version(version):
         print(f"✓ Версия кеша обновлена: {version}")
     except Exception as e:
         print(f"⚠️  Ошибка записи версии: {e}")
+
+
+def _bump_network_version() -> Optional[str]:
+    """Write a new timestamp-based version string to the network version file.
+
+    Called by admin routes whenever shared repo content changes (resource
+    upload/delete, template save/update/delete/rename, category changes).
+    Also records the mutation timestamp so the background repo scanner can
+    distinguish UI-initiated changes from external filesystem modifications.
+
+    :returns: New version string on success, ``None`` on I/O error.
+    """
+    global _admin_mutation_ts
+    new_version = time.strftime('%Y%m%d.%H%M%S')
+    try:
+        with open(NETWORK_VERSION_FILE, 'w', encoding='utf-8') as f:
+            f.write(new_version)
+        _admin_mutation_ts = time.time()
+        print(f'✓ Версия репозитория обновлена: {new_version}')
+        return new_version
+    except Exception as e:
+        print(f'⚠️  Ошибка записи версии репозитория: {e}')
+        return None
+
+
+# Lock that prevents concurrent cache initialisation (startup + background updater).
+_cache_init_lock = threading.Lock()
+
+# Timestamp of the last admin-UI repo mutation; used by the repo scanner to
+# suppress false-positive "external change" detections.
+_admin_mutation_ts: float = 0.0
 
 
 def check_network_access():
@@ -919,81 +1089,76 @@ def _show_resource_finder_dialog(is_admin, reason=''):
 def find_or_mount_linux_path(smb_path, hint='email-builder', status_callback=None,
                               resolved_path=None):
     """
-    Searches for a mounted SMB share on Linux.
-    First checks ``resolved_path`` from the previous run (config cache).
-    Falls back to scanning kio-fuse, gvfs, /mnt, /media, then kioclient5.
+    Searches for a mounted SMB share in ``/mnt`` and ``/media`` on Linux.
+
+    Search order:
+
+    0. ``resolved_path`` from config — exact path known from a previous run.
+    1. Direct paths in ``/mnt`` and ``/media`` derived from the SMB URL components.
+    2. Recursive ``**`` glob fallback across ``/mnt`` and ``/media``.
+
+    :param smb_path: SMB URL, e.g. ``//server/share/subdir``.
+    :param hint: Leaf folder name to locate, e.g. ``'email-builder'``.
+    :param status_callback: Optional ``callable(str)`` for progress messages.
+    :param resolved_path: Previously cached absolute path to try first.
+    :returns: Absolute path string if found, otherwise ``None``.
     """
-    import glob
-    import subprocess
+    import glob as _glob
 
     def status(msg):
         print(msg)
         if status_callback:
             status_callback(msg)
 
-    # Strategy 0: previously resolved path stored in config
+    # Strategy 0: previously resolved path stored in config.
     if resolved_path and os.path.exists(resolved_path):
         status('✓ Папка найдена (кеш конфига)')
         return resolved_path
 
-    uid = os.getuid()
+    user = os.environ.get('USER', '*')
 
-    # Стратегия 1: kio-fuse (KDE)
-    status('Поиск сетевой папки...')
-    patterns = [
-        f'/run/user/{uid}/kio-fuse-*/smb/**/{hint}',
-        f'/run/user/{uid}/kio-fuse-*/**/{hint}',
-    ]
-    for pattern in patterns:
-        matches = glob.glob(pattern, recursive=True)
-        if matches:
-            status('✓ Папка найдена')
-            return matches[0]
+    # Parse SMB URL into share and subpath components for direct-path patterns.
+    _share = _subpath = None
+    if smb_path:
+        _parts = smb_path.replace('\\', '/').lstrip('/').split('/')
+        if len(_parts) >= 2:
+            _share   = _parts[1]
+            _subpath = '/'.join(_parts[2:]) if len(_parts) > 2 else hint
 
-    # Стратегия 2: gvfs (GNOME/MATE)
-    status('Поиск через gvfs...')
-    gvfs_patterns = [
-        f'/run/user/{uid}/gvfs/**/{hint}',
-        f'{os.path.expanduser("~")}/.gvfs/**/{hint}',
-    ]
-    for pattern in gvfs_patterns:
-        matches = glob.glob(pattern, recursive=True)
-        if matches:
-            status('✓ Папка найдена')
-            return matches[0]
+    def _first(*patterns, recursive=False):
+        """Return the first existing path matching any of the glob patterns."""
+        for p in patterns:
+            hits = _glob.glob(p, recursive=recursive)
+            if hits:
+                return hits[0]
+        return None
 
-    # Стратегия 3: стандартное монтирование
     status('Поиск в /mnt и /media...')
-    standard_patterns = [
+
+    # Strategy 1: direct paths — common /mnt and /media mount layouts.
+    if _subpath:
+        hit = _first(
+            f'/mnt/{_subpath}',
+            f'/mnt/{_share}/{_subpath}',
+            f'/media/{user}/{_subpath}',
+            f'/media/{user}/{_share}/{_subpath}',
+            f'/media/{_subpath}',
+            f'/media/{_share}/{_subpath}',
+        )
+        if hit:
+            status('✓ Папка найдена')
+            return hit
+
+    # Strategy 2: recursive glob fallback.
+    hit = _first(
         f'/mnt/**/{hint}',
         f'/media/**/{hint}',
-        f'/media/{os.environ.get("USER", "*")}/**/{hint}',
-    ]
-    for pattern in standard_patterns:
-        matches = glob.glob(pattern, recursive=True)
-        if matches:
-            status('✓ Папка найдена')
-            return matches[0]
-
-    # Стратегия 4: kioclient5
-    if smb_path:
-        status('Подключение к сетевой папке...\nЭто может занять до 15 секунд')
-        smb_url = 'smb:' + smb_path.replace('\\', '/')
-        try:
-            subprocess.run(
-                ['kioclient5', 'ls', smb_url],
-                timeout=10,
-                capture_output=True
-            )
-            status('Ожидание монтирования...')
-            time.sleep(2)
-            for pattern in patterns:
-                matches = glob.glob(pattern, recursive=True)
-                if matches:
-                    status('✓ Папка подключена')
-                    return matches[0]
-        except Exception as e:
-            print(f'⚠️  kioclient5: {e}')
+        f'/media/{user}/**/{hint}',
+        recursive=True,
+    )
+    if hit:
+        status('✓ Папка найдена')
+        return hit
 
     return None
 
@@ -1035,9 +1200,31 @@ def copy_directory_with_progress(src, dst, desc="Копирование"):
 
 
 def initialize_cache():
-    """Инициализация кеша при первом запуске"""
+    """Initialise (or refresh) the local asset cache from the network repo.
+
+    Copies ``config.json`` and all static resource folders to ``CACHE_DIR``,
+    then writes the network version to ``CACHE_VERSION_FILE``.
+
+    Thread-safe: concurrent calls block on ``_cache_init_lock`` so only one
+    initialisation runs at a time.  The caller that lost the race returns
+    ``True`` immediately once the lock is released (the winner's run is
+    assumed to have succeeded).
+
+    :returns: ``True`` on success, ``False`` if network is unreachable.
+    """
+    if not _cache_init_lock.acquire(blocking=True, timeout=300):
+        print('⏳ Ожидание завершения инициализации кеша...')
+        return True
+    try:
+        return _initialize_cache_locked()
+    finally:
+        _cache_init_lock.release()
+
+
+def _initialize_cache_locked():
+    """Inner implementation of :func:`initialize_cache` (must hold _cache_init_lock)."""
     print("\n" + "=" * 60)
-    print("🚀 Почтелье - Первый запуск")
+    print("🚀 Почтелье - Инициализация кеша")
     print("=" * 60)
 
     if not check_network_access():
@@ -1097,23 +1284,21 @@ def check_for_updates():
     print(f"   Существует: {os.path.exists(CACHE_DIR)}")
 
     cache_version = get_cache_version()
-    print(
-        f"   Версия кеша: {cache_version if cache_version else 'НЕ НАЙДЕНА'}")
+    print(f"   Версия кеша: {cache_version if cache_version else 'НЕ НАЙДЕНА'}")
 
+    # Cache is considered valid if: version marker exists AND config.json was
+    # copied.  We intentionally do NOT check for specific resource sub-folders
+    # (icons, expert-badges, fonts, …) because their presence depends entirely
+    # on the repository content — a repo without those folders would cause
+    # initialize_cache() to run on every startup even though the cache is fine.
     cache_exists = os.path.exists(CACHE_DIR) and os.path.exists(
         os.path.join(CACHE_DIR, 'config.json'))
 
-    folders_to_check = ['icons', 'expert-badges', 'fonts']
-    has_resources = any(os.path.exists(os.path.join(CACHE_DIR, folder))
-                        for folder in folders_to_check)
-
-    if not cache_version or not cache_exists or not has_resources:
+    if not cache_version or not cache_exists:
         if not cache_version:
             print("📦 Кеш не найден (отсутствует файл версии)")
-        elif not cache_exists:
+        else:
             print("📦 Кеш не найден (отсутствует config.json)")
-        elif not has_resources:
-            print("📦 Кеш не найден (отсутствуют ресурсы)")
         print("   Требуется первичная инициализация")
         return initialize_cache()
 
@@ -1136,49 +1321,309 @@ def check_for_updates():
         return True
 
     if cache_version != network_version:
-        print(
-            f"📥 Доступно обновление ресурсов: {cache_version} → {network_version}")
-        print("   Используйте /api/update-check для управления обновлением через браузер")
-    else:
-        print(f"✓ Ресурсы актуальны (версия {cache_version})")
+        print(f"📥 Обновление ресурсов: {cache_version} → {network_version}")
+        return initialize_cache()
 
+    print(f"✓ Ресурсы актуальны (версия {cache_version})")
     return True
 
 
+# ============================================================================
+# ФОНОВОЕ СКАНИРОВАНИЕ РЕПОЗИТОРИЯ
+# ============================================================================
+
+# Interval (seconds) between background repo scans.
+_REPO_SCAN_INTERVAL: int = 60
+
+_repo_snapshot_lock = threading.Lock()
+_repo_snapshot: dict = {}  # {rel_path: fingerprint}
+
+
+def _file_fingerprint(fpath: str) -> str:
+    """Return a change-detection fingerprint for a single file.
+
+    Uses ``mtime_ns:size`` for all file types.  This avoids reading file
+    contents over the network on every scanner cycle while reliably detecting
+    any modification (size change or timestamp update).  MD5 is not used here
+    because the scanner only needs to *detect* changes, not verify content
+    integrity — the atomic copy in :func:`_copy_if_changed` handles that.
+
+    :param fpath: Absolute path to the file.
+    :returns: Non-empty fingerprint string, or empty string on I/O error.
+    """
+    try:
+        st = os.stat(fpath)
+        return f'{st.st_mtime_ns}:{st.st_size}'
+    except OSError:
+        return ''
+
+
+def _build_repo_snapshot() -> dict:
+    """Scan the network repo and return ``{rel_path: fingerprint}`` for monitored files.
+
+    Covers ``static/`` (all resource assets and config.json) and
+    ``templates/shared/`` plus ``templates/categories.json``.
+    Excludes ``version.txt`` — it is the change-signal itself and must
+    not cause a recursive version bump when the scanner updates it.
+
+    :returns: Mapping of relative path → fingerprint string.
+    """
+    snapshot: dict = {}
+    base = NETWORK_RESOURCES_PATH
+    if not os.path.isdir(base):
+        return snapshot
+
+    for scan_root in (
+        os.path.join(base, 'static'),
+        os.path.join(base, 'templates', 'shared'),
+    ):
+        if not os.path.isdir(scan_root):
+            continue
+        for dirpath, dirnames, filenames in os.walk(scan_root):
+            dirnames.sort()
+            for fname in sorted(filenames):
+                fpath = os.path.join(dirpath, fname)
+                fp = _file_fingerprint(fpath)
+                if fp:
+                    snapshot[os.path.relpath(fpath, base)] = fp
+
+    categories_path = os.path.join(base, 'templates', 'categories.json')
+    if os.path.isfile(categories_path):
+        fp = _file_fingerprint(categories_path)
+        if fp:
+            snapshot[os.path.relpath(categories_path, base)] = fp
+
+    return snapshot
+
+
+def _repo_scanner_thread() -> None:
+    """Background daemon: detect external repo changes and bump ``version.txt``.
+
+    Runs in admin mode only.  Admin-UI mutations already call
+    :func:`_bump_network_version` directly; this thread catches changes made
+    by other tools (file managers, rsync, etc.) that bypass the admin UI.
+
+    Change detection uses per-file fingerprints: MD5 for JSON/text files,
+    ``mtime+size`` for binary assets.  When external changes are detected
+    (outside the ``_REPO_SCAN_INTERVAL * 2`` window after the last admin
+    mutation), :func:`_bump_network_version` is called and the in-memory
+    template index is invalidated so the next request gets fresh data.
+    """
+    global _repo_snapshot, _admin_mutation_ts
+
+    time.sleep(30)  # startup grace period: let initialize_cache() finish first
+    with _repo_snapshot_lock:
+        _repo_snapshot = _build_repo_snapshot()
+        print(f'🔍 Сканер репо: начальный снимок ({len(_repo_snapshot)} файлов)')
+
+    while True:
+        time.sleep(_REPO_SCAN_INTERVAL)
+        try:
+            if not check_network_access():
+                continue
+            new_snapshot = _build_repo_snapshot()
+            with _repo_snapshot_lock:
+                old = _repo_snapshot
+                if old and new_snapshot != old:
+                    since_admin = time.time() - _admin_mutation_ts
+                    if since_admin < _REPO_SCAN_INTERVAL:
+                        # Changes are a follow-up from a recent admin UI mutation;
+                        # silently update the snapshot without re-bumping version.
+                        print('🔍 Сканер репо: изменения от UI-операции, снимок обновлён')
+                    else:
+                        added   = set(new_snapshot) - set(old)
+                        removed = set(old) - set(new_snapshot)
+                        changed = {k for k in set(new_snapshot) & set(old) if new_snapshot[k] != old[k]}
+                        print(
+                            f'🔄 Внешние изменения в репозитории: '
+                            f'+{len(added)} / -{len(removed)} / ~{len(changed)} файлов'
+                        )
+                        _bump_network_version()
+                        _invalidate_template_cache()
+                _repo_snapshot = new_snapshot
+        except Exception as exc:
+            print(f'⚠️  Ошибка сканирования репозитория: {exc}')
+
+
+def _copy_if_changed(src: str, dst: str) -> bool:
+    """Copy *src* to *dst* atomically, only when the file has actually changed.
+
+    Uses ``size + mtime`` as a fast "likely unchanged" guard.  When a copy is
+    needed the data is written to a sibling temp file and then renamed into
+    place with :func:`os.replace`, which is atomic on POSIX and best-effort
+    atomic on Windows (NTFS).  The operation is therefore invisible to any
+    concurrent reader: they see either the old file or the new file, never a
+    partial write.
+
+    :returns: ``True`` if the file was copied, ``False`` if it was skipped.
+    """
+    try:
+        src_st = os.stat(src)
+        if os.path.exists(dst):
+            dst_st = os.stat(dst)
+            # 2-second tolerance covers FAT32 mtime resolution and minor clock skew.
+            if (dst_st.st_size == src_st.st_size
+                    and abs(dst_st.st_mtime - src_st.st_mtime) < 2.0):
+                return False  # almost certainly unchanged — skip
+
+        dst_dir = os.path.dirname(dst)
+        os.makedirs(dst_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=dst_dir)
+        try:
+            with os.fdopen(fd, 'wb') as fout:
+                with open(src, 'rb') as fin:
+                    shutil.copyfileobj(fin, fout)
+            shutil.copystat(src, tmp_path)
+            os.replace(tmp_path, dst)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
+        return True
+    except OSError:
+        return False
+
+
+def _sync_dir_quiet(src: str, dst: str) -> int:
+    """Incrementally sync *src* directory into *dst* using :func:`_copy_if_changed`.
+
+    Only files at the top level of *src* are processed (no recursion needed
+    for flat asset directories such as ``icons/`` or ``fonts/``).
+
+    :returns: Number of files actually written.
+    """
+    if not os.path.isdir(src):
+        return 0
+    os.makedirs(dst, exist_ok=True)
+    count = 0
+    for fname in os.listdir(src):
+        src_file = os.path.join(src, fname)
+        if os.path.isfile(src_file):
+            if _copy_if_changed(src_file, os.path.join(dst, fname)):
+                count += 1
+    return count
+
+
+def _sync_cache_quiet() -> bool:
+    """Incrementally sync the local asset cache from the network repo.
+
+    Designed for background use — never shows dialogs, never blocks the Flask
+    thread, and writes files atomically so ongoing HTTP responses are not
+    disrupted.  During the sync the static file server continues serving the
+    old cached versions; new versions become visible file-by-file as soon as
+    each atomic rename completes.  ``config.json`` is updated *last* so the
+    UI never sees a config that references icons not yet present in cache.
+
+    Uses :data:`_cache_init_lock` with a non-blocking acquire: if
+    :func:`initialize_cache` is already running (e.g. on startup), the
+    background sync is skipped for this cycle rather than queuing behind it.
+
+    :returns: ``True`` on success or when sync is already in progress,
+              ``False`` if the network repo is unreachable.
+    """
+    if not _cache_init_lock.acquire(blocking=False):
+        return True  # startup init is still running; skip this cycle
+
+    try:
+        if not check_network_access():
+            return False
+
+        os.makedirs(CACHE_DIR, exist_ok=True)
+        static_src = os.path.join(NETWORK_RESOURCES_PATH, 'static')
+        total = 0
+
+        # Sync all asset folders first; config.json comes last.
+        for folder in ('icons', 'expert-badges', 'bullets', 'button-icons',
+                       'images', 'dividers', 'banner-backgrounds',
+                       'banner-logos', 'banner-icons', 'fonts'):
+            total += _sync_dir_quiet(
+                os.path.join(static_src, folder),
+                os.path.join(CACHE_DIR, folder),
+            )
+
+        # config.json is updated last: the UI always sees a config that is
+        # consistent with the already-cached assets.
+        cfg_src = os.path.join(static_src, 'config.json')
+        if os.path.isfile(cfg_src):
+            if _copy_if_changed(cfg_src, os.path.join(CACHE_DIR, 'config.json')):
+                total += 1
+
+        net_ver = get_network_version()
+        if net_ver:
+            set_cache_version(net_ver)
+
+        if total:
+            print(f'✓ Фоновое обновление кеша: {total} файлов синхронизировано')
+        return True
+
+    except Exception as exc:
+        print(f'⚠️  Ошибка фоновой синхронизации кеша: {exc}')
+        return False
+    finally:
+        _cache_init_lock.release()
+
+
+def _cache_updater_thread() -> None:
+    """Background daemon: keep the local asset cache in sync with the network repo.
+
+    Runs in all modes.  Periodically compares the local cache version with
+    the network ``version.txt``.  On a mismatch, calls :func:`_sync_cache_quiet`
+    which copies only changed files atomically and never disrupts ongoing
+    HTTP responses.
+    """
+    time.sleep(90)  # let startup initialisation complete before first check
+
+    while True:
+        time.sleep(_REPO_SCAN_INTERVAL)
+        try:
+            if not check_network_access():
+                continue
+            cache_ver = get_cache_version()
+            net_ver   = get_network_version()
+            if net_ver and cache_ver != net_ver:
+                print(f'📥 Фоновое обновление кеша: {cache_ver} → {net_ver}')
+                _sync_cache_quiet()
+        except Exception as exc:
+            print(f'⚠️  Ошибка автообновления кеша: {exc}')
+
+
 def load_config():
-    """Загрузить config.json с сервера или из кеша"""
-    network_config_path = os.path.join(
-        NETWORK_RESOURCES_PATH, 'static', 'config.json')
-    cache_config_path = os.path.join(CACHE_DIR, 'config.json')
+    """
+    Load config.json from the local cache (fast path) or from the network share
+    as a fallback when the cache is absent.
 
-    config = None
+    The cache is kept up-to-date by :func:`check_for_updates` / :func:`initialize_cache`
+    on startup, so reading from the network on every API call is unnecessary and
+    causes visible latency on Linux FUSE mounts (kio-fuse / gvfs).
+    """
+    cache_config_path   = os.path.join(CACHE_DIR, 'config.json')
+    network_config_path = os.path.join(NETWORK_RESOURCES_PATH, 'static', 'config.json')
 
+    # Fast path: local cache (milliseconds, no network).
+    if os.path.exists(cache_config_path):
+        try:
+            with open(cache_config_path, 'r', encoding='utf-8') as f:
+                return json.load(f)
+        except Exception as e:
+            print(f"⚠️  Ошибка чтения кеша config.json: {e}")
+
+    # Fallback: network share (only when cache is missing, e.g. first run).
     if os.path.exists(network_config_path):
         try:
             with open(network_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            print("✓ Config.json загружен с сервера")
-
+            print("✓ Config.json загружен с сервера (кеш отсутствовал)")
             os.makedirs(os.path.dirname(cache_config_path), exist_ok=True)
             with open(cache_config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
-
+            return config
         except Exception as e:
             print(f"⚠️  Ошибка чтения config.json с сервера: {e}")
 
-    if not config and os.path.exists(cache_config_path):
-        try:
-            with open(cache_config_path, 'r', encoding='utf-8') as f:
-                config = json.load(f)
-            print("⚠️  Используется кеш config.json")
-        except Exception as e:
-            print(f"❌ Ошибка чтения кеша config.json: {e}")
-
-    if not config:
-        print("❌ Не удалось загрузить config.json!")
-        return {"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []}
-
-    return config
+    print("❌ Не удалось загрузить config.json!")
+    return {"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []}
 
 # ============================================================================
 # ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ И ШРИФТОВ
@@ -1453,6 +1898,21 @@ def user_index():
     return send_from_directory(app.static_folder, 'index-user.html')
 
 
+@app.route('/data/<path:filename>', methods=['GET', 'HEAD'])
+def static_data_files(filename):
+    """Serve static JSON/data assets explicitly."""
+    data_dir = os.path.join(app.static_folder, 'data')
+    return send_from_directory(data_dir, filename)
+
+
+@app.route('/protocol.log', methods=['GET', 'HEAD'])
+def protocol_log_file():
+    """Serve the active protocol.log file."""
+    if not _ACTIVE_LOG_FILE or not os.path.exists(_ACTIVE_LOG_FILE):
+        return abort(404)
+    return send_file(_ACTIVE_LOG_FILE, mimetype='text/plain')
+
+
 @app.route('/<path:path>', methods=['GET', 'HEAD'])
 def static_files(path):
     """Гибридная раздача: картинки из кеша, остальное из static"""
@@ -1512,12 +1972,117 @@ def static_files(path):
     return send_from_directory(app.static_folder, path)
 
 
+def _merge_shared_resources_into_config(config: dict) -> dict:
+    """
+    Append shared resource files found in the local cache folders to *config*,
+    adding only entries whose ``src`` URL is not already present.
+
+    This handles files that were placed into the network resource folder directly
+    (without going through the upload API) and therefore have no entry in
+    ``config.json``.  The cache folder mirrors the network folder, so scanning it
+    is both fast and offline-safe.
+    """
+    category_to_key = {
+        'icons':              'icons.important',
+        'expert-badges':      'expertBadges',
+        'bullets':            'bullets',
+        'button-icons':       'buttonIcons',
+        'dividers':           'dividers',
+        'banner-backgrounds': 'bannerBackgrounds',
+        'banner-logos':       'bannerLogos',
+        'banner-icons':       'bannerIcons',
+        'images':             'images',
+    }
+
+    for category, key_path in category_to_key.items():
+        cat_dir = os.path.join(CACHE_DIR, category)
+        if not os.path.isdir(cat_dir):
+            continue
+
+        keys = key_path.split('.')
+        node = config
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        leaf_key = keys[-1]
+        existing = node.get(leaf_key)
+        if not isinstance(existing, list):
+            existing = []
+
+        existing_srcs = {item.get('src') for item in existing if isinstance(item, dict)}
+
+        new_items = []
+        for fname in sorted(os.listdir(cat_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+                continue
+            url = f'/cache/{category}/{fname}'
+            if url not in existing_srcs:
+                new_items.append({
+                    'src': url,
+                    'label': os.path.splitext(fname)[0],
+                })
+
+        if new_items:
+            node[leaf_key] = existing + new_items
+
+    return config
+
+
+def _dedup_config_resources(config: dict) -> dict:
+    """
+    Deduplicate resource lists in *config* by the basename of each item's ``src``
+    URL.  Items from earlier sources (shared config → shared cache → personal) are
+    preferred; later duplicates are dropped.  This prevents the same physical file
+    from appearing twice when it is referenced by different URL patterns
+    (e.g. ``/cache/…`` vs ``/api/user-resources/file/…``).
+    """
+    list_keys = [
+        ('icons', 'important'),
+        ('expertBadges',),
+        ('bullets',),
+        ('buttonIcons',),
+        ('dividers',),
+        ('bannerBackgrounds',),
+        ('bannerLogos',),
+        ('bannerIcons',),
+        ('images',),
+    ]
+    for key_path in list_keys:
+        node = config
+        for k in key_path[:-1]:
+            if not isinstance(node, dict):
+                break
+            node = node.get(k, {})
+        leaf = key_path[-1]
+        if not isinstance(node, dict):
+            continue
+        items = node.get(leaf)
+        if not isinstance(items, list):
+            continue
+        seen: set[str] = set()
+        deduped = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            src = item.get('src', '')
+            fname = src.rsplit('/', 1)[-1]
+            if fname and fname in seen:
+                continue
+            if fname:
+                seen.add(fname)
+            deduped.append(item)
+        node[leaf] = deduped
+    return config
+
+
 @app.route('/api/config', methods=['GET'])
 def get_config():
     """API endpoint для получения конфигурации (config.json) с пользовательскими ресурсами."""
     try:
         config = load_config()
+        config = _merge_shared_resources_into_config(config)
         config = _merge_user_resources_into_config(config)
+        config = _dedup_config_resources(config)
         return jsonify({'success': True, 'config': config})
     except Exception as e:
         app.logger.error("get_config error: %s", e, exc_info=True)
@@ -1832,6 +2397,7 @@ def user_resources_publish():
 
         pub_url = f'/cache/{category}/{safe}'
         _append_to_config_json(category, safe, pub_url)
+        _bump_network_version()
 
         return jsonify({'success': True})
     except Exception as e:
@@ -1912,8 +2478,9 @@ def shared_resources_upload():
 
         pub_url = f'/cache/{category}/{safe}'
 
-        # Update config.json
+        # Update config.json and bump repo version
         _append_to_config_json(category, safe, pub_url)
+        _bump_network_version()
 
         return jsonify({'success': True, 'filename': safe, 'url': pub_url})
     except Exception as e:
@@ -1950,9 +2517,10 @@ def shared_resources_delete():
         if os.path.isfile(path):
             os.remove(path)
 
-        # Remove from config.json
+        # Remove from config.json and bump repo version
         pub_url = f'/cache/{category}/{safe}'
         _remove_from_config_json(category, pub_url)
+        _bump_network_version()
 
         return jsonify({'success': True})
     except Exception as e:
@@ -2094,15 +2662,22 @@ def _validate_template_id(tid):
 # ---------------------------------------------------------------------------
 _template_cache: dict = {}
 _template_cache_lock = threading.Lock()
-_TEMPLATE_CACHE_TTL: dict = {'shared': 30.0, 'personal': 10.0}
+_TEMPLATE_CACHE_TTL: dict = {'shared': 60.0, 'personal': 10.0}
+
+# ── Categories cache ──────────────────────────────────────────────────────────
+_categories_cache: Optional[list] = None
+_categories_cache_ts: float = 0.0
+_categories_cache_lock = threading.Lock()
+_CATEGORIES_TTL: float = 60.0
 
 
 def _invalidate_template_cache(template_type=None):
-    """
-    Drop the in-memory template index.
+    """Drop the in-memory template index.
 
     Pass *template_type* to invalidate a single type, or ``None`` to clear all.
     Must be called after every mutation (save / update / delete / rename).
+    After invalidation the next :func:`_get_template_index` call will rebuild
+    synchronously (cold-cache path) rather than serving stale data.
     Thread-safe.
     """
     with _template_cache_lock:
@@ -2139,15 +2714,22 @@ def _build_index_from_dir(base_dir, template_type):
                 with open(fpath, 'r', encoding='utf-8') as f:
                     data = json.load(f)
                 tid = data.get('id') or os.path.splitext(fname)[0]
+                name = data.get('name', fname)
+                # If the isPreset field is absent (legacy templates), fall back to
+                # the name prefix '🧩' that was used before the field was introduced.
+                if 'isPreset' in data:
+                    is_preset = bool(data['isPreset'])
+                else:
+                    is_preset = isinstance(name, str) and name.strip().startswith('\U0001f9e9')
                 meta.append({
                     'id': tid,
-                    'name': data.get('name', fname),
+                    'name': name,
                     'filename': fname,
                     'created': data.get('created', ''),
                     'author': data.get('author', 'unknown'),
                     'type': template_type,
                     'category': data.get('category', ''),
-                    'isPreset': bool(data.get('isPreset', False)),
+                    'isPreset': is_preset,
                 })
                 index[tid] = fpath
             except Exception:
@@ -2157,16 +2739,47 @@ def _build_index_from_dir(base_dir, template_type):
     return meta, index, fp
 
 
-def _get_template_index(template_type, base_dir):
-    """
-    Return ``(meta_list, id_index, fingerprint)`` for *template_type*,
-    rebuilding from disk when the TTL has expired.
+def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
+    """Rebuild the template index in a background thread (stale-while-revalidate).
 
-    Thread-safe: a single lock serialises both the cache read and the
-    rebuild so two threads never scan the same directory simultaneously.
+    Reads the directory, builds new meta/index/fingerprint, then atomically
+    updates the cache.  Clears the ``_rebuilding`` flag when done so that
+    the next TTL expiry can trigger another background rebuild.
 
     :param template_type: ``'shared'`` or ``'personal'``
-    :param base_dir: filesystem directory that contains the template JSON files
+    :param base_dir: Directory containing template JSON files.
+    """
+    try:
+        meta, index, fp = _build_index_from_dir(base_dir, template_type)
+        with _template_cache_lock:
+            _template_cache[template_type] = {
+                'meta': meta, 'index': index, 'fp': fp,
+                'ts': time.time(), '_rebuilding': False,
+            }
+    except Exception as exc:
+        print(f'⚠️  Фоновый rebuild индекса [{template_type}] упал: {exc}')
+        with _template_cache_lock:
+            entry = _template_cache.get(template_type)
+            if entry:
+                entry['_rebuilding'] = False
+
+
+def _get_template_index(template_type: str, base_dir: str):
+    """Return ``(meta_list, id_index, fingerprint)`` for *template_type*.
+
+    Strategy: **stale-while-revalidate**.
+
+    * Fresh cache (within TTL) — returned immediately, no I/O.
+    * Stale cache (TTL expired) — returned immediately from memory;
+      a background thread is kicked off to rebuild the index so the
+      *next* caller gets fresh data.  Only one rebuild runs at a time.
+    * Cold cache (no entry yet) — rebuilt synchronously and cached.
+
+    This eliminates the "everyone waits while the directory is scanned"
+    spike that occurred under the old lock-everything approach.
+
+    :param template_type: ``'shared'`` or ``'personal'``
+    :param base_dir: Filesystem directory containing template JSON files.
     :returns: ``(meta_list, id_index, fingerprint)``
     """
     now = time.time()
@@ -2174,14 +2787,31 @@ def _get_template_index(template_type, base_dir):
 
     with _template_cache_lock:
         cached = _template_cache.get(template_type)
-        if cached and (now - cached['ts']) < ttl:
+
+        if cached:
+            if (now - cached['ts']) < ttl:
+                # Fresh — serve from memory.
+                return cached['meta'], cached['index'], cached['fp']
+
+            # Stale — serve stale data and trigger background rebuild.
+            if not cached.get('_rebuilding'):
+                cached['_rebuilding'] = True
+                threading.Thread(
+                    target=_rebuild_template_index_bg,
+                    args=(template_type, base_dir),
+                    daemon=True,
+                    name=f'idx-rebuild-{template_type}',
+                ).start()
             return cached['meta'], cached['index'], cached['fp']
 
-        meta, index, fp = _build_index_from_dir(base_dir, template_type)
+    # Cold cache — synchronous rebuild (first request only).
+    meta, index, fp = _build_index_from_dir(base_dir, template_type)
+    with _template_cache_lock:
         _template_cache[template_type] = {
-            'meta': meta, 'index': index, 'fp': fp, 'ts': now,
+            'meta': meta, 'index': index, 'fp': fp,
+            'ts': time.time(), '_rebuilding': False,
         }
-        return meta, index, fp
+    return meta, index, fp
 
 
 def _find_template_by_id(base_dir, template_id, template_type=None):
@@ -2357,6 +2987,8 @@ def templates_save():
             json.dump(template, f, ensure_ascii=False, indent=2)
 
         _invalidate_template_cache(template_type)
+        if template_type == 'shared':
+            _bump_network_version()
         print(
             f"✓ Шаблон сохранён: {filename} ({template_type}, категория: {category or 'без категории'})")
 
@@ -2397,11 +3029,49 @@ def templates_update():
             json.dump(template, f, ensure_ascii=False, indent=2)
 
         _invalidate_template_cache(template_type)
+        if template_type == 'shared':
+            _bump_network_version()
         print(f"✓ Шаблон обновлён: {os.path.basename(filepath)}")
         return jsonify({'success': True})
 
     except Exception as e:
         app.logger.error("templates_update error: %s", e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@app.route('/api/templates/preview', methods=['PATCH'])
+def templates_update_preview():
+    """Update only the preview thumbnail of an existing template (blocks unchanged)."""
+    try:
+        data = request.json or {}
+        template_id = (data.get('id') or '').strip()
+        template_type = str(data.get('type', 'personal')).strip().lower()
+        preview = data.get('preview')
+
+        if not _validate_template_id(template_id):
+            return jsonify({'success': False, 'error': 'Нет данных'}), 400
+
+        if APP_MODE == 'user' and template_type == 'shared':
+            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+        base_dir = _template_base_dir(template_type)
+        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
+        if filepath is None:
+            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
+
+        template['preview'] = preview
+        template['updated'] = datetime.now().isoformat()
+
+        with open(filepath, 'w', encoding='utf-8') as f:
+            json.dump(template, f, ensure_ascii=False, indent=2)
+
+        _invalidate_template_cache(template_type)
+        if template_type == 'shared':
+            _bump_network_version()
+        return jsonify({'success': True})
+
+    except Exception as e:
+        app.logger.error("templates_update_preview error: %s", e, exc_info=True)
         return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
 
 
@@ -2425,6 +3095,8 @@ def templates_delete():
 
         os.remove(filepath)
         _invalidate_template_cache(template_type)
+        if template_type == 'shared':
+            _bump_network_version()
         print(f"✓ Шаблон удалён: {os.path.basename(filepath)}")
         return jsonify({'success': True})
 
@@ -2463,6 +3135,8 @@ def templates_rename():
             json.dump(template, f, ensure_ascii=False, indent=2)
 
         _invalidate_template_cache(template_type)
+        if template_type == 'shared':
+            _bump_network_version()
         print(f"✓ Шаблон переименован: {os.path.basename(filepath)} → «{new_name}»")
         return jsonify({'success': True})
 
@@ -2476,25 +3150,53 @@ def get_categories_file():
     return os.path.join(get_templates_dir(), 'categories.json')
 
 
-def load_categories():
-    """Загрузить категории из файла"""
-    categories_file = get_categories_file()
-    if os.path.exists(categories_file):
-        try:
-            with open(categories_file, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-                return data.get('categories', [])
-        except:
-            pass
-    return []
+def load_categories() -> list:
+    """Load template categories, using an in-memory TTL cache to avoid
+    repeated disk reads on every API call.
+
+    :returns: Sorted list of category name strings.
+    """
+    global _categories_cache, _categories_cache_ts
+    now = time.time()
+    with _categories_cache_lock:
+        if _categories_cache is not None and (now - _categories_cache_ts) < _CATEGORIES_TTL:
+            return list(_categories_cache)
+        categories_file = get_categories_file()
+        result: list = []
+        if os.path.exists(categories_file):
+            try:
+                with open(categories_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    result = data.get('categories', [])
+            except Exception:
+                pass
+        _categories_cache = result
+        _categories_cache_ts = now
+        return list(result)
 
 
-def save_categories(categories):
-    """Сохранить категории в файл"""
+def _invalidate_categories_cache() -> None:
+    """Drop the in-memory categories cache.
+
+    Call after every mutation (add / remove category) so the next
+    :func:`load_categories` call reads fresh data from disk.
+    Thread-safe.
+    """
+    global _categories_cache
+    with _categories_cache_lock:
+        _categories_cache = None
+
+
+def save_categories(categories: list) -> None:
+    """Persist category list to disk and invalidate the in-memory cache.
+
+    :param categories: Sorted list of category name strings to save.
+    """
     categories_file = get_categories_file()
     os.makedirs(os.path.dirname(categories_file), exist_ok=True)
     with open(categories_file, 'w', encoding='utf-8') as f:
         json.dump({'categories': categories}, f, ensure_ascii=False, indent=2)
+    _invalidate_categories_cache()
 
 
 @app.route('/api/templates/categories', methods=['GET'])
@@ -2525,6 +3227,7 @@ def templates_add_category():
             categories.append(name)
             categories.sort()
             save_categories(categories)
+            _bump_network_version()
             print(f"✓ Категория добавлена: {name}")
 
         return jsonify({'success': True, 'categories': categories})
@@ -2548,6 +3251,7 @@ def templates_delete_category():
         if name in categories:
             categories.remove(name)
             save_categories(categories)
+            _bump_network_version()
             print(f"✓ Категория удалена: {name}")
 
         return jsonify({'success': True, 'categories': categories})
@@ -2737,6 +3441,26 @@ def main():
             candidate = _LINUX_RESOLVED or NETWORK_RESOURCES_PATH
 
         ok, reason = _validate_resource_repo(candidate)
+
+        # On Linux: if the cached path is invalid (e.g. kio-fuse session path
+        # expired), attempt a silent auto-search before showing the dialog.
+        if not ok and sys.platform != 'win32':
+            update_status('Поиск сетевого ресурса...')
+            found = find_or_mount_linux_path(
+                _SMB_PATH, hint=_LINUX_HINT,
+                status_callback=update_status,
+            )
+            if found:
+                ok, reason = _validate_resource_repo(found)
+                if ok:
+                    candidate = found
+                    # Persist only stable mount points (/mnt, /media).
+                    # kio-fuse and gvfs paths are session-specific and will
+                    # expire on the next login, so saving them is pointless.
+                    if found.startswith(('/mnt/', '/media/')):
+                        _save_network_path(found)
+                    print(f'✓ Путь к ресурсам найден автоматически: {found}')
+
         if ok:
             if candidate != NETWORK_RESOURCES_PATH:
                 globals()['NETWORK_RESOURCES_PATH'] = candidate
@@ -2769,6 +3493,24 @@ def main():
             daemon=True,
         ).start()
 
+        # Background cache updater: detects version changes in the network repo
+        # and refreshes the local asset cache without restarting the app.
+        threading.Thread(
+            target=_cache_updater_thread,
+            daemon=True,
+            name='cache-updater',
+        ).start()
+
+        # Background repo scanner: detects external (non-UI) changes to the
+        # shared repo and bumps version.txt so user clients can sync.
+        # Only meaningful in admin mode where direct repo access is expected.
+        if APP_MODE == 'admin':
+            threading.Thread(
+                target=_repo_scanner_thread,
+                daemon=True,
+                name='repo-scanner',
+            ).start()
+
         init_result['ok'] = True
         # Close the splash — Tkinter mainloop() exits, control returns to main().
         close_splash()
@@ -2790,7 +3532,9 @@ def main():
                 sys.exit(1)
             globals()['NETWORK_RESOURCES_PATH'] = resolved
             globals()['NETWORK_VERSION_FILE']   = os.path.join(resolved, 'version.txt')
-            _save_network_path(resolved)
+            # Save only stable paths; kio-fuse/gvfs are session-specific.
+            if sys.platform == 'win32' or resolved.startswith(('/mnt/', '/media/')):
+                _save_network_path(resolved)
             print(f'✓ Путь к ресурсам обновлён: {resolved}')
             continue  # re-run splash with the new path
 
@@ -3020,6 +3764,25 @@ def api_license_status():
     Called once by the frontend on load to decide whether to show a warning.
     """
     return jsonify({'invalid_token': _INVALID_TOKEN})
+
+
+@app.route('/api/open-log', methods=['POST'])
+def api_open_log():
+    """Opens protocol.log in the system-default external application."""
+    if not _ACTIVE_LOG_FILE or not os.path.exists(_ACTIVE_LOG_FILE):
+        return jsonify({'success': False, 'error': 'protocol.log не найден'}), 404
+
+    try:
+        if sys.platform.startswith('win'):
+            os.startfile(_ACTIVE_LOG_FILE)
+        elif sys.platform == 'darwin':
+            subprocess.Popen(['open', _ACTIVE_LOG_FILE])
+        else:
+            subprocess.Popen(['xdg-open', _ACTIVE_LOG_FILE])
+        return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
+    except Exception as exc:
+        print(f'⚠️  Не удалось открыть protocol.log внешним приложением: {exc}')
+        return jsonify({'success': False, 'error': str(exc)}), 500
 
 
 @app.route('/api/shutdown', methods=['POST'])
