@@ -124,6 +124,12 @@ const TextSanitizer = (() => {
             '$1<a href="$2">$2</a>'
         );
 
+        // Авто-ссылки email-адресов (не внутри уже существующего тега <a>)
+        text = text.replace(
+            /(^|[\s>])([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})(?=[<\s,;]|$)/g,
+            '$1<a href="mailto:$2">$2</a>'
+        );
+
         // Разбиваем на абзацы по двойному переносу
         const paragraphs = text.split(/\n{2,}/);
 
@@ -382,6 +388,12 @@ const TextSanitizer = (() => {
         html = html.replace(
             /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
             '<a href="$2">$1</a>'
+        );
+
+        // Auto-link bare email addresses not already inside an <a> tag
+        html = html.replace(
+            /(^|[\s>])([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})(?=[<\s,;]|$)/g,
+            '$1<a href="mailto:$2">$2</a>'
         );
 
         // Добавляем margin параграфам (кроме последнего)
