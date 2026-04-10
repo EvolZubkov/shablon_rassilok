@@ -28,6 +28,7 @@ def maybe(src, dst):
 # The plaintext secret lives in .lic next to the .exe on admin machines only.
 raw_datas = [
     maybe('.admin_hash', '.'),
+    maybe('icon.ico', '.'),
 ]
 
 # ── Static assets ─────────────────────────────────────────────────────────────

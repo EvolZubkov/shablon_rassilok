@@ -3398,6 +3398,26 @@ def _run_webview_or_browser() -> None:
             QApplication.setAttribute(Qt.AA_UseHighDpiPixmaps)
         qt_app = _qt_app or QApplication.instance() or QApplication(sys.argv)
 
+        try:
+            if sys.platform.startswith('win'):
+                import ctypes
+                app_id = 'Rostelecom.Pochtelye'
+                ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+        except Exception:
+            pass
+
+        app_icon = None
+        try:
+            if getattr(sys, 'frozen', False):
+                ico = os.path.join(sys._MEIPASS, 'icon.ico')
+            else:
+                ico = os.path.join(os.path.dirname(__file__), 'icon.ico')
+            if os.path.exists(ico):
+                app_icon = QIcon(ico)
+                qt_app.setWindowIcon(app_icon)
+        except Exception:
+            app_icon = None
+
         window = QMainWindow()
         role_label = 'Admin' if APP_MODE == 'admin' else 'User'
         window.setWindowTitle(f'Почтелье {__version__} [{role_label}]')
@@ -3405,12 +3425,8 @@ def _run_webview_or_browser() -> None:
         window.setMinimumSize(800, 600)
 
         try:
-            if getattr(sys, 'frozen', False):
-                ico = os.path.join(sys._MEIPASS, 'icon.ico')
-            else:
-                ico = os.path.join(os.path.dirname(__file__), 'icon.ico')
-            if os.path.exists(ico):
-                window.setWindowIcon(QIcon(ico))
+            if app_icon is not None:
+                window.setWindowIcon(app_icon)
         except Exception:
             pass
 
