@@ -9,6 +9,11 @@ function isLightColorPreview(hexColor) {
     return brightness > 128;
 }
 
+function getThemeAwarePreviewTextColor() {
+    const theme = document.documentElement?.getAttribute('data-theme') || 'dark';
+    return theme === 'light' ? '#1D2533' : '#ffffff';
+}
+
 function resolveTextFontFamily(s) {
     if (!s) return "inherit";
     const type = s.fontFamily || 'default';
@@ -239,7 +244,7 @@ function renderExpertPreview(s) {
     const hasBg = s.bgColor && s.bgColor !== 'transparent';
     const autoTextColor = hasBg
         ? (isLightColorPreview(s.bgColor) ? '#1D2533' : '#ffffff')
-        : '#1D2533';
+        : getThemeAwarePreviewTextColor();
 
     if (s.renderedExpert) {
         const bg = hasBg ? s.bgColor : 'transparent';
@@ -254,8 +259,13 @@ function renderExpertPreview(s) {
         `;
     }
 
+    const badgeX = Number(s.badgePositionX ?? 85);
+    const badgeY = Number(s.badgePositionY ?? 85);
+    const badgeLeft = (100 - 45) * (badgeX / 100);
+    const badgeTop = (100 - 45) * (badgeY / 100);
+
     const badgeHTML = s.badgeIcon ? `
-        <div style="position: absolute; bottom: 5px; right: -10px; width: 45px; height: 45px;">
+        <div style="position: absolute; left: ${badgeLeft}px; top: ${badgeTop}px; width: 45px; height: 45px; z-index: 2; pointer-events: none;">
             <img src="${s.badgeIcon}" style="width: 100%; height: 100%; display: block;">
         </div>
     ` : '';
@@ -265,8 +275,8 @@ function renderExpertPreview(s) {
     if (s.verticalLayout) {
         return `
             <div style="display: flex; flex-direction: column; align-items: center; padding: 16px; background: ${bg}; border-radius: 6px;">
-                <div style="position: relative; width: 100px; height: 100px; flex-shrink: 0; margin-bottom: 12px;">
-                    <div style="width: 100%; height: 100%; border-radius: 45%; overflow: hidden; transform: rotate(45deg);">
+                <div style="position: relative; width: 100px; height: 100px; flex-shrink: 0; margin-bottom: 12px; overflow: visible;">
+                    <div style="position: relative; z-index: 1; width: 100%; height: 100%; border-radius: 45%; overflow: hidden; transform: rotate(45deg);">
                         <img src="${s.photo}" style="width: 100%; height: 100%; object-fit: cover; display: block; transform: rotate(-45deg) scale(${s.scale / 100}) translate(${s.positionX}%, ${s.positionY}%);">
                     </div>
                     ${badgeHTML}
@@ -284,8 +294,8 @@ function renderExpertPreview(s) {
 
     return `
         <div style="display: flex; gap: 16px; padding: 12px; background: ${bg}; border-radius: 6px;">
-            <div style="position: relative; width: 100px; height: 100px; flex-shrink: 0;">
-                <div style="width: 100%; height: 100%; border-radius: 45%; overflow: hidden; transform: rotate(45deg);">
+            <div style="position: relative; width: 100px; height: 100px; flex-shrink: 0; overflow: visible;">
+                <div style="position: relative; z-index: 1; width: 100%; height: 100%; border-radius: 45%; overflow: hidden; transform: rotate(45deg);">
                     <img src="${s.photo}" style="width: 100%; height: 100%; object-fit: cover; display: block; transform: rotate(-45deg) scale(${s.scale / 100}) translate(${s.positionX}%, ${s.positionY}%);">
                 </div>
                 ${badgeHTML}

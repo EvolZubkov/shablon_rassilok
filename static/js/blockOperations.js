@@ -78,7 +78,41 @@ function addBlock(type, parentId = null, position = null) {
             newBlock.settings.renderedBanner = dataUrl || null;
             requestAnimationFrame(() => renderCanvas());
         });
+        return;
     }
+
+    if (type === 'expert') {
+        requestAnimationFrame(() => renderExpertBlock(newBlock));
+    }
+}
+
+function renderExpertBlock(block) {
+    if (!block || block.type !== 'expert') return;
+
+    const renderToken = (block.settings._expertRenderToken || 0) + 1;
+    block.settings._expertRenderToken = renderToken;
+
+    const applyResult = (result) => {
+        if (block.settings._expertRenderToken !== renderToken) return;
+        block.settings.renderedExpert = result?.dataUrl || null;
+        block.settings.renderedExpertWidth = result?.width || null;
+        renderCanvas();
+    };
+
+    const parentBlock = findParentBlockWithColumns(block.id);
+    if (parentBlock) {
+        let columnWidth = 300;
+        for (const col of parentBlock.columns) {
+            if (col.blocks.some(b => b.id === block.id)) {
+                columnWidth = Math.round(600 * col.width / 100);
+                break;
+            }
+        }
+        renderExpertVerticalToDataUrl(block, columnWidth, applyResult);
+        return;
+    }
+
+    renderExpertToDataUrl(block, applyResult);
 }
 
 function deleteBlock(blockId) {
@@ -272,56 +306,10 @@ function updateBlockSetting(blockId, key, value) {
 
     // Специальная обработка для экспертов
     if (block.type === 'expert') {
-        // Обновляем превью фото в настройках
-        updateExpertPhotoPreview(blockId);
+        // Обновляем превью фото и значка в настройках
+        updateExpertSettingsPreview(blockId);
 
-        // Определяем ширину колонки динамически
-        let columnWidth = 600; // по умолчанию полная ширина
-
-        // Ищем родительский блок с колонками
-        const parentBlock = findParentBlockWithColumns(blockId);
-        console.log('[BLOCK OPS] Expert column width calculation:', {
-            blockId: blockId,
-            parentBlock: parentBlock ? parentBlock.id : 'none',
-            verticalLayout: block.settings.verticalLayout
-        });
-
-        if (parentBlock) {
-            // Находим колонку с этим блоком
-            for (let col of parentBlock.columns) {
-                if (col.blocks.some(b => b.id === blockId)) {
-                    // Вычисляем реальную ширину: 600px * процент / 100
-                    columnWidth = Math.round(600 * col.width / 100);
-                    console.log('[BLOCK OPS] Found in column:', {
-                        columnId: col.id,
-                        columnWidthPercent: col.width,
-                        calculatedWidth: columnWidth
-                    });
-                    break;
-                }
-            }
-        }
-
-        console.log('[BLOCK OPS] Final columnWidth:', columnWidth);
-
-        // АВТООПРЕДЕЛЕНИЕ: если блок в колонках → вертикальный, иначе → горизонтальный
-        const isInColumn = parentBlock !== null;
-
-        if (isInColumn) {
-            // Вертикальный layout для колонок
-            renderExpertVerticalToDataUrl(block, columnWidth, (result) => {
-                block.settings.renderedExpert = result.dataUrl;
-                block.settings.renderedExpertWidth = result.width;
-                renderCanvas();
-            });
-        } else {
-            // Горизонтальный layout (полная ширина)
-            renderExpertToDataUrl(block, (result) => {
-                block.settings.renderedExpert = result.dataUrl;
-                block.settings.renderedExpertWidth = result.width;
-                renderCanvas();
-            });
-        }
+        renderExpertBlock(block);
         return;
     }
 
@@ -423,16 +411,22 @@ function removeBlockFromParent(blockId, blocksList = null) {
     return false;
 }
 
-function updateExpertPhotoPreview(blockId) {
+function updateExpertSettingsPreview(blockId) {
     const block = AppState.findBlockById(blockId);
     if (!block || block.type !== 'expert') return;
 
-    const img = document.getElementById(`expert-photo-img-${blockId}`);
-    if (!img) return;
-
     const s = block.settings;
-    img.style.transform = `rotate(-45deg) scale(${s.scale / 100}) translate(${s.positionX}%, ${s.positionY}%)`;
-    img.src = s.photo;
+    const img = document.getElementById(`expert-photo-img-${blockId}`);
+    if (img) {
+        img.style.transform = `rotate(-45deg) scale(${s.scale / 100}) translate(${s.positionX}%, ${s.positionY}%)`;
+        img.src = s.photo;
+    }
+
+    const previewGroup = document.getElementById(`expert-photo-preview-${blockId}`);
+    const previewBox = previewGroup?.querySelector('.photo-preview-box');
+    if (!previewBox) return;
+
+    previewBox.querySelectorAll('.expert-badge-preview').forEach((node) => node.remove());
 }
 
 function findParentBlockWithColumns(childBlockId) {

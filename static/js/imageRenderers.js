@@ -728,10 +728,15 @@ function getBannerFontFamily(fontKey) {
     return fontMap[fontKey] || fontMap['rt-regular'];
 }
 
+function getUiThemeAwareDefaultTextColor() {
+    const theme = document.documentElement?.getAttribute('data-theme') || 'dark';
+    return theme === 'light' ? '#1D2533' : '#ffffff';
+}
+
 // Возвращает цвет текста для блока эксперт по цвету фона.
-// Светлый фон или нет фона → #1D2533 (стандарт), тёмный → #ffffff.
+// Прозрачный фон берёт контрастный цвет от текущей темы интерфейса.
 function getExpertTextColor(bgColor) {
-    if (!bgColor || bgColor === 'transparent' || bgColor === '') return '#1D2533';
+    if (!bgColor || bgColor === 'transparent' || bgColor === '') return getUiThemeAwareDefaultTextColor();
 
     let r, g, b;
     const hex = bgColor.trim();
@@ -908,21 +913,26 @@ function renderExpertToDataUrl(block, callback) {
 
             if (!isLite) {
                 const textColor = getExpertTextColor(s.bgColor);
+                const nameLineHeight = 18;
+                const titleTop = textY + 22;
+                const titleLineHeight = 16;
+                const bioGap = 8;
                 // Имя
                 ctx.font = 'bold 15px Arial, sans-serif';
                 ctx.fillStyle = textColor;
                 ctx.textBaseline = 'top';
-                wrapText(ctx, s.name || 'Имя эксперта', textX, textY, textWidth, 18);
+                wrapText(ctx, s.name || 'Имя эксперта', textX, textY, textWidth, nameLineHeight);
 
                 // Должность
                 ctx.font = '12px Arial, sans-serif';
                 ctx.fillStyle = textColor;
-                wrapText(ctx, s.title || 'Должность', textX, textY + 22, textWidth, 16);
+                const titleMetrics = wrapText(ctx, s.title || 'Должность', textX, titleTop, textWidth, titleLineHeight);
 
                 // Био
                 ctx.font = '13px Arial, sans-serif';
                 ctx.fillStyle = textColor;
-                wrapText(ctx, s.bio || 'Краткое описание эксперта', textX, textY + 42, textWidth, 18);
+                const bioTop = titleTop + titleMetrics.height + bioGap;
+                wrapText(ctx, s.bio || 'Краткое описание эксперта', textX, bioTop, textWidth, 18);
             }
 
 
@@ -1200,7 +1210,7 @@ function roundRectPath(ctx, x, y, w, h, r) {
 }
 
 function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
-    const words = text.split(' ');
+    const words = String(text || '').split(' ');
     let line = '';
     let currentY = y;
 
@@ -1218,6 +1228,10 @@ function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
         }
     }
     ctx.fillText(line, x, currentY);
+    return {
+        lastY: currentY,
+        height: currentY - y + lineHeight
+    };
 }
 // Рендеринг иконки для блока "Важно"
 function renderImportantIconToDataUrl(block, callback) {
@@ -1534,6 +1548,10 @@ function renderExpertVerticalToDataUrl(block, columnWidth, callback) {
             const textY = photoAreaHeight;
             const textX = padding;
             const textWidth = logicalWidth - padding * 2;
+            const nameLineHeight = 18;
+            const titleTop = textY + 20;
+            const titleLineHeight = 16;
+            const bioGap = 8;
 
             const textColorV = getExpertTextColor(s.bgColor);
             // Имя (слева)
@@ -1546,32 +1564,13 @@ function renderExpertVerticalToDataUrl(block, columnWidth, callback) {
             // Должность (слева)
             ctx.font = '12px Arial, sans-serif';
             ctx.fillStyle = textColorV;
-            ctx.fillText(s.title || 'Должность', textX, textY + 20);
+            const titleMetrics = wrapText(ctx, s.title || 'Должность', textX, titleTop, textWidth, titleLineHeight);
 
             // Био (слева, с переносами)
             ctx.font = '13px Arial, sans-serif';
             ctx.fillStyle = textColorV;
-
-            function wrapText(ctx, text, x, y, maxWidth, lineHeight) {
-                const words = text.split(' ');
-                let line = '';
-                let yPos = y;
-
-                for (let n = 0; n < words.length; n++) {
-                    const testLine = line + words[n] + ' ';
-                    const metrics = ctx.measureText(testLine);
-                    if (metrics.width > maxWidth && n > 0) {
-                        ctx.fillText(line, x, yPos);
-                        line = words[n] + ' ';
-                        yPos += lineHeight;
-                    } else {
-                        line = testLine;
-                    }
-                }
-                ctx.fillText(line, x, yPos);
-            }
-
-            wrapText(ctx, s.bio || 'Краткое описание эксперта', textX, textY + 42, textWidth, 18);
+            const bioTop = titleTop + titleMetrics.height + bioGap;
+            wrapText(ctx, s.bio || 'Краткое описание эксперта', textX, bioTop, textWidth, 18);
 
             const dataUrl = canvas.toDataURL('image/png');
             callback({
