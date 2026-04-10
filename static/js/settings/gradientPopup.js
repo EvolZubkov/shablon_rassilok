@@ -95,6 +95,20 @@ function refreshGradientPopupBody(popup, block) {
     const s = AppState.findBlockById(block.id).settings;
     block.settings = s; // sync
 
+    // Ensure gradient stops are persisted WITH stable IDs in AppState.
+    // If the block only has legacy scalar gradient settings (no gradientStops
+    // array), normalizeGradientStops() assigns id = Date.now() + index on
+    // every call, so stop.id captured in closures never matches on later
+    // calls.  Writing the normalised array back once makes all subsequent
+    // lookups deterministic.
+    {
+        const normalised = getGradientStopsModel(s);
+        const blk = AppState.findBlockById(block.id);
+        blk.settings.gradientStops = normalised;
+        // Keep local references in sync.
+        block.settings = blk.settings;
+    }
+
     // === INTERACTIVE GRADIENT PREVIEW (Figma-style) ===
     const previewWrap = document.createElement('div');
     previewWrap.className = 'grad-preview';
@@ -167,7 +181,11 @@ function refreshGradientPopupBody(popup, block) {
 
         // Clamp handles to preview box bounds so they never escape into
         // adjacent UI elements (e.g. the gradient bar below).
-        const R = 9; // half of 18px handle visual size
+        // The handle is 18px and rotated 45°, so its visual "radius" is
+        // 9 * sqrt(2) ≈ 12.73 px from the centre point — use R = 14 for a
+        // 1-px safe margin so the corner of the rotated diamond always stays
+        // inside the box even with overflow: hidden applied to the container.
+        const R = 14;
         const clampX = (x) => Math.max(R, Math.min(boxW - R, x));
         const clampY = (y) => Math.max(R, Math.min(boxH - R, y));
 
@@ -348,42 +366,42 @@ function refreshGradientPopupBody(popup, block) {
         pin.className = 'grad-popup__bar-pin';
         pin.style.cursor = 'ew-resize';
         pin.style.touchAction = 'none';
-        // Position: center of pin (8px = half of 16px visual size incl. border)
+        // Position: centre of pin (8 px = half of 16 px visual size incl. border).
         const clampedPos = Math.max(0, Math.min(100, stop.position));
         pin.style.left = `calc(${clampedPos}% - 8px)`;
         pin.style.background = stop.color;
 
         pin.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
             e.preventDefault();
             e.stopPropagation();
-            pin.setPointerCapture(e.pointerId);
+
             pin.classList.add('grad-popup__bar-pin--dragging');
 
+            // Capture bar rect once at drag start.
             const barRect = gradBar.getBoundingClientRect();
 
             const onMove = (ev) => {
                 const rawPct = ((ev.clientX - barRect.left) / barRect.width) * 100;
                 const pct = Math.round(Math.max(0, Math.min(100, rawPct)));
                 pin.style.left = `calc(${pct}% - 8px)`;
-                // Live-update state and bar gradient
                 updateGradientStop(block.id, stop.id, 'position', pct);
                 block.settings = AppState.findBlockById(block.id).settings;
                 _syncBarGradient();
             };
 
             const onUp = () => {
-                pin.releasePointerCapture(e.pointerId);
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup',   onUp);
+                document.removeEventListener('pointercancel', onUp);
                 pin.classList.remove('grad-popup__bar-pin--dragging');
-                pin.removeEventListener('pointermove', onMove);
-                pin.removeEventListener('pointerup', onUp);
-                pin.removeEventListener('pointercancel', onUp);
-                // Full refresh to sync position inputs in the stop list
+                // Full refresh to sync position inputs in the stop list.
                 refreshGradientPopupBody(popup, block);
             };
 
-            pin.addEventListener('pointermove', onMove);
-            pin.addEventListener('pointerup', onUp);
-            pin.addEventListener('pointercancel', onUp);
+            document.addEventListener('pointermove',   onMove);
+            document.addEventListener('pointerup',     onUp);
+            document.addEventListener('pointercancel', onUp);
         });
 
         gradBar.appendChild(pin);
@@ -449,19 +467,20 @@ function refreshGradientPopupBody(popup, block) {
         const swatch = document.createElement('div');
         swatch.className = 'grad-popup__stop-swatch';
         swatch.style.background = stop.color;
-        // Клик на swetch открывает нативный color picker
-        const hiddenColorPicker = document.createElement('input');
-        hiddenColorPicker.type = 'color';
-        hiddenColorPicker.value = stop.color;
-        hiddenColorPicker.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-        swatch.addEventListener('click', () => hiddenColorPicker.click());
-        hiddenColorPicker.addEventListener('input', (e) => {
-            swatch.style.background = e.target.value;
-            hexInput.value = e.target.value.replace('#', '').toUpperCase();
-            updateGradientStop(block.id, stop.id, 'color', e.target.value);
-            block.settings = AppState.findBlockById(block.id).settings;
-            // Обновить бар без полного рефреша
-            gradBar.style.background = buildGradientPreviewCss(block.settings);
+        swatch.addEventListener('click', () => {
+            pickColor({
+                title: 'Цвет точки',
+                currentColor: stop.color,
+                allowTransparent: false,
+                onApply: (chosen) => {
+                    swatch.style.background = chosen;
+                    hexInput.value = chosen.replace('#', '').toUpperCase();
+                    updateGradientStop(block.id, stop.id, 'color', chosen);
+                    block.settings = AppState.findBlockById(block.id).settings;
+                    gradBar.style.background = buildGradientPreviewCss(block.settings);
+                    updateHandlePositions();
+                },
+            });
         });
 
         const hexInput = document.createElement('input');
@@ -472,14 +491,12 @@ function refreshGradientPopupBody(popup, block) {
         hexInput.addEventListener('change', (e) => {
             const hex = ensureHex(e.target.value);
             swatch.style.background = hex;
-            hiddenColorPicker.value = hex;
             updateGradientStop(block.id, stop.id, 'color', hex);
             block.settings = AppState.findBlockById(block.id).settings;
             refreshGradientPopupBody(popup, block);
         });
 
         colorWrap.appendChild(swatch);
-        colorWrap.appendChild(hiddenColorPicker);
         colorWrap.appendChild(hexInput);
 
         // Opacity стопа
