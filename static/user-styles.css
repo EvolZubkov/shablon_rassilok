@@ -2144,9 +2144,42 @@ body {
 
 /* Цвета баннера */
 .color-row {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.color-picker-trigger {
+    width: 48px;
+    height: 32px;
+    padding: 0;
+    border: 2px solid var(--border-color, #334155);
+    border-radius: 8px;
+    cursor: pointer;
+    background: #334155;
+    flex: 0 0 auto;
+    transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.color-picker-trigger:hover {
+    border-color: #7700ff;
+    transform: scale(1.04);
+}
+
+.color-picker-trigger:focus-visible {
+    outline: 2px solid #7700ff;
+    outline-offset: 2px;
+}
+
+.color-row__label,
+.color-row__value {
+    color: var(--text-secondary, #9ca3af);
+    font-size: 12px;
+    line-height: 16px;
+}
+
+.color-row__value {
+    font-family: monospace;
 }
 
 .color-row input[type="color"] {
@@ -2628,6 +2661,201 @@ body {
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' stroke='%236b7280' stroke-width='1.5' stroke-linecap='round' fill='none'/%3E%3C/svg%3E");
 }
 
+.library-subtabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 8px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  position: static;
+  margin-left: 0;
+  margin-right: 0;
+}
+
+.library-subtab {
+  min-height: 28px;
+  padding: 0 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  transition: background 0.2s, border-color 0.2s, color 0.2s;
+}
+
+.library-subtab + .library-subtab {
+  margin-left: 4px;
+}
+
+.library-subtab:hover {
+  color: var(--text-primary);
+  border-color: var(--border-hover);
+}
+
+.library-subtab.active {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.app-settings-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.exchange-settings-tabs {
+  margin-bottom: 16px;
+}
+
+.exchange-settings-pane {
+  display: none;
+}
+
+.exchange-settings-pane.is-active {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.exchange-settings-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+#exchange-settings-cancel-btn {
+  margin-right: auto;
+}
+
+.app-settings-actions .exc-btn {
+  width: 100%;
+  min-width: 0;
+}
+
+.app-settings-actions .exc-btn:last-child {
+  grid-column: 1 / -1;
+}
+
+#exchange-credentials-modal .exchange-settings-panel {
+  width: min(100%, 544px);
+  border-radius: 16px;
+}
+
+#exchange-credentials-modal .exc-header {
+  padding: 16px 24px;
+}
+
+#exchange-credentials-modal .exc-title {
+  font-size: 16px;
+  line-height: 20px;
+}
+
+#exchange-credentials-modal .exc-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 8px;
+}
+
+#exchange-credentials-modal .exc-body {
+  gap: 4px;
+  padding: 20px 24px;
+}
+
+#exchange-credentials-modal .exchange-settings-tabs {
+  margin-bottom: 24px;
+}
+
+#exchange-credentials-modal .exchange-settings-pane.is-active {
+  gap: 4px;
+}
+
+#exchange-credentials-modal #settings-pane-exchange.exchange-settings-pane.is-active {
+  gap: 8px;
+}
+
+#exchange-credentials-modal .exc-field {
+  gap: 4px;
+}
+
+#exchange-credentials-modal #settings-pane-exchange > .exc-field + .exc-field {
+  margin-top: 4px;
+}
+
+#exchange-credentials-modal .exc-label {
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-hint {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-input {
+  height: 40px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-input:focus {
+  box-shadow: 0 0 0 4px var(--input-focus-ring, rgba(124, 58, 237, 0.18));
+}
+
+#exchange-credentials-modal .exc-input--select {
+  padding-right: 32px;
+  background-position: right 12px center;
+}
+
+#exchange-credentials-modal .exc-test-result {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-footer {
+  gap: 4px;
+  padding: 16px 24px;
+}
+
+#exchange-credentials-modal #settings-actions-exchange {
+  gap: 4px;
+}
+
+#exchange-credentials-modal #settings-actions-exchange > .exc-btn + .exc-btn {
+  margin-left: 4px;
+}
+
+#exchange-credentials-modal .exc-btn {
+  height: 40px;
+  min-width: 112px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .app-settings-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 4px;
+}
+
+#exchange-credentials-modal .app-settings-actions .exc-btn {
+  min-width: 0;
+}
+
+#exchange-credentials-modal #app-settings-result {
+  margin-top: 4px;
+}
+
 
 /* Кнопка настроек Exchange */
 .btn-settings {
@@ -2670,20 +2898,20 @@ body {
 }
 
 [data-theme="light"] {
-  --exchange-modal-bg: #ffffff;
-  --exchange-modal-border: #d7deea;
-  --exchange-modal-close-bg: #e8edf5;
-  --exchange-modal-close-color: #4a5568;
-  --exchange-modal-close-hover-bg: #d1d9e6;
-  --input-bg: #ffffff;
-  --input-border: #c7d2e3;
-  --input-border-hover: #9fb0ca;
-  --input-border-focus: #7c3aed;
-  --input-focus-ring: rgba(124, 58, 237, 0.18);
-  --input-text: #111827;
-  --input-placeholder: #94a3b8;
-  --exchange-btn-secondary-bg: #e2e8f0;
-  --exchange-btn-secondary-hover: #cbd5e1;
+  --exchange-modal-bg: #fffdf8;
+  --exchange-modal-border: #d4cdbf;
+  --exchange-modal-close-bg: #e9e3d9;
+  --exchange-modal-close-color: #4a525b;
+  --exchange-modal-close-hover-bg: #ddd6ca;
+  --input-bg: #fffdfa;
+  --input-border: #c9c0b1;
+  --input-border-hover: #aca293;
+  --input-border-focus: #6e6798;
+  --input-focus-ring: rgba(110, 103, 152, 0.18);
+  --input-text: #1f2329;
+  --input-placeholder: #8e877d;
+  --exchange-btn-secondary-bg: #e7e2d8;
+  --exchange-btn-secondary-hover: #ddd7cb;
 }
 /* ============================================================
    Кнопка переключения режима
@@ -2727,6 +2955,13 @@ body {
 
 .mode-toggle-btn[hidden] {
   display: none !important;
+}
+
+.mode-toggle-btn:disabled {
+  opacity: 1;
+  cursor: default;
+  pointer-events: none;
+  box-shadow: none;
 }
 
 /* ============================================================================
@@ -3034,23 +3269,25 @@ body {
 }
 
 [data-theme="light"] .btn-send {
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.4);
-  color: #1d4ed8;
+  background: rgba(154, 116, 65, 0.14);
+  border-color: rgba(154, 116, 65, 0.34);
+  color: var(--accent-primary);
 }
 
 [data-theme="light"] .btn-send:hover {
-  background: rgba(59, 130, 246, 0.18);
+  background: rgba(154, 116, 65, 0.20);
+  border-color: rgba(154, 116, 65, 0.46);
 }
 
 [data-theme="light"] .btn-meeting {
-  background: rgba(139, 92, 246, 0.1);
-  border-color: rgba(139, 92, 246, 0.4);
-  color: #6d28d9;
+  background: rgba(73, 88, 105, 0.12);
+  border-color: rgba(73, 88, 105, 0.32);
+  color: var(--accent-secondary);
 }
 
 [data-theme="light"] .btn-meeting:hover {
-  background: rgba(139, 92, 246, 0.18);
+  background: rgba(73, 88, 105, 0.18);
+  border-color: rgba(73, 88, 105, 0.44);
 }
 
 [data-theme="light"] .btn-preview-user {
@@ -3085,4 +3322,77 @@ body {
   background: var(--bg-tertiary);
   border-color: var(--border-secondary);
   color: var(--text-muted);
+}
+
+[data-theme="light"] .editor-shell {
+  background: var(--bg-primary);
+}
+
+[data-theme="light"] .editor-sidebar {
+  background: var(--bg-secondary);
+  border-right-color: var(--border-primary);
+}
+
+[data-theme="light"] .editor-sidebar-head {
+  background: var(--bg-tertiary);
+  border-bottom: 1px solid var(--border-primary);
+}
+
+[data-theme="light"] .editor-sidebar-head h2 {
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .editor-sidebar-head p {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .editor-sidebar-body {
+  background: var(--bg-secondary);
+}
+
+[data-theme="light"] .editor-side-card {
+  background: color-mix(in srgb, var(--bg-secondary) 80%, var(--bg-primary));
+  border-color: var(--border-secondary);
+  box-shadow: 0 8px 20px rgba(31, 35, 41, 0.06);
+}
+
+[data-theme="light"] .editor-side-card h3 {
+  color: var(--text-muted);
+}
+
+[data-theme="light"] .editor-side-card p {
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .editor-context-bar {
+  background: var(--bg-secondary);
+  border-bottom-color: var(--border-primary);
+}
+
+[data-theme="light"] .editor-pill {
+  background: var(--bg-tertiary);
+  border-color: var(--border-secondary);
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .mode-toggle-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-secondary);
+  color: var(--text-secondary);
+}
+
+[data-theme="light"] .mode-toggle-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+[data-theme="light"] .mode-toggle-btn:disabled {
+  background: #e4ded2;
+  border-color: #c9c0b1;
+  color: #6d737c;
+}
+
+[data-theme="light"] .mode-toggle-btn:disabled svg {
+  opacity: 0.8;
 }

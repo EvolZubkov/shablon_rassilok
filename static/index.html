@@ -5,6 +5,18 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Модульный конструктор писем</title>
+  <script>
+    (function () {
+      try {
+        var key = 'email-builder-theme';
+        var saved = localStorage.getItem(key);
+        var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        var theme = saved || (prefersDark ? 'dark' : 'dark');
+        document.documentElement.setAttribute('data-theme', theme);
+      } catch (_) {}
+    })();
+  </script>
+  <script src="https://unpkg.com/lucide@latest"></script>
   <link rel="stylesheet" href="modular-styles.css">
   <link rel="stylesheet" href="theme-variables.css">
   <link rel="stylesheet" href="figma-gradient-panel.css">
@@ -136,12 +148,7 @@
           <section class="accordion-item active" data-panel="blocks">
             <button type="button" class="accordion-trigger" aria-expanded="true">
               <span class="accordion-trigger-label">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="14" width="7" height="7"></rect>
-                  <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
+                <i data-lucide="blocks"></i>
                 <span>Блоки</span>
               </span>
               <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -251,12 +258,7 @@
           <section class="accordion-item" data-panel="templates">
             <button type="button" class="accordion-trigger" aria-expanded="false">
               <span class="accordion-trigger-label">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M4 4h16v16H4z"></path>
-                  <path d="M8 8h8"></path>
-                  <path d="M8 12h8"></path>
-                  <path d="M8 16h5"></path>
-                </svg>
+                <i data-lucide="layout-dashboard"></i>
                 <span>Шаблоны</span>
               </span>
               <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -277,12 +279,7 @@
           <section class="accordion-item" data-panel="resources">
             <button type="button" class="accordion-trigger" aria-expanded="false">
               <span class="accordion-trigger-label">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <rect x="3" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="3" width="7" height="7"></rect>
-                  <rect x="14" y="14" width="7" height="7"></rect>
-                  <rect x="3" y="14" width="7" height="7"></rect>
-                </svg>
+                <i data-lucide="images"></i>
                 <span>Ресурсы</span>
               </span>
               <svg class="accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -366,6 +363,21 @@
     </div>
   </div>
 
+  <div id="banner-color-modal" class="modal banner-color-modal" style="display:none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content banner-color-modal__content">
+      <div class="modal-header banner-color-modal__header">
+        <h2 id="banner-color-modal-title">Выбор цвета</h2>
+        <button id="banner-color-modal-close" type="button" class="modal-close" aria-label="Закрыть">×</button>
+      </div>
+      <div id="banner-color-modal-body" class="modal-body banner-color-modal__body"></div>
+      <div class="modal-footer banner-color-modal__footer">
+        <button id="banner-color-modal-ok" type="button" class="banner-color-dialog__action banner-color-dialog__action--primary">Применить</button>
+        <button id="banner-color-modal-cancel" type="button" class="banner-color-dialog__action">Отмена</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Подключение модулей в правильном порядке -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 
@@ -403,6 +415,7 @@
   <script src="js/settings/gradientInline.js"></script>
   <script src="js/settings/gradientPopup.js"></script>
   <script src="js/settings/bannerSettings.js"></script>
+  <script src="js/colorPicker.js"></script>
   <script src="js/settings/bannerHelpers.js"></script>
   <script src="js/settings/bannerToggles.js"></script>
   <script src="js/settings/textSettings.js"></script>
@@ -431,6 +444,10 @@
   <!-- <script src="js/admin-bulk-mail.js"></script> -->
   <script>
     (function () {
+      if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        window.lucide.createIcons();
+      }
+
       async function initModeSwitcher() {
         try {
           const r = await fetch('/api/mode');
