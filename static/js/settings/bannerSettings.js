@@ -71,7 +71,8 @@ function renderBannerSettings(container, block) {
 
     // Сетка выбора
     if (window.BANNER_BACKGROUNDS && window.BANNER_BACKGROUNDS.length > 0) {
-        const grid = createImageGrid(window.BANNER_BACKGROUNDS, s.rightImage, block.id, 'rightImage', 'rightImageCustom');
+        const currentRightImage = s.rightImageCustom || s.rightImage || '';
+        const grid = createImageGrid(window.BANNER_BACKGROUNDS, currentRightImage, block.id, 'rightImage', 'rightImageCustom');
         rightImageSection.appendChild(grid);
     }
 
@@ -124,7 +125,8 @@ function renderBannerSettings(container, block) {
 
     // Сетка выбора логотипов
     if (window.BANNER_LOGOS && window.BANNER_LOGOS.length > 0) {
-        const grid = createImageGrid(window.BANNER_LOGOS, s.logo, block.id, 'logo', 'logoCustom');
+        const currentLogo = s.logoCustom || s.logo || '';
+        const grid = createImageGrid(window.BANNER_LOGOS, currentLogo, block.id, 'logo', 'logoCustom');
         logoSection.appendChild(grid);
     }
 
@@ -206,4 +208,3 @@ function renderBannerSettings(container, block) {
     textSection.appendChild(addButton);
     container.appendChild(textSection);
 }
-

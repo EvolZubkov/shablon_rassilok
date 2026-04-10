@@ -158,16 +158,13 @@ function createFigmaGradientPreview(block) {
     bar.style.background = buildGradientPreviewCss(s);
 
     const stops = getGradientStopsModel(s);
-    stops.forEach((stop, index) => {
+    stops.forEach((stop) => {
         const stopEl = document.createElement('span');
         stopEl.className = 'fg-gradient-stop';
-        stopEl.style.left = `calc(${stop.position}% - 6px)`;
-        stopEl.style.right = 'auto';
+        // Clamp offset so marker never escapes the bar on either edge.
+        const pct = Math.max(0, Math.min(100, stop.position));
+        stopEl.style.left = `calc(${pct}% - 8px)`;
         stopEl.style.background = stop.color;
-        if (index === stops.length - 1 && stop.position === 100) {
-            stopEl.style.left = 'auto';
-            stopEl.style.right = '-1px';
-        }
         bar.appendChild(stopEl);
     });
 

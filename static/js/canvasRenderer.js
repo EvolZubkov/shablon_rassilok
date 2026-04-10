@@ -3,6 +3,9 @@
 function renderCanvas() {
     const canvas = document.getElementById('canvas');
 
+    // Preserve scroll position — full innerHTML reset would reset scrollTop to 0.
+    const savedScroll = canvas.scrollTop;
+
     if (AppState.blocks.length === 0) {
         canvas.innerHTML = `
             <div class="canvas-empty">
@@ -10,7 +13,13 @@ function renderCanvas() {
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-                <p>Добавьте блоки из левой панели</p>
+                <h3>Письмо пока пустое</h3>
+                <p>Добавьте блоки из левой панели или откройте раздел шаблонов.</p>
+                <div class="empty-state-hints">
+                    <span class="empty-hint">Блоки</span>
+                    <span class="empty-hint">Шаблоны</span>
+                    <span class="empty-hint">Пресеты</span>
+                </div>
             </div>
         `;
         return;
@@ -21,6 +30,8 @@ function renderCanvas() {
         const blockElement = createBlockElement(block, index);
         canvas.appendChild(blockElement);
     });
+
+    canvas.scrollTop = savedScroll;
 }
 
 function createBlockElement(block, index) {

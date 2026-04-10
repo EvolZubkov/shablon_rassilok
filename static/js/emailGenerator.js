@@ -17,6 +17,89 @@ const DEFAULT_COLORS = {
     BULLET: '#a855f7'
 };
 
+const EMAIL_THEME = {
+    LIGHT: 'light',
+    DARK: 'dark',
+};
+
+const EMAIL_PREVIEW_THEME_STORAGE_KEY = 'email-builder-email-preview-theme';
+
+let CURRENT_EMAIL_RENDER_CONTEXT = null;
+
+const EmailPreviewTheme = {
+    LIGHT: EMAIL_THEME.LIGHT,
+    DARK: EMAIL_THEME.DARK,
+    STORAGE_KEY: EMAIL_PREVIEW_THEME_STORAGE_KEY,
+
+    get() {
+        const saved = localStorage.getItem(this.STORAGE_KEY);
+        return saved === this.DARK ? this.DARK : this.LIGHT;
+    },
+
+    set(theme) {
+        const next = theme === this.DARK ? this.DARK : this.LIGHT;
+        localStorage.setItem(this.STORAGE_KEY, next);
+        this.syncButtons();
+        document.dispatchEvent(new CustomEvent('email-preview-theme-change', {
+            detail: { theme: next },
+        }));
+    },
+
+    toggle() {
+        this.set(this.get() === this.DARK ? this.LIGHT : this.DARK);
+    },
+
+    getLabel(theme = this.get()) {
+        return theme === this.DARK ? 'Письмо: Тёмная' : 'Письмо: Светлая';
+    },
+
+    mount(container) {
+        if (!container || container.querySelector('.email-theme-toggle')) return;
+
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'email-theme-toggle';
+        button.title = 'Переключить вид письма в предпросмотре';
+        button.addEventListener('click', () => {
+            window.jslog?.('log', '[THEME-TOGGLE] click fired');
+            this.toggle();
+        });
+        container.insertBefore(button, container.firstChild || null);
+
+        this.syncButton(button);
+    },
+
+    syncButton(button) {
+        if (!button) return;
+        const theme = this.get();
+        const isDark = theme === this.DARK;
+        button.classList.toggle('email-theme-toggle--dark', isDark);
+        button.title = isDark ? 'Переключить на светлую тему письма' : 'Переключить на тёмную тему письма';
+        // Sun icon (light mode active) / Moon icon (dark mode active)
+        button.innerHTML = isDark
+            ? `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+               </svg>`
+            : `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="12" cy="12" r="5"/>
+                <line x1="12" y1="1" x2="12" y2="3"/>
+                <line x1="12" y1="21" x2="12" y2="23"/>
+                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/>
+                <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                <line x1="1" y1="12" x2="3" y2="12"/>
+                <line x1="21" y1="12" x2="23" y2="12"/>
+                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/>
+                <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+               </svg>`;
+    },
+
+    syncButtons() {
+        document.querySelectorAll('.email-theme-toggle').forEach((button) => {
+            this.syncButton(button);
+        });
+    },
+};
+
 // ===== УТИЛИТЫ БЕЗОПАСНОСТИ =====
 
 /**
@@ -54,6 +137,170 @@ function getImageStyle(width, extraStyles = '') {
  */
 function getPadding(vertical = LAYOUT.PADDING_V, horizontal = LAYOUT.PADDING_H) {
     return `padding:${vertical}px ${horizontal}px;`;
+}
+
+function getCurrentEmailRenderContext() {
+    return CURRENT_EMAIL_RENDER_CONTEXT || buildEmailRenderContext();
+}
+
+function buildEmailRenderContext(options = {}) {
+    const previewTheme = options.previewTheme === EMAIL_THEME.DARK
+        ? EMAIL_THEME.DARK
+        : options.previewTheme === EMAIL_THEME.LIGHT
+            ? EMAIL_THEME.LIGHT
+            : null;
+
+    const isDarkPreview = previewTheme === EMAIL_THEME.DARK;
+
+    return {
+        previewTheme,
+        bodyBg: isDarkPreview ? '#0f172a' : '#ffffff',
+        surfaceBg: isDarkPreview ? '#111827' : '#ffffff',
+        textColor: isDarkPreview ? '#f3f4f6' : DEFAULT_COLORS.TEXT,
+        mutedTextColor: isDarkPreview ? '#d1d5db' : '#6b7280',
+        linkColor: isDarkPreview ? '#c4b5fd' : DEFAULT_COLORS.LINK,
+        bulletColor: isDarkPreview ? '#c4b5fd' : DEFAULT_COLORS.BULLET,
+        borderColor: isDarkPreview ? '#fb923c' : DEFAULT_COLORS.BORDER,
+        rootClass: previewTheme ? `email-force-${previewTheme}` : '',
+    };
+}
+
+function buildEmailThemeStyles() {
+    return `
+.email-wrapper,
+.email-root,
+.email-surface {
+    background-color:#ffffff;
+}
+
+.email-text,
+.email-text p,
+.email-text span,
+.email-text strong,
+.email-text b,
+.email-text em,
+.email-text i,
+.email-text u,
+.email-heading {
+    color:${DEFAULT_COLORS.TEXT};
+}
+
+.email-text a,
+.email-link {
+    color:${DEFAULT_COLORS.LINK} !important;
+}
+
+.email-bullet-dot {
+    background-color:${DEFAULT_COLORS.BULLET} !important;
+}
+
+.email-important-cell {
+    border-left:4px solid ${DEFAULT_COLORS.BORDER};
+    padding-left:12px !important;
+}
+
+body.email-force-dark,
+body.email-force-dark .email-wrapper,
+body.email-force-dark .email-root,
+body.email-force-dark .email-surface,
+.email-wrapper.email-force-dark,
+.email-wrapper.email-force-dark .email-root,
+.email-wrapper.email-force-dark .email-surface {
+    background-color:#0f172a !important;
+}
+
+body.email-force-dark .email-text,
+body.email-force-dark .email-text p,
+body.email-force-dark .email-text span,
+body.email-force-dark .email-text strong,
+body.email-force-dark .email-text b,
+body.email-force-dark .email-text em,
+body.email-force-dark .email-text i,
+body.email-force-dark .email-text u,
+body.email-force-dark .email-heading,
+body.email-force-dark .email-muted,
+.email-wrapper.email-force-dark .email-text,
+.email-wrapper.email-force-dark .email-text p,
+.email-wrapper.email-force-dark .email-text span,
+.email-wrapper.email-force-dark .email-text strong,
+.email-wrapper.email-force-dark .email-text b,
+.email-wrapper.email-force-dark .email-text em,
+.email-wrapper.email-force-dark .email-text i,
+.email-wrapper.email-force-dark .email-text u,
+.email-wrapper.email-force-dark .email-heading,
+.email-wrapper.email-force-dark .email-muted {
+    color:#f3f4f6 !important;
+}
+
+body.email-force-dark .email-text a,
+body.email-force-dark .email-link,
+.email-wrapper.email-force-dark .email-text a,
+.email-wrapper.email-force-dark .email-link {
+    color:#c4b5fd !important;
+}
+
+body.email-force-dark .email-bullet-dot,
+.email-wrapper.email-force-dark .email-bullet-dot {
+    background-color:#c4b5fd !important;
+}
+
+body.email-force-dark .email-important-cell,
+.email-wrapper.email-force-dark .email-important-cell {
+    border-left-color:#fb923c !important;
+}
+
+@media (prefers-color-scheme: dark) {
+    body,
+    .email-wrapper,
+    .email-root,
+    .email-surface,
+    [data-ogsc] .email-wrapper,
+    [data-ogsc] .email-root,
+    [data-ogsc] .email-surface {
+        background-color:#0f172a !important;
+    }
+
+    .email-text,
+    .email-text p,
+    .email-text span,
+    .email-text strong,
+    .email-text b,
+    .email-text em,
+    .email-text i,
+    .email-text u,
+    .email-heading,
+    .email-muted,
+    [data-ogsc] .email-text,
+    [data-ogsc] .email-text p,
+    [data-ogsc] .email-text span,
+    [data-ogsc] .email-text strong,
+    [data-ogsc] .email-text b,
+    [data-ogsc] .email-text em,
+    [data-ogsc] .email-text i,
+    [data-ogsc] .email-text u,
+    [data-ogsc] .email-heading,
+    [data-ogsc] .email-muted {
+        color:#f3f4f6 !important;
+    }
+
+    .email-text a,
+    .email-link,
+    [data-ogsc] .email-text a,
+    [data-ogsc] .email-link {
+        color:#c4b5fd !important;
+    }
+
+    .email-bullet-dot,
+    [data-ogsc] .email-bullet-dot {
+        background-color:#c4b5fd !important;
+    }
+
+    .email-important-cell,
+    [data-ogsc] .email-important-cell {
+        border-left-color:#fb923c !important;
+    }
+}
+`;
 }
 
 // ===== КОНВЕРТАЦИЯ ИЗОБРАЖЕНИЙ =====
@@ -125,43 +372,25 @@ function resolveTextFontFamily(s) {
 /**
  * Генерирует полный HTML email
  */
-async function generateEmailHTML() {
-    const { BODY_BG, TEXT_COLOR, TABLE_WIDTH, FONT_FAMILY } = EMAIL_STYLES;
+async function generateEmailHTML(options = {}) {
+    const { TABLE_WIDTH, FONT_FAMILY } = EMAIL_STYLES;
+    const context = buildEmailRenderContext(options);
+    CURRENT_EMAIL_RENDER_CONTEXT = context;
 
-    // Конвертируем все base64 в URL перед генерацией
-    for (let block of AppState.blocks) {
-        await convertBlockImages(block);
-    }
+    try {
+        // Конвертируем все base64 в URL перед генерацией
+        for (let block of AppState.blocks) {
+            await convertBlockImages(block);
+        }
 
-    let html = `<!DOCTYPE html>
+        let html = `<!DOCTYPE html>
 <html lang="ru">
 <head>
 <meta charset="UTF-8">
-<meta name="color-scheme" content="light only">
-<meta name="supported-color-schemes" content="light">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
 <title>Email</title>
 <style>
-/* Принудительная светлая тема ТОЛЬКО для email контента */
-.email-wrapper {
-    color-scheme: light only !important;
-}
-
-.email-wrapper * {
-    color-scheme: light !important;
-}
-
-/* Отключаем темную тему только для email */
-@media (prefers-color-scheme: dark) {
-    .email-wrapper,
-    .email-wrapper table,
-    .email-wrapper td,
-    .email-wrapper div,
-    .email-wrapper p,
-    .email-wrapper span {
-        background-color: #ffffff !important;
-    }
-}
-
 /* Outlook специфичные стили */
 .ExternalClass {
     width: 100%;
@@ -175,12 +404,14 @@ async function generateEmailHTML() {
 .ExternalClass div {
     line-height: 100%;
 }
+
+${buildEmailThemeStyles()}
 </style>
 </head>
-<body style="margin:0; padding:0; background-color:#ffffff; font-family: ${FONT_FAMILY};">
-<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:#ffffff;" class="email-wrapper">
+<body class="${context.rootClass}" style="margin:0; padding:0; background-color:${context.bodyBg}; font-family:${FONT_FAMILY};">
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="background-color:${context.bodyBg};" class="email-wrapper ${context.rootClass}">
   <tr><td align="center">
-    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${TABLE_WIDTH}" style="max-width:${TABLE_WIDTH}px; background-color:#ffffff;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${TABLE_WIDTH}" style="max-width:${TABLE_WIDTH}px; background-color:${context.surfaceBg};" class="email-root email-surface">
 `;
 
     // Генерируем HTML блоков
@@ -195,7 +426,10 @@ async function generateEmailHTML() {
 </body>
 </html>`;
 
-    return html;
+        return html;
+    } finally {
+        CURRENT_EMAIL_RENDER_CONTEXT = null;
+    }
 }
 
 // ===== КОНВЕРТАЦИЯ ИЗОБРАЖЕНИЙ В БЛОКАХ =====
@@ -321,9 +555,10 @@ function generateBannerHTML(s) {
 function generateTextHTML(s) {
     if (!s) return '';
 
-    const textHTML = TextSanitizer.render(s.content || '', DEFAULT_COLORS.LINK);
+    const ctx = getCurrentEmailRenderContext();
+    const textHTML = TextSanitizer.render(s.content || '', ctx.linkColor);
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.color);
+    const adaptedColor = adaptColorForWhiteBackground(s.color || ctx.textColor);
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
     const lineHeightValue = typeof lineHeight === 'number' ? `${lineHeight * 100}%` : lineHeight;
@@ -331,7 +566,7 @@ function generateTextHTML(s) {
 
     return `
         <tr>
-            <td style="${getPadding(0, LAYOUT.PADDING_H)} font-size:${fontSize}px; line-height:${lineHeightValue}; text-align:${align}; color:${adaptedColor}; font-family:${fontFamily};">
+            <td class="email-text" style="${getPadding(0, LAYOUT.PADDING_H)} font-size:${fontSize}px; line-height:${lineHeightValue}; text-align:${align}; color:${adaptedColor}; font-family:${fontFamily};">
                 ${textHTML}
             </td>
         </tr>
@@ -344,8 +579,9 @@ function generateTextHTML(s) {
 function generateHeadingHTML(s) {
     if (!s) return '';
 
+    const ctx = getCurrentEmailRenderContext();
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.color);
+    const adaptedColor = adaptColorForWhiteBackground(s.color || ctx.textColor);
     const size = s.size || 24;
     const weight = s.weight || 'bold';
     const align = s.align || 'left';
@@ -353,7 +589,7 @@ function generateHeadingHTML(s) {
 
     return `
         <tr>
-            <td style="${getPadding()} font-size:${size}px; font-weight:${weight}; color:${adaptedColor}; text-align:${align}; font-family:${fontFamily};">
+            <td class="email-heading" style="${getPadding()} font-size:${size}px; font-weight:${weight}; color:${adaptedColor}; text-align:${align}; font-family:${fontFamily};">
                 ${text}
             </td>
         </tr>
@@ -399,13 +635,14 @@ function generateButtonHTML(s) {
 function generateListHTML(s) {
     if (!s) return '';
 
+    const ctx = getCurrentEmailRenderContext();
     const bulletSize = s.bulletSize || 20;
     const bulletGap = s.bulletGap ?? 10;
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
     const cellWidth = bulletSize + bulletGap + 2;
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.textColor || '#e5e7eb');
+    const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
     const itemSpacing = s.itemSpacing ?? 8;
 
     const isNumbered = s.listStyle === 'numbered';
@@ -415,7 +652,7 @@ function generateListHTML(s) {
             typeof item === 'string' && item.trim().startsWith('<')
                 ? item
                 : TextSanitizer.sanitize(item || '', true),
-            DEFAULT_COLORS.LINK
+            ctx.linkColor
         );
 
         let bulletHTML;
@@ -428,7 +665,7 @@ function generateListHTML(s) {
 
             const baseBullet = bulletSrc
                 ? `<img src="${bulletSrc}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block;">`
-                : `<span style="display:inline-block; width:${bulletSize}px; height:${bulletSize}px; border-radius:999px; background-color:${DEFAULT_COLORS.BULLET};"></span>`;
+                : `<span class="email-bullet-dot" style="display:inline-block; width:${bulletSize}px; height:${bulletSize}px; border-radius:999px; background-color:${ctx.bulletColor};"></span>`;
 
             if (isNumbered) {
                 const num = index + 1;
@@ -452,7 +689,7 @@ function generateListHTML(s) {
                 <td valign="middle" width="${cellWidth}" style="padding:${itemSpacing / 2}px ${bulletGap}px;">
                     ${bulletHTML}
                 </td>
-                <td valign="middle" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
+                <td valign="middle" class="email-text" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
                     ${formatted}
                 </td>
             </tr>
@@ -511,13 +748,14 @@ function generateExpertHTML(s) {
 function generateImportantHTML(s) {
     if (!s) return '';
 
+    const ctx = getCurrentEmailRenderContext();
     const iconSrc = s.renderedIcon || s.icon;
     const fontFamily = resolveTextFontFamily(s);
     const fontSize = s.fontSize ?? 14;
     const lineHeight = s.lineHeight ?? 1;
-    const borderColor = s.borderColor || DEFAULT_COLORS.BORDER;
-    const adaptedColor = adaptColorForWhiteBackground(s.textColor);
-    const textContent = TextSanitizer.render(s.text || '', DEFAULT_COLORS.LINK);
+    const borderColor = s.borderColor || ctx.borderColor;
+    const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
+    const textContent = TextSanitizer.render(TextSanitizer.sanitize(s.text || '', true), ctx.linkColor);
 
     const iconHTML = iconSrc ? `
     <td valign="top"
@@ -536,7 +774,7 @@ function generateImportantHTML(s) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     <tr>
                         ${iconHTML}
-                        <td valign="middle" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; font-family:${fontFamily};">
+                        <td valign="middle" class="email-text email-important-cell" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; font-family:${fontFamily}; border-left:4px solid ${borderColor}; padding-left:12px;">
                             ${textContent}
                         </td>
                     </tr>
@@ -673,3 +911,5 @@ function generateColumnsHTML(block) {
         </tr>
     `;
 }
+
+window.EmailPreviewTheme = EmailPreviewTheme;

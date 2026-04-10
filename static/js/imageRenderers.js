@@ -44,14 +44,38 @@ if (typeof CanvasRenderingContext2D !== 'undefined' &&
 
 // Determines whether a color is light
 
+/**
+ * Returns the relative luminance of a hex colour per WCAG 2.1.
+ * @param {string} hex - Colour in #RRGGBB or #RGB format.
+ * @returns {number} Luminance in [0, 1].
+ */
+function relativeLuminance(hex) {
+    let h = hex.replace('#', '');
+    if (h.length === 3) h = h.split('').map(c => c + c).join('');
+    const r = parseInt(h.substr(0, 2), 16) / 255;
+    const g = parseInt(h.substr(2, 2), 16) / 255;
+    const b = parseInt(h.substr(4, 2), 16) / 255;
+    const lin = c => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    return 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+}
+
+/**
+ * Returns '#ffffff' or '#3F3E4B' — whichever achieves higher WCAG contrast
+ * ratio against the given background colour.
+ * @param {string} hexColor - Background colour.
+ * @returns {string} Readable text colour.
+ */
+function getReadableTextColor(hexColor) {
+    const L = relativeLuminance(hexColor);
+    // Luminance of white = 1, of #3F3E4B ≈ 0.06
+    const contrastWhite = 1.05 / (L + 0.05);
+    const contrastDark  = (L + 0.05) / 0.11;   // (0.06 + 0.05) = 0.11
+    return contrastWhite >= contrastDark ? '#ffffff' : '#3F3E4B';
+}
+
+/** @deprecated Use getReadableTextColor for badges. Kept for legacy callers. */
 function isLightColor(hexColor) {
-    const hex = hexColor.replace('#', '');
-    const r = parseInt(hex.substr(0, 2), 16);
-    const g = parseInt(hex.substr(2, 2), 16);
-    const b = parseInt(hex.substr(4, 2), 16);
-    // Формула яркости (perceived brightness)
-    const brightness = (r * 299 + g * 587 + b * 114) / 1000;
-    return brightness > 128;
+    return relativeLuminance(hexColor) > 0.179; // WCAG midpoint
 }
 function renderBannerToDataUrl(block, callback) {
     const s = block.settings || {};
@@ -583,8 +607,7 @@ function drawBannerTextElement(ctx, el, iconImg, index = 0, bgColor = '#1D2533')
     const y = el.y || 0;
     const fontSize = (index === 0) ? 28 : 14;
     const fontFamily = getBannerFontFamily(el.fontFamily || 'rt-regular');
-    const color = isLightColor(bgColor) ? '#3F3E4B' : '#ffffff';
-    // const color = el.color || '#ffffff';
+    const color = getReadableTextColor(bgColor);
     const text = el.text || '';
     const letterSpacing = el.letterSpacing || 0;
 
@@ -618,8 +641,13 @@ function drawBannerTextElement(ctx, el, iconImg, index = 0, bgColor = '#1D2533')
         const paddingX = el.badgePaddingX || 12;
         const paddingY = el.badgePaddingY || 4;
 
+        const lineCount = text.split('\n').length;
+        const lineSpacing = fontSize * lineHeight;
+        // Visual height: last line carries no trailing gap
+        const textVisualHeight = lineCount === 1 ? fontSize : (lineCount - 1) * lineSpacing + fontSize;
+
         const badgeWidth = totalWidth + paddingX * 2;
-        const badgeHeight = textSize.height + paddingY * 2;
+        const badgeHeight = textVisualHeight + paddingY * 2;
         const badgeX = x;
         const badgeY = y;
 
@@ -628,19 +656,43 @@ function drawBannerTextElement(ctx, el, iconImg, index = 0, bgColor = '#1D2533')
         ctx.roundRect(badgeX, badgeY, badgeWidth, badgeHeight, badgeRadius);
         ctx.fill();
 
-        // Рисуем иконку внутри плашки
+        // Auto-select text color for readability on the badge background
+        const badgeTextColor = getReadableTextColor(badgeColor);
+
+        // Vertical center of the badge
+        const badgeCenterY = badgeY + badgeHeight / 2;
+        // Y of the first line's middle when all lines are centred as a block
+        const firstLineMidY = lineCount > 1
+            ? badgeCenterY - ((lineCount - 1) * lineSpacing) / 2
+            : badgeCenterY;
+
+        // Рисуем иконку внутри плашки (вертикально центрирована)
+        // SVG-иконки тинтуются под цвет текста; растровые рисуются как есть
         if (el.iconEnabled && iconImg) {
             const iconX = x + paddingX;
-            const iconY = y + paddingY;
-            ctx.drawImage(iconImg, iconX, iconY, iconWidth - (iconWidth * 0.1), iconHeight - (iconHeight * 0.1));
+            const iconY = badgeCenterY - iconHeight / 2;
+            const iw = iconWidth - iconWidth * 0.1;
+            const ih = iconHeight - iconHeight * 0.1;
+            const iconSrc = el.iconCustom || el.icon || '';
+            const isSvg = iconSrc.toLowerCase().includes('.svg');
+            ctx.save();
+            ctx.drawImage(iconImg, iconX, iconY, iw, ih);
+            if (isSvg) {
+                ctx.globalCompositeOperation = 'source-atop';
+                ctx.fillStyle = badgeTextColor;
+                ctx.fillRect(iconX, iconY, iw, ih);
+            }
+            ctx.restore();
         }
 
-        // Рисуем текст внутри плашки
-        ctx.fillStyle = color;
+        // Рисуем текст внутри плашки (вертикально центрирован)
+        ctx.fillStyle = badgeTextColor;
         ctx.font = `${fontSize}px ${fontFamily}`;
-        ctx.textBaseline = 'top';
+        ctx.textBaseline = 'middle';
         const textX = x + paddingX + iconWidth + iconGap;
-        drawMultilineText(ctx, text, textX, y + paddingY, fontSize, lineHeight);
+        text.split('\n').forEach((line, i) => {
+            ctx.fillText(line, textX, firstLineMidY + i * lineSpacing);
+        });
 
     } else {
         // Без плашки
@@ -987,7 +1039,7 @@ function renderButtonToDataUrl(block, callback) {
         ctx.font = `500 ${fontSize}px RostelecomBasis-Medium, sans-serif`;
         ctx.fillStyle = (isMif || isAlpina)
             ? '#ffffff'
-            : (isLightColor(renderColor) ? '#3F3E4B' : '#ffffff');
+            : getReadableTextColor(renderColor);
 
         ctx.textBaseline = 'middle';
         ctx.fillText(text, rectX + paddingX, totalHeight / 2);

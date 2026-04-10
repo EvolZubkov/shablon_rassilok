@@ -13,3 +13,4 @@ htmlcov/
 templates/
 cache/
 user-resources/
+protocol.log

@@ -47,52 +47,11 @@ const ThemeManager = {
      * Создаёт кнопку переключения в header
      */
     createToggleButton() {
-        const header = document.querySelector('.canvas-header');
-        if (!header) return;
+        const toolbar = document.querySelector('.admin-toolbar-right') || document.querySelector('.canvas-header');
+        if (!toolbar) return;
 
         // Уже есть кнопка
         if (document.getElementById('theme-toggle-btn')) return;
-
-        // Создаём/находим контейнеры слева и справа
-        let leftWrap = header.querySelector('.canvas-header-actions-left');
-        if (!leftWrap) {
-            leftWrap = document.createElement('div');
-            leftWrap.className = 'canvas-header-actions-left';
-            header.appendChild(leftWrap);
-        }
-
-        let rightWrap = header.querySelector('.canvas-header-actions-right');
-        if (!rightWrap) {
-            rightWrap = document.createElement('div');
-            rightWrap.className = 'canvas-header-actions-right';
-            header.appendChild(rightWrap);
-        }
-
-        // Переносим бургер в левый контейнер (если он есть)
-        const burgerBtn = header.querySelector('.btn-burger, .burger-btn, .menu-btn, .hamburger');
-        if (burgerBtn && burgerBtn.parentElement !== leftWrap) {
-            leftWrap.appendChild(burgerBtn);
-        }
-
-        // Ищем "Превью" и шестерёнку (если есть)
-        const previewBtn = header.querySelector('.btn-preview');
-        const gearBtn = header.querySelector(
-            '.btn-settings, .settings-btn, .btn-gear, .header-settings-btn, [data-action="settings"]'
-        );
-
-        // Переносим шестерёнку и "Превью" в правый контейнер
-        if (gearBtn && gearBtn.parentElement !== rightWrap) {
-            rightWrap.appendChild(gearBtn);
-        }
-        if (previewBtn && previewBtn.parentElement !== rightWrap) {
-            rightWrap.appendChild(previewBtn);
-        }
-
-        // Переносим кнопку переключения режима
-        const switchBtn = header.querySelector('.btn-switch-mode');
-        if (switchBtn && switchBtn.parentElement !== rightWrap) {
-            rightWrap.appendChild(switchBtn);
-        }
 
         // Создаём кнопку темы
         const btn = document.createElement('button');
@@ -102,12 +61,7 @@ const ThemeManager = {
         btn.innerHTML = this.getIcon(this.getCurrentTheme());
         btn.addEventListener('click', () => this.toggle());
 
-        // Вставляем перед "Превью" (как на скрине), иначе просто в правый контейнер
-        if (previewBtn && previewBtn.parentElement === rightWrap) {
-            rightWrap.insertBefore(btn, previewBtn);
-        } else {
-            rightWrap.appendChild(btn);
-        }
+        toolbar.appendChild(btn);
     },
 
     /**

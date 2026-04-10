@@ -11,34 +11,72 @@
 
 <body>
   <div class="user-app">
+    <header class="admin-menu-bar user-menu-bar" aria-label="Главное меню">
+      <div class="menu-root user-menu-root-file">
+        <button type="button" class="menu-root-btn">Файл</button>
+        <div class="menu-dropdown">
+          <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="create-email">Создать письмо</button>
+          <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="create-meeting">Создать встречу</button>
+          <button type="button" class="menu-action user-menu-action user-menu-action--admin user-menu-action--requires-content" data-action="save">Сохранить</button>
+          <button type="button" class="menu-action user-menu-action user-menu-action--admin" data-action="settings">Настройки...</button>
+          <button type="button" class="menu-action user-menu-action" data-action="exit">Выход</button>
+        </div>
+      </div>
+      <div class="menu-root">
+        <button type="button" class="menu-root-btn">Вид</button>
+        <div class="menu-dropdown">
+          <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="preview">Предварительный просмотр</button>
+          <button type="button" class="menu-action user-menu-action" data-action="toggle-theme">Тема интерфейса</button>
+          <button type="button" class="menu-action user-menu-action user-menu-action--admin menu-action-checkable" data-action="switch-mode">
+            <span class="menu-action-check">✓</span>
+            <span class="menu-action-label">Режим конструктора</span>
+          </button>
+        </div>
+      </div>
+      <div class="menu-root">
+        <button type="button" class="menu-root-btn">Справка</button>
+        <div class="menu-dropdown">
+          <button type="button" class="menu-action user-menu-action" data-action="about">О программе</button>
+          <button type="button" class="menu-action user-menu-action user-menu-action--admin" data-action="open-log">Журнал работы</button>
+        </div>
+      </div>
+    </header>
 
     <!-- Стартовый экран с шаблонами -->
     <div id="start-screen" class="start-screen">
 
-      <!-- Шапка -->
       <header class="start-header">
-        <div class="start-header-logo">
-          <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path
-              d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
-            </path>
-          </svg>
-          <h1>Почтелье</h1>
+        <div class="start-header-left">
+          <div id="start-mode-switch-slot" class="start-mode-switch-slot"></div>
+          <nav class="category-tabs">
+            <button class="category-tab active" data-category="all">Все шаблоны</button>
+          </nav>
         </div>
-        <div class="start-header-search">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <circle cx="11" cy="11" r="8"></circle>
-            <path d="M21 21l-4.35-4.35"></path>
-          </svg>
-          <input type="text" id="template-search" placeholder="Поиск шаблонов...">
+        <div class="start-header-center">
+          <div class="start-header-search">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="11" cy="11" r="8"></circle>
+              <path d="M21 21l-4.35-4.35"></path>
+            </svg>
+            <input type="text" id="template-search" placeholder="Поиск шаблонов">
+          </div>
+        </div>
+        <div class="start-header-right">
+          <button id="theme-toggle-btn-user-start" class="btn-header-icon" type="button" title="Тема интерфейса">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+          </button>
         </div>
       </header>
-
-      <!-- Вкладки категорий -->
-      <nav class="category-tabs">
-        <button class="category-tab active" data-category="all">Все шаблоны</button>
-        <!-- Остальные вкладки загружаются динамически -->
-      </nav>
 
       <!-- Сетка шаблонов -->
       <main class="templates-grid-container">
@@ -67,48 +105,51 @@
     <!-- Экран редактирования (скрыт по умолчанию) -->
     <div id="editor-screen" class="editor-screen" style="display: none;">
 
-      <!-- Шапка редактора -->
       <header class="editor-header">
-        <button id="btn-back" class="btn-back" title="Назад к шаблонам">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M19 12H5M12 19l-7-7 7-7"></path>
-          </svg>
-          <span>Назад</span>
-        </button>
+        <div class="editor-actions editor-actions-left">
+          <div class="toolbar-group">
+            <button id="btn-back" class="btn-back" title="Назад к шаблонам">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M19 12H5M12 19l-7-7 7-7"></path>
+              </svg>
+              <span>К шаблонам</span>
+            </button>
+          </div>
+          <div class="toolbar-group">
+            <button id="btn-send-outlook" class="btn-editor btn-send">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path
+                  d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
+                </path>
+              </svg>
+              Создать письмо
+            </button>
+            <button id="btn-send-meeting" class="btn-editor btn-meeting">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
+                <line x1="16" y1="2" x2="16" y2="6"></line>
+                <line x1="8" y1="2" x2="8" y2="6"></line>
+                <line x1="3" y1="10" x2="21" y2="10"></line>
+              </svg>
+              Создать встречу
+            </button>
+          </div>
+          <div class="toolbar-group toolbar-group-compact">
+            <button id="btn-preview-user" class="btn-editor btn-preview-user" title="Предварительный просмотр">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                <circle cx="12" cy="12" r="3"></circle>
+              </svg>
+            </button>
+          </div>
+        </div>
 
         <div class="editor-title">
           <span id="current-template-name">Новое письмо</span>
         </div>
 
-        <div class="editor-actions">
-          <button id="btn-preview-user" class="btn-editor btn-preview-user">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
-              <circle cx="12" cy="12" r="3"></circle>
-            </svg>
-            Превью
-          </button>
-          <button id="btn-send-outlook" class="btn-editor btn-send">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path
-                d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z">
-              </path>
-            </svg>
-            Письмо
-          </button>
-          <button id="btn-send-meeting" class="btn-editor btn-meeting">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <rect x="3" y="4" width="18" height="18" rx="2" ry="2"></rect>
-              <line x1="16" y1="2" x2="16" y2="6"></line>
-              <line x1="8" y1="2" x2="8" y2="6"></line>
-              <line x1="3" y1="10" x2="21" y2="10"></line>
-            </svg>
-            Встреча
-          </button>
-          <!-- <button class="btn-editor btn-download" onclick="BulkMail.open()">
-           Массовая рассылка
-          </button> -->
-          <button id="btn-exchange-settings" class="btn-editor btn-settings" title="Настройки подключения Exchange">
+        <div class="editor-actions editor-actions-right">
+          <button id="btn-exchange-settings" class="btn-editor btn-settings user-hidden-action" title="Настройки подключения Exchange">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
               <circle cx="12" cy="12" r="3"></circle>
               <path
@@ -124,15 +165,57 @@
             </svg>
             Сохранить
           </button>
+          <button id="theme-toggle-btn-user-editor" class="btn-header-icon" type="button" title="Тема интерфейса">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <circle cx="12" cy="12" r="5"></circle>
+              <line x1="12" y1="1" x2="12" y2="3"></line>
+              <line x1="12" y1="21" x2="12" y2="23"></line>
+              <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line>
+              <line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line>
+              <line x1="1" y1="12" x2="3" y2="12"></line>
+              <line x1="21" y1="12" x2="23" y2="12"></line>
+              <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line>
+              <line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line>
+            </svg>
+          </button>
         </div>
       </header>
 
-      <!-- Canvas для редактирования -->
-      <main class="editor-canvas-area">
-        <div id="user-canvas" class="user-canvas">
-          <!-- Блоки шаблона рендерятся здесь -->
-        </div>
-      </main>
+      <div class="editor-shell">
+        <aside class="editor-sidebar">
+          <div class="editor-sidebar-head">
+            <h2>Подсказки</h2>
+          </div>
+          <div class="editor-sidebar-body">
+            <section class="editor-side-card">
+              <h3>Что можно редактировать</h3>
+              <p>Текст, ссылки, изображения, кнопки и отдельные параметры баннера прямо на холсте.</p>
+            </section>
+            <section class="editor-side-card">
+              <h3>Быстрые действия</h3>
+              <p>Предпросмотр, создание письма и встречи доступны в верхнем toolbar.</p>
+            </section>
+            <section class="editor-side-card">
+              <h3>Замечания</h3>
+              <p>Поля, требующие внимания, подсвечиваются на самом письме.</p>
+            </section>
+          </div>
+        </aside>
+
+        <main class="editor-main">
+          <div class="editor-context-bar">
+            <div class="editor-context-left">
+              <span class="editor-pill">Шаблон: <span id="current-template-name-context">Новое письмо</span></span>
+              <span class="editor-pill" id="editor-status-pill">Статус: Черновик</span>
+            </div>
+          </div>
+          <div class="editor-canvas-area">
+            <div id="user-canvas" class="user-canvas">
+              <!-- Блоки шаблона рендерятся здесь -->
+            </div>
+          </div>
+        </main>
+      </div>
 
       <!-- Popup Toolbar (появляется при выделении текста) -->
       <div id="text-toolbar" class="text-toolbar" style="display: none;">
@@ -224,7 +307,10 @@
       <div class="modal-content">
         <div class="modal-header">
           <h2>Превью письма</h2>
-          <button class="modal-close">&times;</button>
+          <div class="modal-header-actions">
+            <div id="preview-user-theme-slot"></div>
+            <button class="modal-close">&times;</button>
+          </div>
         </div>
         <div class="modal-body">
           <div id="preview-container-user" class="preview-container"></div>
@@ -710,13 +796,16 @@
   <!-- <script src="js/user/bulk-mail.js"></script> -->
 
   <!-- Переключатель режима: фиксированная позиция, виден только при can_switch -->
-  <div id="mode-switch-widget" class="mode-switch-widget" hidden>
-    <label class="mode-switch-track" title="Переключить режим">
-      <input type="checkbox" id="mode-switch-checkbox">
-      <span class="mode-switch-thumb"></span>
-    </label>
-    <span class="mode-switch-text">Пользователь</span>
-  </div>
+  <button id="mode-switch-widget" class="mode-toggle-btn" type="button" hidden title="Режим конструктора">
+    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="m12.99 6.74 1.93 3.44"></path>
+      <path d="M19.136 12a10 10 0 0 1-14.271 0"></path>
+      <path d="m21 21-2.16-3.84"></path>
+      <path d="m3 21 8.02-14.26"></path>
+      <circle cx="12" cy="5" r="2"></circle>
+    </svg>
+    <span>Режим конструктора</span>
+  </button>
 
   <script>
     (function () {
@@ -724,20 +813,77 @@
         try {
           const r = await fetch('/api/mode');
           const data = await r.json();
-          if (!data.can_switch) return;
+          document.documentElement.setAttribute('data-can-switch', data.can_switch ? '1' : '0');
           const widget = document.getElementById('mode-switch-widget');
-          widget.hidden = false;
-          document.getElementById('mode-switch-checkbox').addEventListener('change', async function () {
-            await fetch('/api/mode', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mode: 'admin' }),
+          const slot = document.getElementById('start-mode-switch-slot');
+          if (slot) {
+            slot.appendChild(widget);
+          }
+          if (data.can_switch) {
+            widget.hidden = false;
+            widget.addEventListener('click', async function () {
+              await fetch('/api/mode', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ mode: 'admin' }),
+              });
+              window.location.href = '/';
             });
-            window.location.href = '/';
+          }
+
+          document.querySelectorAll('.user-menu-action--admin').forEach((el) => {
+            el.hidden = !data.can_switch;
           });
+
+          document.querySelector('[data-action="switch-mode"]')?.classList.remove('is-checked');
         } catch (_) {}
       }
+
+      function initUserMenu() {
+        document.querySelectorAll('.user-menu-action').forEach((btn) => {
+          btn.addEventListener('click', () => {
+            if (btn.disabled) return;
+            const action = btn.dataset.action;
+            if (action === 'create-email') {
+              document.getElementById('btn-send-outlook')?.click();
+            } else if (action === 'create-meeting') {
+              document.getElementById('btn-send-meeting')?.click();
+            } else if (action === 'save') {
+              document.getElementById('btn-save-personal')?.click();
+            } else if (action === 'settings') {
+              document.getElementById('btn-exchange-settings')?.click();
+            } else if (action === 'preview') {
+              document.getElementById('btn-preview-user')?.click();
+            } else if (action === 'toggle-theme') {
+              const themeBtn = document.getElementById('theme-toggle-btn-user-editor') || document.getElementById('theme-toggle-btn-user-start');
+              themeBtn?.click();
+            } else if (action === 'switch-mode') {
+              document.getElementById('mode-switch-widget')?.click();
+            } else if (action === 'about') {
+              alert('Почтелье');
+            } else if (action === 'open-log') {
+              fetch('/api/open-log', { method: 'POST' }).catch(() => {
+                window.open('/protocol.log', '_blank');
+              });
+            } else if (action === 'exit') {
+              fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
+              window.close();
+            }
+          });
+        });
+      }
+
+      function updateUserMenuState() {
+        const screen = document.documentElement.getAttribute('data-user-screen') || 'start';
+        const hasBlocks = document.documentElement.getAttribute('data-user-has-blocks') === '1';
+        document.querySelectorAll('.user-menu-action--requires-content').forEach((el) => {
+          el.disabled = screen !== 'editor' || !hasBlocks;
+        });
+      }
       document.addEventListener('DOMContentLoaded', initModeSwitcher);
+      document.addEventListener('DOMContentLoaded', initUserMenu);
+      document.addEventListener('DOMContentLoaded', updateUserMenuState);
+      window.updateUserMenuState = updateUserMenuState;
     })();
 
     // Heartbeat — пингуем сервер каждые 5 секунд.

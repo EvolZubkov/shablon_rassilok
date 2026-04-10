@@ -219,14 +219,13 @@
   width: 100%;
   height: 24px;
   border-radius: 6px;
-  overflow: hidden;
   border: 1px solid var(--fg-line-2);
   background: linear-gradient(90deg, #9466FF 0%, #7505FF 100%);
 }
 
 .fg-gradient-stop {
   position: absolute;
-  top: -2px;
+  top: 4px; /* vertically centered: (bar 24px - marker 16px) / 2 */
   width: 12px;
   height: 12px;
   border: 2px solid rgba(255, 255, 255, 0.9);
