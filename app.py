@@ -752,6 +752,82 @@ def _save_network_path(path):
         cfg.write(f)
 
 
+def _read_app_config():
+    """Read ``config.ini`` using the same encoding strategy as startup config."""
+    import configparser
+
+    cfg = configparser.ConfigParser()
+    try:
+        cfg.read(_CONFIG_PATH, encoding='utf-8')
+    except UnicodeDecodeError:
+        cfg = configparser.ConfigParser()
+        cfg.read(_CONFIG_PATH, encoding='cp1251')
+
+    if 'app' not in cfg:
+        cfg['app'] = {}
+    return cfg
+
+
+def _write_app_config(cfg):
+    """Persist ``config.ini`` in UTF-8."""
+    with open(_CONFIG_PATH, 'w', encoding='utf-8') as f:
+        cfg.write(f)
+
+
+def _get_repo_setting_meta():
+    """Return the platform-relevant config key and placeholder for repo path."""
+    if sys.platform == 'win32':
+        return {
+            'platform': 'win32',
+            'platform_label': 'Windows',
+            'repo_key': 'network_path_win',
+            'repo_label': 'Путь к репозиторию ресурсов',
+            'placeholder': r'\\server\share\email-builder',
+        }
+
+    return {
+        'platform': sys.platform,
+        'platform_label': 'Linux',
+        'repo_key': 'network_path_linux_resolved',
+        'repo_label': 'Локальный путь к смонтированному репозиторию',
+        'placeholder': '/mnt/share/email-builder',
+    }
+
+
+def _get_runtime_repo_path():
+    """Return the currently active repository path for this platform."""
+    if sys.platform == 'win32':
+        return NETWORK_RESOURCES_PATH
+    return _LINUX_RESOLVED or NETWORK_RESOURCES_PATH
+
+
+def _apply_repo_path(path, persist=False):
+    """Apply a new repository path at runtime and optionally save it."""
+    global NETWORK_RESOURCES_PATH, NETWORK_VERSION_FILE, _LINUX_RESOLVED
+
+    cleaned = str(path or '').strip()
+    NETWORK_RESOURCES_PATH = cleaned
+    NETWORK_VERSION_FILE = os.path.join(cleaned, 'version.txt') if cleaned else ''
+
+    if sys.platform != 'win32':
+        _LINUX_RESOLVED = cleaned
+
+    if persist and cleaned:
+        cfg = _read_app_config()
+        cfg['app'][_get_repo_setting_meta()['repo_key']] = cleaned
+        _write_app_config(cfg)
+
+
+def _search_for_resource_any(status_cb=None):
+    """Search for the resource repo using sensible defaults for the platform."""
+    found = _search_for_resource('network', _LINUX_HINT, _SMB_PATH, status_cb=status_cb)
+    if found:
+        return found
+    if sys.platform == 'win32':
+        return _search_for_resource('local', _LINUX_HINT, _SMB_PATH, status_cb=status_cb)
+    return None
+
+
 def _search_for_resource(mode, hint, smb_path, status_cb=None):
     """
     Searches for the resource directory.
@@ -3833,12 +3909,161 @@ def api_open_log():
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
+@app.route('/api/app-settings', methods=['GET'])
+def api_app_settings_get():
+    """Return application settings relevant to the current platform."""
+    meta = _get_repo_setting_meta()
+    current_path = _get_runtime_repo_path()
+    ok, reason = _validate_resource_repo(current_path)
+    return jsonify({
+        'success': True,
+        'platform': meta['platform'],
+        'platform_label': meta['platform_label'],
+        'config_path': _CONFIG_PATH,
+        'repo_key': meta['repo_key'],
+        'repo_label': meta['repo_label'],
+        'repo_path': current_path,
+        'repo_placeholder': meta['placeholder'],
+        'repo_valid': ok,
+        'repo_reason': reason,
+        'can_create_repo': APP_MODE == 'admin',
+    })
+
+
+@app.route('/api/app-settings', methods=['POST'])
+def api_app_settings_save():
+    """Persist platform-specific application settings."""
+    data = request.get_json(silent=True) or {}
+    repo_path = str(data.get('repo_path') or '').strip()
+    if not repo_path:
+        return jsonify({'success': False, 'error': 'Путь к репозиторию не указан'}), 400
+
+    ok, reason = _validate_resource_repo(repo_path)
+    if not ok:
+        return jsonify({
+            'success': False,
+            'error': reason or 'Указанный путь не является корректным репозиторием',
+            'repo_valid': False,
+            'repo_reason': reason,
+        }), 400
+
+    _apply_repo_path(repo_path, persist=True)
+    return jsonify({
+        'success': True,
+        'repo_path': repo_path,
+        'repo_valid': ok,
+        'repo_reason': reason,
+    })
+
+
+@app.route('/api/app-settings/repo/verify', methods=['POST'])
+def api_app_settings_repo_verify():
+    """Validate that a path points to a resource repository."""
+    data = request.get_json(silent=True) or {}
+    repo_path = str(data.get('repo_path') or '').strip()
+    ok, reason = _validate_resource_repo(repo_path)
+    return jsonify({'success': ok, 'valid': ok, 'reason': reason})
+
+
+@app.route('/api/app-settings/repo/search', methods=['POST'])
+def api_app_settings_repo_search():
+    """Try to find the resource repository automatically."""
+    found = _search_for_resource_any()
+    if not found:
+        return jsonify({'success': False, 'error': 'Репозиторий не найден'}), 404
+
+    ok, reason = _validate_resource_repo(found)
+    return jsonify({
+        'success': ok,
+        'repo_path': found,
+        'valid': ok,
+        'reason': reason,
+    })
+
+
+@app.route('/api/app-settings/repo/create', methods=['POST'])
+def api_app_settings_repo_create():
+    """Create a new resource repository at the given path."""
+    if APP_MODE != 'admin':
+        return jsonify({'success': False, 'error': 'Создание репозитория доступно только в admin режиме'}), 403
+
+    data = request.get_json(silent=True) or {}
+    repo_path = str(data.get('repo_path') or '').strip()
+    if not repo_path:
+        return jsonify({'success': False, 'error': 'Путь к репозиторию не указан'}), 400
+
+    if not _init_new_resource_catalog(repo_path):
+        return jsonify({'success': False, 'error': 'Не удалось создать репозиторий'}), 500
+
+    _apply_repo_path(repo_path, persist=True)
+    return jsonify({'success': True, 'repo_path': repo_path})
+
+
+@app.route('/api/app-settings/repo/refresh-cache', methods=['POST'])
+def api_app_settings_repo_refresh_cache():
+    """Force a refresh of the local cache from the resource repository."""
+    data = request.get_json(silent=True) or {}
+    repo_path = str(data.get('repo_path') or '').strip()
+    if not repo_path:
+        repo_path = _get_runtime_repo_path()
+
+    if not repo_path:
+        return jsonify({'success': False, 'error': 'Путь к репозиторию не указан'}), 400
+
+    ok, reason = _validate_resource_repo(repo_path)
+    if not ok:
+        return jsonify({
+            'success': False,
+            'error': reason or 'Указанный путь не является корректным репозиторием',
+            'repo_valid': False,
+            'repo_reason': reason,
+        }), 400
+
+    _apply_repo_path(repo_path, persist=True)
+
+    try:
+        result = initialize_cache()
+        if result:
+            return jsonify({
+                'success': True,
+                'repo_path': repo_path,
+                'version': get_cache_version(),
+            })
+        return jsonify({'success': False, 'error': 'Обновление кеша не удалось'}), 500
+    except Exception as exc:
+        app.logger.error("repo_refresh_cache error: %s", exc, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
 @app.route('/api/shutdown', methods=['POST'])
 def api_shutdown():
-    """Завершает приложение когда браузер закрывается."""
+    """Shut the application down cleanly.
+
+    When running inside a QApplication event loop, QApplication.quit() is
+    posted to the main thread via QMetaObject.invokeMethod so that Qt can
+    destroy its objects (including QWebEngineView timers) on the correct
+    thread.  This avoids the
+    "QObject::~QObject: Timers cannot be stopped from another thread" warning
+    that occurs when os._exit() is called from a background thread while Qt
+    objects are still alive.
+
+    If Qt is not available (browser-fallback mode) os._exit() is used as
+    before.
+    """
     def _stop():
-        time.sleep(0.3)
+        time.sleep(0.2)
+        try:
+            from PyQt5.QtWidgets import QApplication
+            from PyQt5.QtCore import QMetaObject, Qt
+            qt_app = QApplication.instance()
+            if qt_app is not None:
+                # Post quit() to the main (GUI) thread — safe from any thread.
+                QMetaObject.invokeMethod(qt_app, 'quit', Qt.QueuedConnection)
+                return
+        except Exception:
+            pass
         os._exit(0)
+
     threading.Thread(target=_stop, daemon=True).start()
     return jsonify({'success': True})
 

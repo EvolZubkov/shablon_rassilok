@@ -222,8 +222,28 @@ function setupAdminMenu() {
                     });
                     break;
                 case 'exit':
-                    fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
-                    window.close();
+                    fetch('/api/shutdown', { method: 'POST' })
+                        .then(() => {
+                            document.body.innerHTML = `
+                                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                                            height:100vh;gap:16px;font-family:sans-serif;color:#9ca3af;background:#111827;">
+                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                        <polyline points="16 17 21 12 16 7"/>
+                                        <line x1="21" y1="12" x2="9" y2="12"/>
+                                    </svg>
+                                    <span style="font-size:18px;color:#e5e7eb;">Приложение закрыто</span>
+                                    <span style="font-size:13px;">Можно закрыть эту вкладку.</span>
+                                </div>`;
+                        })
+                        .catch(() => {
+                            document.body.innerHTML = `
+                                <div style="display:flex;align-items:center;justify-content:center;
+                                            height:100vh;font-family:sans-serif;color:#9ca3af;background:#111827;">
+                                    <span>Не удалось завершить приложение.</span>
+                                </div>`;
+                        });
                     break;
                 default:
                     break;
