@@ -434,6 +434,11 @@ body.admin-mode-page .app-container {
 }
 
 .file-upload-btn {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
   padding: 10px;
   background: var(--bg-secondary);
   border: 2px dashed var(--border-dashed);
@@ -452,6 +457,12 @@ body.admin-mode-page .app-container {
 
 .file-upload-btn input {
   display: none;
+}
+
+.expert-badge-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .banner-grid,
@@ -504,6 +515,7 @@ body.admin-mode-page .app-container {
   height: 120px;
   margin: 0 auto 12px;
   position: relative;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -516,6 +528,7 @@ body.admin-mode-page .app-container {
   overflow: hidden;
   transform: rotate(45deg);
   position: relative;
+  z-index: 1;
 }
 
 .photo-mask img {
@@ -527,13 +540,13 @@ body.admin-mode-page .app-container {
 
 .expert-badge-preview {
   position: absolute;
-  bottom: 0;
-  right: 0;
   width: 36px;
   height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .expert-badge-preview img {
@@ -949,6 +962,11 @@ dialog.app-dialog {
   width: 90%;
   color: #e5e7eb;
   font-family: inherit;
+  margin: auto;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 dialog.app-dialog::backdrop {
@@ -1447,6 +1465,15 @@ dialog.app-dialog::backdrop {
   border-radius: 3px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   z-index: 1;
+  cursor: ew-resize;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+.grad-popup__bar-pin--dragging {
+  box-shadow: 0 0 0 2px #9466FF, 0 2px 6px rgba(0,0,0,0.6);
+  z-index: 2;
 }
 .grad-popup__section {
   display: flex;
@@ -2806,7 +2833,7 @@ body.admin-mode-page .app-container {
 .settings-panel-head {
   padding: 16px;
   border-bottom: 1px solid var(--border-primary);
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
 }
 
 .sidebar-panel-head h2,
@@ -2852,6 +2879,32 @@ body.admin-mode-page .app-container {
   border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
+}
+
+.sidebar-search-clear {
+  display: none;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.sidebar-search-clear.is-visible {
+  display: inline-flex;
+}
+
+.sidebar-search-clear:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
 }
 
 .sidebar-search input:focus {
