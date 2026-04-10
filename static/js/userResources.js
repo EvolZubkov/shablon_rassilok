@@ -109,6 +109,29 @@ const UserResources = (() => {
         return r.json();
     }
 
+    function _getResourceDeleteName(item) {
+        return (item.label || item.filename || '').trim();
+    }
+
+    async function _confirmResourceDeletion(item) {
+        const deleteName = _getResourceDeleteName(item);
+        if (!deleteName) return false;
+
+        const answer = window.prompt(
+            `Для удаления ресурса введите его название точно так же, как оно показано в библиотеке:\n${deleteName}`,
+            ''
+        );
+
+        if (answer === null) return false;
+
+        if (answer.trim() !== deleteName) {
+            Toast.error('Название ресурса не совпадает. Удаление отменено.');
+            return false;
+        }
+
+        return true;
+    }
+
     // -------------------------------------------------------------------------
     // Panel wiring
     // -------------------------------------------------------------------------
@@ -126,6 +149,9 @@ const UserResources = (() => {
             const d = await r.json();
             _isAdmin = (d.mode === 'admin');
         } catch (_) {}
+
+        // Non-admin users have no "Общие" tab; default to their own resources.
+        if (!_isAdmin) _activeTab = 'personal';
 
         _overlay.addEventListener('click', close);
         const btnClose = _panel.querySelector('#user-resources-close');
@@ -296,7 +322,10 @@ const UserResources = (() => {
         delBtn.className = 'ur-btn ur-btn-delete';
         delBtn.title = 'Удалить';
         delBtn.textContent = '✕';
-        delBtn.addEventListener('click', async () => {
+        delBtn.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const confirmed = await _confirmResourceDeletion(item);
+            if (!confirmed) return;
             const fn = _activeTab === 'shared' ? deleteShared : deletePersonal;
             const result = await fn(category, item.filename);
             if (result.success) {

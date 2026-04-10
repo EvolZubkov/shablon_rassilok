@@ -250,7 +250,7 @@ function createUserBlockElement(block, index) {
 
             if (shouldHighlightBlock(childBlock)) {
                 childEl.classList.add('needs-attention');
-                childEl.appendChild(makeAttentionBadge());
+                childEl.appendChild(makeAttentionBadge(childBlock));
             }
 
             childEl.appendChild(makeDeleteBtn(childId));
@@ -642,6 +642,9 @@ function renderUserExpert(block) {
 function renderUserImportant(block) {
     const s = block.settings || {};
     const borderColor = s.borderColor || '#a855f7';
+    const importantHTML = typeof s.text === 'string' && s.text.trim().startsWith('<')
+        ? TextSanitizer.render(s.text, s.textColor || '#1D2533')
+        : TextSanitizer.render(TextSanitizer.sanitize(s.text || '', true), s.textColor || '#1D2533');
 
     return `
     <div class="editable-important" data-block-id="${block.id}"
@@ -653,7 +656,7 @@ function renderUserImportant(block) {
               data-block-id="${block.id}"
               data-field="text"
               style="outline:none; color:${s.textColor || '#1D2533'};">
-          ${s.text || 'Текст важного сообщения'}
+          ${importantHTML || 'Текст важного сообщения'}
         </span>
       </div>
     </div>
