@@ -10,7 +10,13 @@ function renderCanvas() {
                     <line x1="12" y1="5" x2="12" y2="19"></line>
                     <line x1="5" y1="12" x2="19" y2="12"></line>
                 </svg>
-                <p>Добавьте блоки из левой панели</p>
+                <h3>Письмо пока пустое</h3>
+                <p>Добавьте блоки из левой панели или откройте раздел шаблонов.</p>
+                <div class="empty-state-hints">
+                    <span class="empty-hint">Блоки</span>
+                    <span class="empty-hint">Шаблоны</span>
+                    <span class="empty-hint">Пресеты</span>
+                </div>
             </div>
         `;
         return;

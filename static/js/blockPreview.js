@@ -309,7 +309,7 @@ function renderImportantPreview(s) {
                     color: ${s.textColor}; font-size: ${fontSize}px; line-height: ${lineHeight};">
             ${iconHTML}
             <div style="flex: 1;">
-                ${(s.text || '').replace(/\n/g, '<br>')}
+                ${TextSanitizer.render(TextSanitizer.sanitize(s.text || '', true), s.textColor || '#000000')}
             </div>
         </div>
     `;

@@ -15,6 +15,60 @@ const UserAppState = {
     allowSavePersonal: false, // Флаг разрешения сохранения (можно быстро отключить)
     showAttentionHints: true,
     isDirty: false, // Есть ли несохранённые изменения
+    previewBlocks: null,
+};
+
+const UserThemeUI = {
+    STORAGE_KEY: 'email-builder-theme',
+    DARK_THEME: 'dark',
+    LIGHT_THEME: 'light',
+
+    init() {
+        const savedTheme = localStorage.getItem(this.STORAGE_KEY);
+        const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+        const theme = savedTheme || (prefersDark ? this.DARK_THEME : this.DARK_THEME);
+        this.applyTheme(theme);
+        this.bindButton('theme-toggle-btn-user-start');
+        this.bindButton('theme-toggle-btn-user-editor');
+    },
+
+    bindButton(id) {
+        const btn = document.getElementById(id);
+        if (!btn || btn.dataset.boundThemeToggle === '1') return;
+
+        btn.dataset.boundThemeToggle = '1';
+        btn.addEventListener('click', () => this.toggle());
+        this.syncButton(btn);
+    },
+
+    applyTheme(theme) {
+        const next = theme === this.LIGHT_THEME ? this.LIGHT_THEME : this.DARK_THEME;
+        document.documentElement.setAttribute('data-theme', next);
+        localStorage.setItem(this.STORAGE_KEY, next);
+        this.syncButtons();
+    },
+
+    toggle() {
+        const next = this.getCurrentTheme() === this.DARK_THEME ? this.LIGHT_THEME : this.DARK_THEME;
+        this.applyTheme(next);
+    },
+
+    getCurrentTheme() {
+        return document.documentElement.getAttribute('data-theme') || this.DARK_THEME;
+    },
+
+    syncButtons() {
+        document.querySelectorAll('#theme-toggle-btn-user-start, #theme-toggle-btn-user-editor').forEach((btn) => {
+            this.syncButton(btn);
+        });
+    },
+
+    syncButton(btn) {
+        if (!btn) return;
+        btn.innerHTML = this.getCurrentTheme() === this.DARK_THEME
+            ? `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>`
+            : `<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"></path></svg>`;
+    },
 };
 
 /**
@@ -22,6 +76,8 @@ const UserAppState = {
  */
 async function initUserApp() {
     console.log('[USER APP] Initializing...');
+
+    UserThemeUI.init();
 
     // Загружаем конфиг
     await ConfigLoader.load();
@@ -32,6 +88,8 @@ async function initUserApp() {
     // Инициализируем обработчики
     initStartScreenHandlers();
     initEditorHandlers();
+    mountUserEmailPreviewThemeToggle();
+    initUserPreviewThemeRerender();
 
     // Показываем/скрываем кнопку сохранения
     const saveBtn = document.getElementById('btn-save-personal');
@@ -327,6 +385,8 @@ async function openTemplate(id, type) {
                 titleEl.textContent = templateData.name || 'Новое письмо';
             }
 
+            updateUserEditorMeta();
+
             // Переключаемся на экран редактора
             switchScreen('editor');
 
@@ -346,6 +406,7 @@ async function openTemplate(id, type) {
  */
 function switchScreen(screen) {
     UserAppState.currentScreen = screen;
+    document.documentElement.setAttribute('data-user-screen', screen);
 
     const startScreen = document.getElementById('start-screen');
     const editorScreen = document.getElementById('editor-screen');
@@ -357,6 +418,8 @@ function switchScreen(screen) {
         startScreen.style.display = 'none';
         editorScreen.style.display = 'flex';
     }
+
+    window.updateUserMenuState?.();
 }
 
 /**
@@ -372,8 +435,10 @@ function goBack() {
     UserAppState.blocks = [];
     UserAppState.selectedBlockId = null;
     UserAppState.isDirty = false;
+    UserAppState.previewBlocks = null;
 
     switchScreen('start');
+    updateUserEditorMeta();
 }
 
 /**
@@ -472,8 +537,10 @@ async function showUserPreview() {
     AppState.blocks = UserAppState.blocks;
 
     try {
-        const html = await generateEmailHTML();
-        container.innerHTML = html;
+        const previewTheme = window.EmailPreviewTheme?.get?.() || 'light';
+        const html = await generateEmailHTML({ previewTheme });
+        UserAppState.previewBlocks = JSON.parse(JSON.stringify(UserAppState.blocks || []));
+        renderEmailPreviewFrame(container, html);
         modal.style.display = 'flex';
     } catch (error) {
         console.error('[USER APP] Error generating preview:', error);
@@ -497,6 +564,8 @@ async function saveAsPersonal() {
         const savedId = await TemplatesAPI.save(name, UserAppState.blocks, 'personal', '', null);
 
         if (savedId) {
+            UserAppState.isDirty = false;
+            updateUserEditorMeta();
             alert('✅ Шаблон сохранён!');
         }
     } catch (error) {
@@ -529,6 +598,8 @@ async function previewTemplate(id, type) {
             return;
         }
 
+        UserAppState.previewBlocks = JSON.parse(JSON.stringify(templateData.blocks));
+
         if (title) {
             title.textContent = templateData.name || 'Шаблон';
         }
@@ -558,8 +629,9 @@ async function renderTemplatePreview(container, blocks) {
             AppState.blocks = JSON.parse(JSON.stringify(blocks));
         }
 
-        const html = await generateEmailHTML();
-        container.innerHTML = `<div class="email-preview-content">${html}</div>`;
+        const previewTheme = window.EmailPreviewTheme?.get?.() || 'light';
+        const html = await generateEmailHTML({ previewTheme });
+        renderEmailPreviewFrame(container, html);
 
     } catch (error) {
         console.error('[USER APP] renderTemplatePreview error:', error);
@@ -572,6 +644,27 @@ async function renderTemplatePreview(container, blocks) {
     }
 }
 
+function renderEmailPreviewFrame(container, html) {
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    const frame = document.createElement('iframe');
+    frame.className = 'email-preview-frame';
+    frame.setAttribute('sandbox', 'allow-same-origin');
+    frame.style.cssText = [
+        'display:block;',
+        'width:100%;',
+        'min-height:640px;',
+        'border:none;',
+        'background:#ffffff;',
+        'border-radius:8px;',
+    ].join('');
+    frame.srcdoc = html;
+
+    container.appendChild(frame);
+}
+
 /**
  * Закрыть превью шаблона
  */
@@ -580,6 +673,7 @@ function closeTemplatePreview() {
     if (modal) {
         modal.style.display = 'none';
     }
+    UserAppState.previewBlocks = null;
 }
 
 /**
@@ -595,5 +689,68 @@ function openTemplateFromPreview() {
 function closeBulkMail() {
     document.getElementById('modal-bulk-mail').style.display = 'none';
 }
+
+function mountUserEmailPreviewThemeToggle() {
+    const slot = document.getElementById('preview-user-theme-slot');
+    if (!slot || typeof window.EmailPreviewTheme?.mount !== 'function') return;
+    slot.innerHTML = '';
+    window.EmailPreviewTheme.mount(slot);
+}
+
+function initUserPreviewThemeRerender() {
+    document.addEventListener('email-preview-theme-change', async () => {
+        const previewModal = document.getElementById('preview-modal-user');
+        const templatePreviewModal = document.getElementById('template-preview-modal');
+
+        if (previewModal?.style.display === 'flex') {
+            await showUserPreview();
+            return;
+        }
+
+        if (templatePreviewModal?.style.display === 'flex' && UserAppState.previewBlocks) {
+            const content = document.getElementById('template-preview-content');
+            if (content) {
+                await renderTemplatePreview(content, UserAppState.previewBlocks);
+            }
+        }
+    });
+}
+
+function updateUserEditorMeta() {
+    const name = UserAppState.currentTemplate?.name || 'Новое письмо';
+    const currentName = document.getElementById('current-template-name');
+    const contextName = document.getElementById('current-template-name-context');
+    const statusPill = document.getElementById('editor-status-pill');
+    const hasBlocks = Array.isArray(UserAppState.blocks) && UserAppState.blocks.length > 0;
+    const previewBtn = document.getElementById('btn-preview-user');
+    const sendEmailBtn = document.getElementById('btn-send-outlook');
+    const sendMeetingBtn = document.getElementById('btn-send-meeting');
+    const saveBtn = document.getElementById('btn-save-personal');
+
+    document.documentElement.setAttribute('data-user-has-blocks', hasBlocks ? '1' : '0');
+
+    if (currentName) currentName.textContent = name;
+    if (contextName) contextName.textContent = name;
+    if (previewBtn) previewBtn.disabled = !hasBlocks;
+    if (sendEmailBtn) sendEmailBtn.disabled = !hasBlocks;
+    if (sendMeetingBtn) sendMeetingBtn.disabled = !hasBlocks;
+    if (saveBtn && saveBtn.style.display !== 'none') saveBtn.disabled = !hasBlocks;
+
+    if (statusPill) {
+        let status = 'Черновик';
+        if (!UserAppState.blocks.length) {
+            status = 'Пустой холст';
+        } else if (UserAppState.isDirty) {
+            status = 'Изменения не сохранены';
+        } else {
+            status = 'Готов к отправке';
+        }
+        statusPill.textContent = `Статус: ${status}`;
+    }
+
+    window.updateUserMenuState?.();
+}
+
+window.updateUserEditorMeta = updateUserEditorMeta;
 // Запуск приложения при загрузке страницы
 document.addEventListener('DOMContentLoaded', initUserApp);

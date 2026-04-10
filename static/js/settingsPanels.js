@@ -25,15 +25,18 @@
 
 function renderSettings() {
     const settingsContent = document.getElementById('settings-content');
+    const panelTitle = document.getElementById('settings-panel-title');
 
     if (!AppState.selectedBlockId) {
+        if (panelTitle) panelTitle.textContent = 'Настройки';
         settingsContent.innerHTML = `
             <div class="settings-empty">
                 <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
                     <circle cx="12" cy="12" r="3"></circle>
                     <path d="M12 1v6m0 6v6m0-6h6m-6 0H6"></path>
                 </svg>
-                <p>Выберите блок для настройки</p>
+                <h3>Нет выбранного блока</h3>
+                <p>Выберите блок на холсте, чтобы редактировать его текст, размеры и стиль.</p>
             </div>
         `;
         return;
@@ -41,6 +44,8 @@ function renderSettings() {
 
     const block = AppState.findBlockById(AppState.selectedBlockId);
     if (!block) return;
+
+    if (panelTitle) panelTitle.textContent = `Настройки: ${getBlockTypeName(block.type)}`;
 
     settingsContent.innerHTML = '';
 

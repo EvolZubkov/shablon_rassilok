@@ -83,35 +83,6 @@ const TextSanitizer = (() => {
         return frag;
     }
 
-    function _cleanHTML(dirtyHTML) {
-        if (!dirtyHTML) return '';
-
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(dirtyHTML, 'text/html');
-
-        const removeSelectors = [
-            'style', 'script', 'meta', 'link',
-            'o\\:p', 'w\\:sdt', 'w\\:sdtContent',
-            '[class^="Mso"]', '[style*="mso-"]',
-        ];
-        removeSelectors.forEach(sel => {
-            try {
-                doc.querySelectorAll(sel).forEach(el => el.remove());
-            } catch(e) {}
-        });
-
-        // Используем doc из парсера — тот же контекст
-        const result = doc.createElement('div');
-        for (const child of doc.body.childNodes) {
-            const clean = _cleanNode(child, doc);
-            if (clean) result.appendChild(clean);
-        }
-
-        let cleaned = _normalizeParagraphs(result.innerHTML);
-        cleaned = cleaned.replace(/<\/p><p>/gi, '</p><p>');
-        return cleaned;
-    }
-
     // -------------------------------------------------------
     // Нормализация: убираем пустые <p>, схлопываем дубли
     // -------------------------------------------------------
@@ -182,7 +153,7 @@ const TextSanitizer = (() => {
         const removeSelectors = [
             'style', 'script', 'meta', 'link',
             'o\\:p', 'w\\:sdt', 'w\\:sdtContent',
-            '[style*="mso-"]',
+            '[class^="Mso"]', '[style*="mso-"]',
         ];
         removeSelectors.forEach(sel => {
             try {
@@ -191,7 +162,7 @@ const TextSanitizer = (() => {
         });
 
         // Чистим body
-        const result = document.createElement('div');
+        const result = doc.createElement('div');
         for (const child of doc.body.childNodes) {
             const clean = _cleanNode(child, doc);
             if (clean) result.appendChild(clean);
@@ -207,33 +178,54 @@ const TextSanitizer = (() => {
     // Типографика: неразрывные пробелы после коротких слов
     // -------------------------------------------------------
 
+    function _loadHangingWords() {
+        const browserPath = '/data/textSanitizer.hangingWords.json';
+
+        // Node/Vitest path: load directly from the repo so tests remain synchronous.
+        try {
+            if (typeof process !== 'undefined' && process.versions && process.versions.node) {
+                const fs = typeof process.getBuiltinModule === 'function'
+                    ? process.getBuiltinModule('fs')
+                    : null;
+                const path = typeof process.getBuiltinModule === 'function'
+                    ? process.getBuiltinModule('path')
+                    : null;
+                if (fs && path) {
+                    const fullPath = path.join(process.cwd(), 'static', 'data', 'textSanitizer.hangingWords.json');
+                    return JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                }
+            }
+        } catch (_) {}
+
+        // Browser path: same-origin synchronous XHR during script init.
+        try {
+            if (typeof XMLHttpRequest !== 'undefined') {
+                const xhr = new XMLHttpRequest();
+                xhr.open('GET', browserPath, false);
+                xhr.send(null);
+                if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
+                    return JSON.parse(xhr.responseText);
+                }
+            }
+        } catch (_) {}
+
+        return [];
+    }
+
     // Russian prepositions, conjunctions and particles that must not be left
     // hanging at the end of a line (followed by a line break before the next word).
-    const HANGING_WORDS = new Set([
-        // Prepositions
-        'в', 'во', 'к', 'ко', 'с', 'со', 'у', 'о', 'об', 'обо',
-        'от', 'ото', 'до', 'за', 'из', 'на', 'над', 'по', 'под',
-        'подо', 'пред', 'предо', 'при', 'про', 'без', 'безо', 'меж',
-        'между', 'через', 'чрез', 'сквозь', 'вне', 'вместо', 'кроме',
-        'перед', 'передо', 'около', 'после', 'вдоль', 'вокруг',
-        'ради', 'для',
-        // Conjunctions
-        'и', 'а', 'но', 'да', 'или', 'либо', 'то', 'ни', 'не',
-        'же', 'бы', 'ли', 'как', 'так', 'что', 'чем', 'хоть',
-        'хотя', 'если', 'когда', 'пока', 'лишь', 'едва',
-        // Particles and short pronouns
-        'я', 'ты', 'он', 'мы', 'вы', 'со', 'вот', 'уже', 'ещё',
-        'всё', 'все', 'там', 'тут', 'бы', 'же', 'ну',
-    ]);
+    const HANGING_WORDS = new Set(_loadHangingWords());
 
-    // Pre-built regex: matches any of the listed words (case-insensitive) as a whole
-    // word preceded by start-of-string or whitespace (via zero-width lookbehind so the
-    // preceding space is NOT consumed and remains available for the next match), followed
-    // by a regular space and then a non-space character.
-    const _HANGING_RE = new RegExp(
-        `(?:^|(?<=[\\s\\u00A0]))(${[...HANGING_WORDS].join('|')})\\u0020(?=\\S)`,
-        'gi'
-    );
+    // Match any alphabetic word followed by a regular space.
+    // The final decision is made by `_shouldNbspWord()`:
+    // explicit dictionary match OR any word up to 3 letters long.
+    const _HANGING_RE = /(?:^|(?<=[\s\u00A0]))([A-Za-zА-Яа-яЁё]{1,})( )(?=\S)/g;
+
+    function _shouldNbspWord(word) {
+        if (!word) return false;
+        const lower = word.toLowerCase();
+        return HANGING_WORDS.has(lower) || lower.length <= 3;
+    }
 
     /**
      * Replace a regular space with a non-breaking space after Russian prepositions,
@@ -247,7 +239,10 @@ const TextSanitizer = (() => {
      */
     function _nbspHanging(text) {
         _HANGING_RE.lastIndex = 0;
-        return text.replace(_HANGING_RE, (_, word) => `${word}\u00A0`);
+        return text.replace(_HANGING_RE, (match, word) => {
+            if (!_shouldNbspWord(word)) return match;
+            return `${word}\u00A0`;
+        });
     }
 
     /**
@@ -381,6 +376,13 @@ const TextSanitizer = (() => {
      */
     function render(html, linkColor = '#7700ff') {
         if (!html) return '';
+
+        // Convert markdown links [text](url) → <a href="url">text</a>
+        // Handles legacy plain-text content stored without prior sanitize() call
+        html = html.replace(
+            /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
+            '<a href="$2">$1</a>'
+        );
 
         // Добавляем margin параграфам (кроме последнего)
         const paras = html.split(/(?=<p>)/i);

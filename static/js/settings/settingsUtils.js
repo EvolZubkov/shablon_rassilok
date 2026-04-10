@@ -107,6 +107,7 @@ function createImageGrid(images, currentValue, blockId, settingKey, customKey) {
     images.forEach(img => {
         const option = document.createElement('div');
         const isSelected = currentValue === img.src;
+        option.dataset.selected = isSelected ? 'true' : 'false';
         option.style.cssText = `
             border: 2px solid ${isSelected ? '#f97316' : '#374151'};
             border-radius: 8px; overflow: hidden; cursor: pointer;
@@ -128,18 +129,21 @@ function createImageGrid(images, currentValue, blockId, settingKey, customKey) {
         }
 
         option.addEventListener('click', () => {
+            // Clear customKey directly in block.settings to avoid a redundant
+            // renderBannerToDataUrl call that races with the main update below.
             if (customKey) {
-                updateBlockSetting(blockId, customKey, '');
+                const block = AppState.findBlockById(blockId);
+                if (block) block.settings[customKey] = '';
             }
             updateBlockSetting(blockId, settingKey, img.src);
             renderSettings();
         });
 
         option.addEventListener('mouseenter', () => {
-            if (!isSelected) option.style.borderColor = '#64748b';
+            if (option.dataset.selected !== 'true') option.style.borderColor = '#64748b';
         });
         option.addEventListener('mouseleave', () => {
-            if (!isSelected) option.style.borderColor = '#374151';
+            if (option.dataset.selected !== 'true') option.style.borderColor = '#374151';
         });
 
         grid.appendChild(option);

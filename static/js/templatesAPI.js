@@ -177,6 +177,29 @@ const TemplatesAPI = {
         }
     },
     /**
+     * Update only the preview thumbnail of an existing template.
+     * Does not touch blocks — safe to call in background after blocks are already saved.
+     *
+     * @param {string} id
+     * @param {string} type
+     * @param {string|null} preview - base64 data-URL or null to clear
+     * @returns {boolean}
+     */
+    async updatePreview(id, type = 'personal', preview) {
+        try {
+            const response = await fetch(`${this.baseURL}/preview`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, type, preview }),
+            });
+            const data = await response.json();
+            return data.success === true;
+        } catch {
+            return false;
+        }
+    },
+
+    /**
      * Получить список категорий
      */
     async getCategories() {
