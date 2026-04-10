@@ -235,8 +235,14 @@ function renderButtonPreview(s) {
 function renderExpertPreview(s) {
     const isLite = (s.variant || 'full') === 'lite';
 
+    // Auto-contrast text color derived from background, same logic as button text.
+    const hasBg = s.bgColor && s.bgColor !== 'transparent';
+    const autoTextColor = hasBg
+        ? (isLightColorPreview(s.bgColor) ? '#1D2533' : '#ffffff')
+        : '#1D2533';
+
     if (s.renderedExpert) {
-        const bg = s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : 'transparent';
+        const bg = hasBg ? s.bgColor : 'transparent';
         const w = s.renderedExpertWidth || 600;
         const align = s.align || 'left';
         const justify = align === 'center' ? 'center' : align === 'right' ? 'flex-end' : 'flex-start';
@@ -254,7 +260,7 @@ function renderExpertPreview(s) {
         </div>
     ` : '';
 
-    const bg = s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : 'transparent';
+    const bg = hasBg ? s.bgColor : 'transparent';
 
     if (s.verticalLayout) {
         return `
@@ -266,9 +272,9 @@ function renderExpertPreview(s) {
                     ${badgeHTML}
                 </div>
                 ${isLite ? '' : `
-                    <div style="width: 100%; color: ${s.textColor}; font-size: 13px; line-height: 1.6; text-align: left;">
-                        <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${s.nameColor};">${s.name || 'Имя эксперта'}</div>
-                        <div style="margin-bottom: 8px; color: ${s.titleColor}; font-size: 12px;">${s.title || 'Должность'}</div>
+                    <div style="width: 100%; color: ${autoTextColor}; font-size: 13px; line-height: 1.6; text-align: left;">
+                        <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${autoTextColor};">${s.name || 'Имя эксперта'}</div>
+                        <div style="margin-bottom: 8px; opacity: 0.75; font-size: 12px;">${s.title || 'Должность'}</div>
                         <div style="text-align: left;">${s.bio || 'Описание'}</div>
                     </div>
                 `}
@@ -284,9 +290,9 @@ function renderExpertPreview(s) {
                 </div>
                 ${badgeHTML}
             </div>
-            <div style="flex: 1; color: ${s.textColor}; font-size: 13px; line-height: 1.6;">
-                <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${s.nameColor};">${s.name || 'Имя эксперта'}</div>
-                <div style="margin-bottom: 8px; color: ${s.titleColor}; font-size: 12px;">${s.title || 'Должность'}</div>
+            <div style="flex: 1; color: ${autoTextColor}; font-size: 13px; line-height: 1.6;">
+                <div style="font-weight: 600; font-size: 15px; margin-bottom: 4px; color: ${autoTextColor};">${s.name || 'Имя эксперта'}</div>
+                <div style="margin-bottom: 8px; opacity: 0.75; font-size: 12px;">${s.title || 'Должность'}</div>
                 <div>${s.bio || 'Описание'}</div>
             </div>
         </div>
