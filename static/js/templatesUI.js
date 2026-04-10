@@ -229,7 +229,16 @@ const TemplatesUI = {
     },
 
     async loadTemplates() {
-        this._setListLoading(true);
+        // Only show spinner on a truly cold load (no cached data yet).
+        // On re-opens or conditional GETs keep the existing list visible to
+        // avoid the flash where all templates disappear briefly.
+        const hasData = this._etag !== null
+            || this.templates.shared.length > 0
+            || this.templates.personal.length > 0;
+        if (!hasData) {
+            this._setListLoading(true);
+        }
+
         const result = await TemplatesAPI.getList(this._etag);
         if (result.unchanged) {
             // Server confirmed our data is still current — just re-render.

@@ -2651,6 +2651,27 @@ def _validate_template_id(tid):
     return True
 
 
+def _write_template_atomic(filepath: str, data: dict) -> None:
+    """Write *data* as JSON to *filepath* using an atomic temp-file + rename.
+
+    Prevents concurrent readers from seeing a partially-written file while
+    the preview thumbnail or block data is being updated.
+    """
+    directory = os.path.dirname(filepath)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, filepath)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
 # ---------------------------------------------------------------------------
 # Template index cache
 # Keyed by template type ('shared' / 'personal').
@@ -2746,16 +2767,29 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     updates the cache.  Clears the ``_rebuilding`` flag when done so that
     the next TTL expiry can trigger another background rebuild.
 
+    Guard: if a synchronous rebuild completed AFTER this background read
+    started (e.g. immediately after a template save), we do NOT overwrite
+    the fresher index — we just clear the ``_rebuilding`` flag.
+
     :param template_type: ``'shared'`` or ``'personal'``
     :param base_dir: Directory containing template JSON files.
     """
+    # Record when we started so we can detect a fresher sync rebuild.
+    started_at = time.time()
     try:
         meta, index, fp = _build_index_from_dir(base_dir, template_type)
         with _template_cache_lock:
-            _template_cache[template_type] = {
-                'meta': meta, 'index': index, 'fp': fp,
-                'ts': time.time(), '_rebuilding': False,
-            }
+            existing = _template_cache.get(template_type)
+            if existing is None or existing.get('ts', 0) <= started_at:
+                # No fresher entry — safe to store our result.
+                _template_cache[template_type] = {
+                    'meta': meta, 'index': index, 'fp': fp,
+                    'ts': time.time(), '_rebuilding': False,
+                }
+            else:
+                # A sync rebuild completed while we were reading — don't
+                # overwrite it with our potentially stale scan.
+                existing['_rebuilding'] = False
     except Exception as exc:
         print(f'⚠️  Фоновый rebuild индекса [{template_type}] упал: {exc}')
         with _template_cache_lock:
@@ -2983,8 +3017,7 @@ def templates_save():
             'blocks': blocks
         }
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(template, f, ensure_ascii=False, indent=2)
+        _write_template_atomic(filepath, template)
 
         _invalidate_template_cache(template_type)
         if template_type == 'shared':
@@ -3025,8 +3058,7 @@ def templates_update():
         if preview is not None:
             template['preview'] = preview
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(template, f, ensure_ascii=False, indent=2)
+        _write_template_atomic(filepath, template)
 
         _invalidate_template_cache(template_type)
         if template_type == 'shared':
@@ -3062,8 +3094,7 @@ def templates_update_preview():
         template['preview'] = preview
         template['updated'] = datetime.now().isoformat()
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(template, f, ensure_ascii=False, indent=2)
+        _write_template_atomic(filepath, template)
 
         _invalidate_template_cache(template_type)
         if template_type == 'shared':
