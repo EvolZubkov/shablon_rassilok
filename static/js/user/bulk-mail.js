@@ -454,7 +454,7 @@ const BulkMail = (() => {
   </div>
 </div>
 
-<div id="bm-toast" style="display:none;position:fixed;bottom:24px;right:24px;background:#1e293b;border:1px solid #334155;border-radius:8px;padding:12px 18px;font-size:13px;color:#f9fafb;z-index:4000;box-shadow:0 8px 24px rgba(0,0,0,0.4);max-width:320px;transition:opacity .3s"></div>
+<div id="bm-toast" style="display:none;position:fixed;bottom:24px;right:24px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;padding:12px 20px;font-size:13px;color:var(--text-primary);z-index:4000;box-shadow:var(--shadow-lg);max-width:320px;transition:opacity .3s"></div>
 `;
     }
 
@@ -518,7 +518,7 @@ const BulkMail = (() => {
 
         if (!r) {
             const c = document.getElementById('bm-preview-content');
-            if (c) c.innerHTML = '<p style="color:#9ca3af;text-align:center;padding:24px">Нет строк для отображения</p>';
+            if (c) c.innerHTML = '<p style="color:var(--text-muted);text-align:center;padding:24px">Нет строк для отображения</p>';
             return;
         }
 
@@ -535,13 +535,13 @@ const BulkMail = (() => {
         const cityEmpty = r.warn.some(w => w.includes('Город'));
         const contentEl = document.getElementById('bm-preview-content');
         if (contentEl) contentEl.innerHTML = `
-            <h3 style="color:#111;margin-bottom:12px;font-size:16px">Уважаемый(ая) <span class="bm-preview-ph">${r.fio}</span>!</h3>
+            <h3 style="color:var(--text-primary);margin-bottom:12px;font-size:16px">Уважаемый(ая) <span class="bm-preview-ph">${r.fio}</span>!</h3>
             <p style="margin-bottom:10px">Информируем вас о плановом обучении для сотрудников отдела <span class="bm-preview-ph">${r.dept}</span>.</p>
             <p style="margin-bottom:10px">Ваша должность: <span class="bm-preview-ph">${r.pos}</span>.<br>Дата мероприятия: <span class="bm-preview-ph">${r.date}</span>.</p>
             <p style="margin-bottom:10px">Место проведения: ${cityEmpty ? '<span class="bm-preview-empty">[Город — не сопоставлено]</span>' : '<span class="bm-preview-ph">Москва</span>'}.</p>
             <p style="margin-bottom:10px">Просьба подтвердить участие до 20.03.2026.</p>
-            <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
-            <p style="color:#666;font-size:13px">С уважением,<br><strong>Департамент управления знаниями</strong></p>`;
+            <hr style="border:none;border-top:1px solid var(--border-primary);margin:16px 0">
+            <p style="color:var(--text-muted);font-size:13px">С уважением,<br><strong style="color:var(--text-secondary)">Департамент управления знаниями</strong></p>`;
     }
 
     function changeRow(dir) {

@@ -44,14 +44,15 @@ function showUndoToast() {
             bottom: 80px;
             left: 50%;
             transform: translateX(-50%);
-            background: #1e293b;
-            color: #e5e7eb;
+            background: var(--bg-secondary);
+            color: var(--text-secondary);
             padding: 8px 16px;
             border-radius: 8px;
             font-size: 13px;
             z-index: 9999;
             pointer-events: none;
-            border: 1px solid #374151;
+            border: 1px solid var(--border-secondary);
+            box-shadow: var(--shadow-md);
             opacity: 0;
             transition: opacity 0.2s;
         `;
@@ -1535,21 +1536,29 @@ function openExpertEditor(blockId) {
     // === Подложка ===
     const bgToggle = document.getElementById('expert-bg-toggle');
     const bgColorRow = document.getElementById('expert-bg-color-row');
-    const bgColorInput = document.getElementById('expert-bg-color');
+    const bgColorTrigger = document.getElementById('expert-bg-color');
 
     const hasBg = s.bgColor && s.bgColor !== 'transparent';
     bgToggle.checked = hasBg;
     bgColorRow.style.display = hasBg ? 'flex' : 'none';
-    bgColorInput.value = s.bgColor || '#f3f4f6';
+    const initialBgColor = s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : '#F3F4F6';
+
+    bindColorTrigger({
+        trigger: bgColorTrigger,
+        title: 'Цвет подложки',
+        currentColor: initialBgColor,
+        allowTransparent: false,
+        onApply: (chosenColor) => {
+            s.bgColor = chosenColor;
+            updateExpertPreview(s);
+        }
+    });
 
     bgToggle.onchange = () => {
         bgColorRow.style.display = bgToggle.checked ? 'flex' : 'none';
-        s.bgColor = bgToggle.checked ? bgColorInput.value : 'transparent';
-        updateExpertPreview(s);
-    };
-
-    bgColorInput.oninput = () => {
-        s.bgColor = bgColorInput.value;
+        s.bgColor = bgToggle.checked
+            ? (bgColorTrigger.dataset.colorValue || initialBgColor)
+            : 'transparent';
         updateExpertPreview(s);
     };
 
@@ -1576,7 +1585,9 @@ function openExpertEditor(blockId) {
         s.scale = parseInt(scaleInput.value) || 100;
         s.positionX = parseInt(posXInput.value) || 0;
         s.positionY = parseInt(posYInput.value) || 0;
-        s.bgColor = bgToggle.checked ? bgColorInput.value : 'transparent';
+        s.bgColor = bgToggle.checked
+            ? (bgColorTrigger.dataset.colorValue || initialBgColor)
+            : 'transparent';
 
         // Получаем выбранный бейдж
         const selectedBadge = document.querySelector('.badge-item.selected');
