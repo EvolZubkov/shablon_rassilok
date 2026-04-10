@@ -279,33 +279,52 @@ const TemplatesUI = {
     },
 
     /**
-     * Show or hide the spinner inside the templates list.
-     * Replaces list content with a spinner placeholder while data is loading.
+     * Show or hide the loading bar at the top of the templates list.
+     * On a cold load (no cached data) replaces list content with a full
+     * spinner so the user sees something while the panel is empty.
+     * On warm loads inserts a non-blocking progress bar above existing content.
      * @param {boolean} on
+     * @param {boolean} [cold=false] - true on first ever load (no data yet)
      */
-    _setListLoading(on) {
-        if (on) {
+    _setListLoading(on, cold = false) {
+        // Remove any existing bar first.
+        this.list.querySelector('.templates-loading-bar')?.remove();
+
+        if (!on) return;
+
+        if (cold) {
             this.list.innerHTML = `
                 <div class="templates-list-loading">
                     <div class="templates-list-spinner"></div>
                     <span>Загрузка шаблонов\u2026</span>
                 </div>`;
+            return;
         }
-        // When off, renderTemplates() will overwrite the content — no action needed.
+
+        // Warm load: insert the progress bar without clearing existing content.
+        const bar = document.createElement('div');
+        bar.className = 'templates-loading-bar';
+        this.list.insertAdjacentElement('afterbegin', bar);
     },
 
     async loadTemplates() {
-        // Only show spinner on a truly cold load (no cached data yet).
-        // On re-opens or conditional GETs keep the existing list visible to
-        // avoid the flash where all templates disappear briefly.
+        // Show a full spinner on cold load (no cached data yet), otherwise
+        // show a non-blocking progress bar above existing content.
         const hasData = this._etag !== null
             || this.templates.shared.length > 0
             || this.templates.personal.length > 0;
-        if (!hasData) {
-            this._setListLoading(true);
-        }
+        this._setListLoading(true, !hasData);
 
-        const result = await TemplatesAPI.getList(this._etag);
+        let result;
+        try {
+            result = await TemplatesAPI.getList(this._etag);
+        } catch (err) {
+            this._setListLoading(false);
+            this.list.innerHTML = `<div class="templates-empty">Ошибка загрузки шаблонов</div>`;
+            return;
+        }
+        this._setListLoading(false);
+
         if (result.unchanged) {
             // Server confirmed our data is still current — just re-render.
             this.renderTemplates();
