@@ -3023,7 +3023,8 @@ def templates_save():
         if template_type == 'shared':
             _bump_network_version()
         print(
-            f"✓ Шаблон сохранён: {filename} ({template_type}, категория: {category or 'без категории'})")
+            f"✓ Шаблон сохранён: {filename} ({template_type}, isPreset={is_preset}, "
+            f"категория: {category or 'без категории'}, путь: {filepath})")
 
         return jsonify({'success': True, 'filename': filename, 'id': template['id']})
 
