@@ -56,7 +56,7 @@ function renderButtonSettings(container, block) {
             width: 36px;
             height: 36px;
             border-radius: 8px;
-            border: 3px solid ${s.color === color ? '#ffffff' : 'transparent'};
+            border: 3px solid ${s.color === color ? 'var(--text-on-accent, #ffffff)' : 'transparent'};
             background: ${color};
             cursor: pointer;
             transition: border-color 0.2s;
@@ -75,7 +75,7 @@ function renderButtonSettings(container, block) {
         const infoGroup = document.createElement('div');
         infoGroup.className = 'setting-group';
         const infoText = document.createElement('div');
-        infoText.style.cssText = 'font-size: 12px; color: #9ca3af; padding: 8px; background: #1e293b; border-radius: 6px;';
+        infoText.style.cssText = 'font-size: 12px; color: var(--text-muted); padding: 8px; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px;';
         infoText.textContent = isMif ? '🟣 Кнопка МИФ — цвет и иконка заданы автоматически' : '🟠 Кнопка Альпина — цвет и иконка заданы автоматически';
         infoGroup.appendChild(infoText);
         container.appendChild(infoGroup);
@@ -94,7 +94,7 @@ function renderButtonSettings(container, block) {
         iconGroup.appendChild(labelEl);
 
         const hint = document.createElement('div');
-        hint.style.cssText = 'font-size: 12px; color: #9ca3af; margin-top: 4px;';
+        hint.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-top: 4px;';
         hint.textContent = 'Выберите иконку из библиотеки или загрузите свою.';
         iconGroup.appendChild(hint);
 
@@ -115,4 +115,3 @@ function renderButtonSettings(container, block) {
 }
 
 // settingsPanels2.js - Продолжение панелей настроек
-

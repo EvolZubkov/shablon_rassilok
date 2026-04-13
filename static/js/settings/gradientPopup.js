@@ -95,6 +95,20 @@ function refreshGradientPopupBody(popup, block) {
     const s = AppState.findBlockById(block.id).settings;
     block.settings = s; // sync
 
+    // Ensure gradient stops are persisted WITH stable IDs in AppState.
+    // If the block only has legacy scalar gradient settings (no gradientStops
+    // array), normalizeGradientStops() assigns id = Date.now() + index on
+    // every call, so stop.id captured in closures never matches on later
+    // calls.  Writing the normalised array back once makes all subsequent
+    // lookups deterministic.
+    {
+        const normalised = getGradientStopsModel(s);
+        const blk = AppState.findBlockById(block.id);
+        blk.settings.gradientStops = normalised;
+        // Keep local references in sync.
+        block.settings = blk.settings;
+    }
+
     // === INTERACTIVE GRADIENT PREVIEW (Figma-style) ===
     const previewWrap = document.createElement('div');
     previewWrap.className = 'grad-preview';
@@ -165,11 +179,20 @@ function refreshGradientPopupBody(popup, block) {
         const endXpx   = cxPx + dxPx;
         const endYpx   = cyPx + dyPx;
 
-        // Позиционируем хэндлы (transform: translate(-50%,-50%) учитывается в CSS)
-        handleStart.style.left = `${startXpx}px`;
-        handleStart.style.top  = `${startYpx}px`;
-        handleEnd.style.left   = `${endXpx}px`;
-        handleEnd.style.top    = `${endYpx}px`;
+        // Clamp handles to preview box bounds so they never escape into
+        // adjacent UI elements (e.g. the gradient bar below).
+        // The handle is 18px and rotated 45°, so its visual "radius" is
+        // 9 * sqrt(2) ≈ 12.73 px from the centre point — use R = 14 for a
+        // 1-px safe margin so the corner of the rotated diamond always stays
+        // inside the box even with overflow: hidden applied to the container.
+        const R = 14;
+        const clampX = (x) => Math.max(R, Math.min(boxW - R, x));
+        const clampY = (y) => Math.max(R, Math.min(boxH - R, y));
+
+        handleStart.style.left = `${clampX(startXpx)}px`;
+        handleStart.style.top  = `${clampY(startYpx)}px`;
+        handleEnd.style.left   = `${clampX(endXpx)}px`;
+        handleEnd.style.top    = `${clampY(endYpx)}px`;
 
         // SVG линия
         line.setAttribute('x1', startXpx);
@@ -323,24 +346,67 @@ function refreshGradientPopupBody(popup, block) {
     // Сохраняем для доступа снаружи (balance slider и т.д.)
     popup._updateHandlePositions = updateHandlePositions;
 
-    // Gradient bar под превью
+    // Gradient bar under preview — pins are draggable horizontally
     const barWrap = document.createElement('div');
     barWrap.className = 'grad-popup__bar-wrap';
     const gradBar = document.createElement('div');
     gradBar.className = 'grad-popup__bar';
     gradBar.style.background = buildGradientPreviewCss(s);
+
     const stops = getGradientStopsModel(s);
-    stops.forEach((stop, index) => {
+
+    /** Recompute bar gradient from current AppState (no full refresh). */
+    function _syncBarGradient() {
+        const bs = AppState.findBlockById(block.id).settings;
+        gradBar.style.background = buildGradientPreviewCss(bs);
+    }
+
+    stops.forEach((stop) => {
         const pin = document.createElement('div');
         pin.className = 'grad-popup__bar-pin';
-        if (index === stops.length - 1 && stop.position >= 99) {
-            pin.style.right = '2px'; pin.style.left = 'auto';
-        } else {
-            pin.style.left = `calc(${stop.position}% - 7px)`;
-        }
+        pin.style.cursor = 'ew-resize';
+        pin.style.touchAction = 'none';
+        // Position: centre of pin (8 px = half of 16 px visual size incl. border).
+        const clampedPos = Math.max(0, Math.min(100, stop.position));
+        pin.style.left = `calc(${clampedPos}% - 8px)`;
         pin.style.background = stop.color;
+
+        pin.addEventListener('pointerdown', (e) => {
+            if (e.button !== 0) return;
+            e.preventDefault();
+            e.stopPropagation();
+
+            pin.classList.add('grad-popup__bar-pin--dragging');
+
+            // Capture bar rect once at drag start.
+            const barRect = gradBar.getBoundingClientRect();
+
+            const onMove = (ev) => {
+                const rawPct = ((ev.clientX - barRect.left) / barRect.width) * 100;
+                const pct = Math.round(Math.max(0, Math.min(100, rawPct)));
+                pin.style.left = `calc(${pct}% - 8px)`;
+                updateGradientStop(block.id, stop.id, 'position', pct);
+                block.settings = AppState.findBlockById(block.id).settings;
+                _syncBarGradient();
+            };
+
+            const onUp = () => {
+                document.removeEventListener('pointermove', onMove);
+                document.removeEventListener('pointerup',   onUp);
+                document.removeEventListener('pointercancel', onUp);
+                pin.classList.remove('grad-popup__bar-pin--dragging');
+                // Full refresh to sync position inputs in the stop list.
+                refreshGradientPopupBody(popup, block);
+            };
+
+            document.addEventListener('pointermove',   onMove);
+            document.addEventListener('pointerup',     onUp);
+            document.addEventListener('pointercancel', onUp);
+        });
+
         gradBar.appendChild(pin);
     });
+
     barWrap.appendChild(gradBar);
     body.appendChild(barWrap);
 
@@ -401,19 +467,20 @@ function refreshGradientPopupBody(popup, block) {
         const swatch = document.createElement('div');
         swatch.className = 'grad-popup__stop-swatch';
         swatch.style.background = stop.color;
-        // Клик на swetch открывает нативный color picker
-        const hiddenColorPicker = document.createElement('input');
-        hiddenColorPicker.type = 'color';
-        hiddenColorPicker.value = stop.color;
-        hiddenColorPicker.style.cssText = 'position:absolute;width:0;height:0;opacity:0;pointer-events:none;';
-        swatch.addEventListener('click', () => hiddenColorPicker.click());
-        hiddenColorPicker.addEventListener('input', (e) => {
-            swatch.style.background = e.target.value;
-            hexInput.value = e.target.value.replace('#', '').toUpperCase();
-            updateGradientStop(block.id, stop.id, 'color', e.target.value);
-            block.settings = AppState.findBlockById(block.id).settings;
-            // Обновить бар без полного рефреша
-            gradBar.style.background = buildGradientPreviewCss(block.settings);
+        swatch.addEventListener('click', () => {
+            pickColor({
+                title: 'Цвет точки',
+                currentColor: stop.color,
+                allowTransparent: false,
+                onApply: (chosen) => {
+                    swatch.style.background = chosen;
+                    hexInput.value = chosen.replace('#', '').toUpperCase();
+                    updateGradientStop(block.id, stop.id, 'color', chosen);
+                    block.settings = AppState.findBlockById(block.id).settings;
+                    gradBar.style.background = buildGradientPreviewCss(block.settings);
+                    updateHandlePositions();
+                },
+            });
         });
 
         const hexInput = document.createElement('input');
@@ -424,14 +491,12 @@ function refreshGradientPopupBody(popup, block) {
         hexInput.addEventListener('change', (e) => {
             const hex = ensureHex(e.target.value);
             swatch.style.background = hex;
-            hiddenColorPicker.value = hex;
             updateGradientStop(block.id, stop.id, 'color', hex);
             block.settings = AppState.findBlockById(block.id).settings;
             refreshGradientPopupBody(popup, block);
         });
 
         colorWrap.appendChild(swatch);
-        colorWrap.appendChild(hiddenColorPicker);
         colorWrap.appendChild(hexInput);
 
         // Opacity стопа

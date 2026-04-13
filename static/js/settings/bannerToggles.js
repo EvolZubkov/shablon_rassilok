@@ -10,8 +10,8 @@ function createBannerHeightToggle(label, value, blockId, settingKey) {
 
     const btnWrap = document.createElement('div');
     btnWrap.style.cssText = `
-    display:flex; align-items:center; border:1px solid #475569;
-    border-radius:999px; padding:4px; background:#0b1220;
+    display:flex; align-items:center; border:1px solid var(--border-secondary);
+    border-radius:999px; padding:4px; background:var(--bg-primary);
   `;
 
     const mkBtn = (px) => {
@@ -22,8 +22,8 @@ function createBannerHeightToggle(label, value, blockId, settingKey) {
         b.style.cssText = `
       min-width:64px; padding:8px 12px; border-radius:999px;
       border:0; cursor:pointer; font-size:13px;
-      background:${active ? '#f97316' : 'transparent'};
-      color:${active ? '#0b1220' : '#e5e7eb'};
+      background:${active ? 'var(--accent-primary)' : 'transparent'};
+      color:${active ? '#ffffff' : 'var(--text-secondary)'};
     `;
         b.onclick = () => { updateBlockSetting(blockId, settingKey, px); renderSettings(); };
         return b;
@@ -47,8 +47,8 @@ function createRightImageModeToggle(label, value, blockId) {
 
     const wrap = document.createElement('div');
     wrap.style.cssText = `
-    display:flex; align-items:center; border:1px solid #475569;
-    border-radius:999px; padding:4px; background:#0b1220;
+    display:flex; align-items:center; border:1px solid var(--border-secondary);
+    border-radius:999px; padding:4px; background:var(--bg-primary);
   `;
 
     const mkBtn = (mode, text) => {
@@ -59,8 +59,8 @@ function createRightImageModeToggle(label, value, blockId) {
         b.style.cssText = `
       min-width:120px; padding:8px 12px; border-radius:999px;
       border:0; cursor:pointer; font-size:13px;
-      background:${active ? '#f97316' : 'transparent'};
-      color:${active ? '#0b1220' : '#e5e7eb'};
+      background:${active ? 'var(--accent-primary)' : 'transparent'};
+      color:${active ? '#ffffff' : 'var(--text-secondary)'};
     `;
         b.onclick = () => { updateBlockSetting(blockId, 'rightImageMode', mode); renderSettings(); };
         return b;
@@ -84,8 +84,8 @@ function createExpertVariantToggle(label, value, blockId) {
 
     const wrap = document.createElement('div');
     wrap.style.cssText = `
-        display:flex; align-items:center; border:1px solid #475569;
-        border-radius:999px; padding:4px; background:#0b1220;
+        display:flex; align-items:center; border:1px solid var(--border-secondary);
+        border-radius:999px; padding:4px; background:var(--bg-primary);
     `;
 
     const mkBtn = (mode, text) => {
@@ -96,8 +96,8 @@ function createExpertVariantToggle(label, value, blockId) {
         b.style.cssText = `
             min-width:120px; padding:8px 12px; border-radius:999px;
             border:0; cursor:pointer; font-size:13px;
-            background:${active ? '#f97316' : 'transparent'};
-            color:${active ? '#0b1220' : '#e5e7eb'};
+            background:${active ? 'var(--accent-primary)' : 'transparent'};
+            color:${active ? '#ffffff' : 'var(--text-secondary)'};
         `;
         b.onclick = () => {
             updateBlockSetting(blockId, 'variant', mode);
@@ -119,4 +119,3 @@ function createExpertVariantToggle(label, value, blockId) {
 // ============================================================
 
 let _gradientPopupEl = null;
-

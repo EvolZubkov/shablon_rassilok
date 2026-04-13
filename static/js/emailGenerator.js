@@ -756,6 +756,9 @@ function generateImportantHTML(s) {
     const borderColor = s.borderColor || ctx.borderColor;
     const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
     const textContent = TextSanitizer.render(TextSanitizer.sanitize(s.text || '', true), ctx.linkColor);
+    const textCellAccent = iconSrc
+        ? 'padding-left:0;'
+        : `border-left:4px solid ${borderColor}; padding-left:12px;`;
 
     const iconHTML = iconSrc ? `
     <td valign="top"
@@ -774,7 +777,7 @@ function generateImportantHTML(s) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     <tr>
                         ${iconHTML}
-                        <td valign="middle" class="email-text email-important-cell" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; font-family:${fontFamily}; border-left:4px solid ${borderColor}; padding-left:12px;">
+                        <td valign="middle" class="email-text email-important-cell" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; font-family:${fontFamily}; ${textCellAccent}">
                             ${textContent}
                         </td>
                     </tr>

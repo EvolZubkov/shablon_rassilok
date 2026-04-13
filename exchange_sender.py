@@ -280,15 +280,15 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             optional_attendees=_to_attendees(cc) if cc else None,
         )
 
-        # 3. Сохраняем без рассылки, чтобы появился item.id
+        # 3. Save without sending so we get item.id and can attach files.
         item.save(send_meeting_invitations='SendToNone')
 
-        # 4. Добавляем inline-вложения (картинки из письма)
+        # 4. Attach inline CID images (converted from data: URIs)
         for att in inline_atts:
             item.attach(att)
 
-        # 5. Добавляем пользовательские файлы
-        for file_data in user_attachments:  # ← исправлено
+        # 5. Attach user-supplied files
+        for file_data in user_attachments:
             try:
                 raw = base64.b64decode(file_data['content'])
                 file_att = FileAttachment(
@@ -300,16 +300,12 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             except Exception as e:
                 print(f'⚠️  Вложение {file_data.get("name")}: {e}')
 
-        # 6. Ещё раз явно проставляем body
-        item.body = HTMLBody(html_with_cid)
-
-        # 7. Отправляем приглашения вместе с телом и вложениями
-        item._update(
-            update_fieldnames=['body'],
-            message_disposition='SaveOnly',
-            conflict_resolution='AutoResolve',
-            send_meeting_invitations='SendToAllAndSaveCopy',
-        )
+        # 6. Send invitations via the public save() API.
+        #    Calling save() a second time with SendToAllAndSaveCopy triggers
+        #    Exchange to dispatch the meeting request to all attendees.
+        #    This avoids the private _update() method whose signature varies
+        #    across exchangelib versions.
+        item.save(send_meeting_invitations='SendToAllAndSaveCopy')
 
     except (ValueError, ConnectionError):
         raise

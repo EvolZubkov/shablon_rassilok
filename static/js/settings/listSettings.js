@@ -13,13 +13,13 @@ function renderListSettings(container, block) {
     listGroup.appendChild(label);
 
     const hint = document.createElement('div');
-    hint.style.cssText = 'font-size: 12px; color: #9ca3af; margin-bottom: 8px;';
+    hint.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-bottom: 8px;';
     hint.textContent = 'Можно переносить строки внутри пункта (Shift+Enter).';
     listGroup.appendChild(hint);
 
     (s.items || []).forEach((item, index) => {
         const itemWrapper = document.createElement('div');
-        itemWrapper.style.cssText = 'margin-bottom: 12px; border: 1px solid #374151; border-radius: 8px; padding: 8px;';
+        itemWrapper.style.cssText = 'margin-bottom: 12px; border: 1px solid var(--border-primary); border-radius: 8px; padding: 8px;';
 
         // Верхняя строка: textarea + кнопка удалить
         const itemDiv = document.createElement('div');
@@ -42,7 +42,7 @@ function renderListSettings(container, block) {
 
         const deleteBtn = document.createElement('button');
         deleteBtn.textContent = '✕';
-        deleteBtn.style.cssText = 'padding: 8px 12px; background: #dc2626; color: white; border: none; border-radius: 4px; cursor: pointer;';
+        deleteBtn.style.cssText = 'padding: 8px 12px; background: var(--accent-danger); color: white; border: none; border-radius: 4px; cursor: pointer;';
         deleteBtn.addEventListener('click', () => {
             const newItems = (s.items || []).filter((_, i) => i !== index);
             updateBlockSetting(block.id, 'items', newItems);
@@ -57,7 +57,7 @@ function renderListSettings(container, block) {
         const linkBtn = document.createElement('button');
         linkBtn.type = 'button';
         linkBtn.textContent = '🔗 Сделать выделенный текст ссылкой';
-        linkBtn.style.cssText = 'width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid #4b5563; background: none; color: #9ca3af; font-size: 11px; cursor: pointer;';
+        linkBtn.style.cssText = 'width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-secondary); background: none; color: var(--text-muted); font-size: 11px; cursor: pointer;';
 
         linkBtn.addEventListener('click', () => {
             const start = textarea.selectionStart;
@@ -90,7 +90,7 @@ function renderListSettings(container, block) {
 
     const addBtn = document.createElement('button');
     addBtn.textContent = '+ Добавить пункт';
-    addBtn.style.cssText = 'width: 100%; padding: 10px; background: #f97316; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;';
+    addBtn.style.cssText = 'width: 100%; padding: 10px; background: var(--accent-primary); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600;';
     addBtn.addEventListener('click', () => {
         const newItems = [...(s.items || []), 'Новый пункт'];
         updateBlockSetting(block.id, 'items', newItems);
@@ -137,7 +137,7 @@ function renderListSettings(container, block) {
     bulletGroup.appendChild(bulletLabel);
 
     const bulletHint = document.createElement('div');
-    bulletHint.style.cssText = 'font-size: 12px; color: #9ca3af; margin-top: 4px;';
+    bulletHint.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-top: 4px;';
     bulletHint.textContent = 'Выберите иконку из библиотеки или загрузите свою.';
     bulletGroup.appendChild(bulletHint);
 
@@ -165,7 +165,7 @@ function renderListSettings(container, block) {
     if (s.bulletCustom) {
         const resetBtn = document.createElement('button');
         resetBtn.textContent = 'Сбросить свою иконку';
-        resetBtn.style.cssText = 'margin-top: 8px; width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #4b5563; background: none; color: #e5e7eb; font-size: 12px; cursor: pointer;';
+        resetBtn.style.cssText = 'margin-top: 8px; width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: none; color: var(--text-secondary); font-size: 12px; cursor: pointer;';
         resetBtn.addEventListener('click', () => {
             updateBlockSetting(block.id, 'bulletCustom', '');
             renderSettings();

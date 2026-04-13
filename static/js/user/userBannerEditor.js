@@ -75,7 +75,7 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
     container.style.cssText = `
         display: grid;
         grid-template-columns: 28px 1fr;
-        gap: 6px;
+        gap: 8px;
         align-items: center;
         margin-top: 8px;
         margin-bottom: 4px;
@@ -86,7 +86,7 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
     tag.textContent = label;
     tag.style.cssText = `
         font-size: 12px;
-        color: #9ca3af;
+        color: var(--text-muted);
         user-select: none;
         cursor: ew-resize;
         text-align: center;
@@ -98,10 +98,10 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
     field.style.cssText = `
         display: flex;
         align-items: center;
-        background: #1e293b;
-        border: 1px solid #374151;
+        background: var(--bg-input);
+        border: 1px solid var(--border-secondary);
         border-radius: 8px;
-        padding: 6px 10px;
+        padding: 8px 12px;
         gap: 4px;
     `;
 
@@ -115,7 +115,7 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
         border: 0;
         outline: none;
         background: transparent;
-        color: #e5e7eb;
+        color: var(--text-secondary);
         font-weight: 500;
         font-size: 13px;
         -moz-appearance: textfield;
@@ -123,7 +123,7 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
 
     const suffix = document.createElement('span');
     suffix.textContent = 'px';
-    suffix.style.cssText = `font-size: 11px; color: #6b7280; user-select: none;`;
+    suffix.style.cssText = `font-size: 11px; color: var(--text-muted); user-select: none;`;
 
     field.appendChild(input);
     field.appendChild(suffix);
@@ -152,7 +152,7 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
         tag.setPointerCapture(e.pointerId);
         startX = e.clientX;
         startVal = Number(input.value) || 0;
-        tag.style.color = '#60a5fa';
+        tag.style.color = 'var(--accent-secondary)';
     });
 
     tag.addEventListener('pointermove', (e) => {
@@ -161,8 +161,8 @@ function createScrubInput({ label, value, min = -200, max = 200, onChange }) {
         applyValue(startVal + (e.clientX - startX) * speed);
     });
 
-    tag.addEventListener('pointerup', () => { dragging = false; tag.style.color = '#9ca3af'; });
-    tag.addEventListener('pointercancel', () => { dragging = false; tag.style.color = '#9ca3af'; });
+    tag.addEventListener('pointerup', () => { dragging = false; tag.style.color = 'var(--text-muted)'; });
+    tag.addEventListener('pointercancel', () => { dragging = false; tag.style.color = 'var(--text-muted)'; });
 
     container.appendChild(tag);
     container.appendChild(field);
@@ -239,19 +239,19 @@ function loadBannerTexts() {
         toggleLabel.style.cssText = `
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 8px;
             cursor: pointer;
             white-space: nowrap;
             flex-shrink: 0;
         `;
         const isHidden = !!(textEl.hidden);
         toggleLabel.innerHTML = `
-            <span style="font-size:12px; color:#9ca3af;">Скрыть</span>
+            <span style="font-size:12px; color:var(--text-muted);">Скрыть</span>
             <div class="banner-toggle-switch ${isHidden ? 'active' : ''}" style="
                 width: 36px;
                 height: 20px;
                 border-radius: 10px;
-                background: ${isHidden ? '#7700ff' : '#374151'};
+                background: ${isHidden ? 'var(--accent-primary)' : 'var(--border-tertiary)'};
                 position: relative;
                 transition: background 0.2s;
                 flex-shrink: 0;
@@ -274,7 +274,7 @@ function loadBannerTexts() {
             const newHidden = !bannerEditorState.textElements[index].hidden;
             bannerEditorState.textElements[index].hidden = newHidden;
 
-            toggleSwitch.style.background = newHidden ? '#7700ff' : '#374151';
+            toggleSwitch.style.background = newHidden ? 'var(--accent-primary)' : 'var(--border-tertiary)';
             toggleSwitch.querySelector('div').style.left = newHidden ? '18px' : '3px';
             toggleSwitch.classList.toggle('active', newHidden);
 
@@ -441,26 +441,34 @@ function loadBannerColors() {
     const bgColor = document.getElementById('banner-bg-color');
     const bgColorHex = document.getElementById('banner-bg-color-hex');
     if (bgColor && bgColorHex) {
-        bgColor.value = bannerEditorState.backgroundColor || '#7700FF';
-        bgColorHex.textContent = bgColor.value.toUpperCase();
-        bgColor.oninput = () => {
-            bannerEditorState.backgroundColor = bgColor.value;
-            bgColorHex.textContent = bgColor.value.toUpperCase();
-            updateColorPaletteSelection();
-            updateBannerPreview();
-        };
+        bindColorTrigger({
+            trigger: bgColor,
+            valueNode: bgColorHex,
+            title: 'Цвет фона',
+            currentColor: bannerEditorState.backgroundColor || '#7700FF',
+            allowTransparent: false,
+            onApply: (chosenColor) => {
+                bannerEditorState.backgroundColor = chosenColor;
+                updateColorPaletteSelection();
+                updateBannerPreview();
+            }
+        });
     }
 
     const leftColor = document.getElementById('banner-left-color');
     const leftColorHex = document.getElementById('banner-left-color-hex');
     if (leftColor && leftColorHex) {
-        leftColor.value = bannerEditorState.leftBlockColor || '#1D2533';
-        leftColorHex.textContent = leftColor.value.toUpperCase();
-        leftColor.oninput = () => {
-            bannerEditorState.leftBlockColor = leftColor.value;
-            leftColorHex.textContent = leftColor.value.toUpperCase();
-            updateBannerPreview();
-        };
+        bindColorTrigger({
+            trigger: leftColor,
+            valueNode: leftColorHex,
+            title: 'Цвет левого блока',
+            currentColor: bannerEditorState.leftBlockColor || '#1D2533',
+            allowTransparent: false,
+            onApply: (chosenColor) => {
+                bannerEditorState.leftBlockColor = chosenColor;
+                updateBannerPreview();
+            }
+        });
     }
 
     const palette = document.getElementById('banner-color-palette');
@@ -469,8 +477,10 @@ function loadBannerColors() {
             btn.addEventListener('click', () => {
                 const color = btn.dataset.color;
                 if (bgColor) {
-                    bgColor.value = color;
-                    bgColorHex.textContent = color.toUpperCase();
+                    applyColorTriggerValue(bgColor, color);
+                }
+                if (bgColorHex) {
+                    bgColorHex.textContent = formatColorValue(color);
                 }
                 bannerEditorState.backgroundColor = color;
                 updateColorPaletteSelection();

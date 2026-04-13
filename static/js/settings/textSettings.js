@@ -87,7 +87,7 @@ function renderTextSettings(container, block) {
     const btnBold = document.createElement('button');
     btnBold.innerHTML = '<strong>B</strong>';
     btnBold.title = 'Жирный текст (выделите текст и нажмите)';
-    btnBold.style.cssText = 'padding: 6px 12px; background: #334155; border: 1px solid #475569; border-radius: 4px; color: #e5e7eb; cursor: pointer; font-weight: bold;';
+    btnBold.style.cssText = 'padding: 6px 12px; background: var(--bg-hover); border: 1px solid var(--border-secondary); border-radius: 4px; color: var(--text-secondary); cursor: pointer; font-weight: bold;';
 
     btnBold.addEventListener('click', () => {
         const ta = container.querySelector(
@@ -125,7 +125,7 @@ function renderTextSettings(container, block) {
     formatGroup.appendChild(formatToolbar);
 
     const formatHint = document.createElement('div');
-    formatHint.style.cssText = 'font-size: 11px; color: #64748b; margin-top: 6px;';
+    formatHint.style.cssText = 'font-size: 11px; color: var(--text-muted); margin-top: 6px;';
     formatHint.textContent = 'Совет: выделите текст и нажмите B для жирного';
     formatGroup.appendChild(formatHint);
 
@@ -184,14 +184,14 @@ function createTextLinkToolbar(block) {
     group.appendChild(label);
 
     const hint = document.createElement('div');
-    hint.style.cssText = 'font-size: 12px; color: #9ca3af; margin-bottom: 8px;';
+    hint.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-bottom: 8px;';
     hint.textContent = 'Выделите текст в поле выше и нажмите кнопку, чтобы сделать его ссылкой.';
     group.appendChild(hint);
 
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.textContent = 'Сделать выделенный текст ссылкой';
-    btn.style.cssText = 'width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid #4b5563; background: none; color: #e5e7eb; font-size: 12px; cursor: pointer;';
+    btn.style.cssText = 'width: 100%; padding: 8px 12px; border-radius: 6px; border: 1px solid var(--border-secondary); background: none; color: var(--text-secondary); font-size: 12px; cursor: pointer;';
 
     btn.addEventListener('click', () => {
         const ta = document.querySelector(

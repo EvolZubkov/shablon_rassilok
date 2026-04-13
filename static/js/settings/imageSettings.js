@@ -42,9 +42,9 @@ function renderImageSettings(container, block) {
     btnAll.textContent = 'Все углы';
     btnAll.style.cssText = `
         flex: 1; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px;
-        border: 1px solid ${s.borderRadiusMode === 'all' ? '#f97316' : '#475569'};
-        background: ${s.borderRadiusMode === 'all' ? '#f97316' : '#334155'};
-        color: #e5e7eb;
+        border: 1px solid ${s.borderRadiusMode === 'all' ? 'var(--accent-primary)' : 'var(--border-secondary)'};
+        background: ${s.borderRadiusMode === 'all' ? 'var(--accent-primary)' : 'var(--bg-hover)'};
+        color: #ffffff;
     `;
     btnAll.addEventListener('click', () => {
         updateBlockSetting(block.id, 'borderRadiusMode', 'all');
@@ -55,9 +55,9 @@ function renderImageSettings(container, block) {
     btnEach.textContent = 'Каждый угол';
     btnEach.style.cssText = `
         flex: 1; padding: 8px; border-radius: 6px; cursor: pointer; font-size: 12px;
-        border: 1px solid ${s.borderRadiusMode === 'each' ? '#f97316' : '#475569'};
-        background: ${s.borderRadiusMode === 'each' ? '#f97316' : '#334155'};
-        color: #e5e7eb;
+        border: 1px solid ${s.borderRadiusMode === 'each' ? 'var(--accent-primary)' : 'var(--border-secondary)'};
+        background: ${s.borderRadiusMode === 'each' ? 'var(--accent-primary)' : 'var(--bg-hover)'};
+        color: #ffffff;
     `;
     btnEach.addEventListener('click', () => {
         updateBlockSetting(block.id, 'borderRadiusMode', 'each');
@@ -86,14 +86,14 @@ function renderImageSettings(container, block) {
 
             const cornerLabel = document.createElement('span');
             cornerLabel.textContent = corner.label;
-            cornerLabel.style.cssText = 'font-size: 11px; color: #9ca3af;';
+            cornerLabel.style.cssText = 'font-size: 11px; color: var(--text-muted);';
 
             const cornerInput = document.createElement('input');
             cornerInput.type = 'number';
             cornerInput.min = 0;
             cornerInput.max = 200;
             cornerInput.value = s[corner.key] || 0;
-            cornerInput.style.cssText = 'width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #e5e7eb; font-size: 14px;';
+            cornerInput.style.cssText = 'width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-input); color: var(--text-secondary); font-size: 14px;';
             cornerInput.addEventListener('input', (e) => {
                 updateBlockSetting(block.id, corner.key, parseInt(e.target.value) || 0);
             });
@@ -112,7 +112,7 @@ function renderImageSettings(container, block) {
         allInput.max = 200;
         allInput.value = s.borderRadiusAll || 0;
         allInput.placeholder = 'px';
-        allInput.style.cssText = 'width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #475569; background: #1e293b; color: #e5e7eb; font-size: 14px;';
+        allInput.style.cssText = 'width: 100%; padding: 10px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-input); color: var(--text-secondary); font-size: 14px;';
         allInput.addEventListener('input', (e) => {
             updateBlockSetting(block.id, 'borderRadiusAll', parseInt(e.target.value) || 0);
         });
@@ -132,4 +132,3 @@ function renderImageSettings(container, block) {
     container.appendChild(createSettingSelect('Соотношение сторон', s.aspectRatio || 'original', block.id, 'aspectRatio', aspectRatioOptions));
     container.appendChild(createSettingInput('Ссылка на картинке', s.url || '', block.id, 'url'));
 }
-

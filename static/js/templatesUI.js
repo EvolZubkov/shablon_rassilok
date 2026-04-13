@@ -31,6 +31,71 @@ function showConfirmDialog(message) {
     return Promise.resolve(window.confirm(message));
 }
 
+function showUnsavedChangesDialog(templateName) {
+    return new Promise((resolve) => {
+        const dlg = document.createElement('dialog');
+        dlg.className = 'app-dialog';
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'width:100%;';
+
+        const title = document.createElement('h3');
+        title.textContent = 'Несохранённые изменения';
+        title.style.cssText = 'margin:0 0 16px 0;font-size:18px;color:#f9fafb;font-weight:600;';
+        dialog.appendChild(title);
+
+        const text = document.createElement('p');
+        text.textContent = `В шаблоне «${templateName}» есть несохранённые изменения. Сохранить их перед выходом?`;
+        text.style.cssText = 'margin:0 0 20px 0;font-size:14px;line-height:1.5;color:#cbd5e1;';
+        dialog.appendChild(text);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.textContent = 'Отмена';
+        btnCancel.style.cssText = 'padding:9px 18px;background:#374151;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:13px;';
+
+        const btnDiscard = document.createElement('button');
+        btnDiscard.type = 'button';
+        btnDiscard.textContent = 'Не сохранять';
+        btnDiscard.style.cssText = 'padding:9px 18px;background:#475569;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:13px;';
+
+        const btnSave = document.createElement('button');
+        btnSave.type = 'button';
+        btnSave.textContent = 'Сохранить';
+        btnSave.style.cssText = 'padding:9px 18px;background:#f97316;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;';
+
+        actions.appendChild(btnCancel);
+        actions.appendChild(btnDiscard);
+        actions.appendChild(btnSave);
+        dialog.appendChild(actions);
+
+        dlg.appendChild(dialog);
+        document.body.appendChild(dlg);
+
+        const closeWith = (result) => {
+            dlg.close();
+            dlg.remove();
+            resolve(result);
+        };
+
+        btnCancel.addEventListener('click', () => closeWith('cancel'));
+        btnDiscard.addEventListener('click', () => closeWith('discard'));
+        btnSave.addEventListener('click', () => closeWith('save'));
+        dlg.addEventListener('click', (e) => {
+            if (e.target === dlg) closeWith('cancel');
+        });
+        dlg.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            closeWith('cancel');
+        });
+
+        dlg.showModal();
+    });
+}
+
 function isPresetTemplate(t) {
     // Используем явное поле isPreset (не эмодзи в имени)
     if (!t) return false;
@@ -110,6 +175,7 @@ const TemplatesUI = {
     isOpen: false,
     templates: { shared: [], personal: [] },
     currentTemplate: null,
+    savedSnapshot: null,
     _isAdmin: false,
     _modePromise: null,
     /** ETag from the last successful /api/templates/list response. */
@@ -213,33 +279,52 @@ const TemplatesUI = {
     },
 
     /**
-     * Show or hide the spinner inside the templates list.
-     * Replaces list content with a spinner placeholder while data is loading.
+     * Show or hide the loading bar at the top of the templates list.
+     * On a cold load (no cached data) replaces list content with a full
+     * spinner so the user sees something while the panel is empty.
+     * On warm loads inserts a non-blocking progress bar above existing content.
      * @param {boolean} on
+     * @param {boolean} [cold=false] - true on first ever load (no data yet)
      */
-    _setListLoading(on) {
-        if (on) {
+    _setListLoading(on, cold = false) {
+        // Remove any existing bar first.
+        this.list.querySelector('.templates-loading-bar')?.remove();
+
+        if (!on) return;
+
+        if (cold) {
             this.list.innerHTML = `
                 <div class="templates-list-loading">
                     <div class="templates-list-spinner"></div>
                     <span>Загрузка шаблонов\u2026</span>
                 </div>`;
+            return;
         }
-        // When off, renderTemplates() will overwrite the content — no action needed.
+
+        // Warm load: insert the progress bar without clearing existing content.
+        const bar = document.createElement('div');
+        bar.className = 'templates-loading-bar';
+        this.list.insertAdjacentElement('afterbegin', bar);
     },
 
     async loadTemplates() {
-        // Only show spinner on a truly cold load (no cached data yet).
-        // On re-opens or conditional GETs keep the existing list visible to
-        // avoid the flash where all templates disappear briefly.
+        // Show a full spinner on cold load (no cached data yet), otherwise
+        // show a non-blocking progress bar above existing content.
         const hasData = this._etag !== null
             || this.templates.shared.length > 0
             || this.templates.personal.length > 0;
-        if (!hasData) {
-            this._setListLoading(true);
-        }
+        this._setListLoading(true, !hasData);
 
-        const result = await TemplatesAPI.getList(this._etag);
+        let result;
+        try {
+            result = await TemplatesAPI.getList(this._etag);
+        } catch (err) {
+            this._setListLoading(false);
+            this.list.innerHTML = `<div class="templates-empty">Ошибка загрузки шаблонов</div>`;
+            return;
+        }
+        this._setListLoading(false);
+
         if (result.unchanged) {
             // Server confirmed our data is still current — just re-render.
             this.renderTemplates();
@@ -249,6 +334,23 @@ const TemplatesUI = {
         this._etag = result.etag;
         console.log('📚 Загружено шаблонов:', this.templates);
         this.renderTemplates();
+    },
+
+    _snapshotBlocks(blocks = AppState.blocks) {
+        try {
+            return JSON.stringify(blocks || []);
+        } catch (_) {
+            return null;
+        }
+    },
+
+    syncSavedSnapshot(blocks = AppState.blocks) {
+        this.savedSnapshot = this._snapshotBlocks(blocks);
+    },
+
+    hasUnsavedChanges() {
+        if (!this.currentTemplate) return false;
+        return this.savedSnapshot !== this._snapshotBlocks(AppState.blocks);
     },
 
     /**
@@ -470,7 +572,16 @@ const TemplatesUI = {
     async selectTemplate(template) {
         const name = decodeHtml(template.name);
 
-        if (AppState.blocks.length > 0) {
+        if (this.currentTemplate && this.hasUnsavedChanges()) {
+            const decision = await showUnsavedChangesDialog(decodeHtml(this.currentTemplate.name));
+            if (decision === 'cancel') return;
+            if (decision === 'save') {
+                const saved = await this.updateTemplateFromCanvas(this.currentTemplate, { confirm: false });
+                if (!saved) return;
+            }
+        }
+
+        if (!this.currentTemplate && AppState.blocks.length > 0) {
             const confirmed = await showConfirmDialog(
                 `На холсте уже есть блоки.\n\nЗаменить их шаблоном «${name}»?`
             );
@@ -488,6 +599,7 @@ const TemplatesUI = {
         if (templateData && templateData.blocks) {
             AppState.blocks = migrateExpertLite(templateData.blocks);
             this.currentTemplate = { ...template, name };
+            this.syncSavedSnapshot(AppState.blocks);
 
             const maxId = this.findMaxBlockId(AppState.blocks);
             if (maxId > 0) {
@@ -550,15 +662,18 @@ const TemplatesUI = {
         }
     },
 
-    async updateTemplateFromCanvas(template) {
+    async updateTemplateFromCanvas(template, options = {}) {
+        const { confirm = true } = options;
         if (!AppState.blocks.length) {
             Toast.warning('Холст пуст — нечего сохранять.');
-            return;
+            return false;
         }
-        const confirmed = await showConfirmDialog(
-            `Обновить шаблон «${decodeHtml(template.name)}» текущим содержимым холста?\n\nСодержимое шаблона будет заменено.`
-        );
-        if (!confirmed) return;
+        if (confirm) {
+            const confirmed = await showConfirmDialog(
+                `Обновить шаблон «${decodeHtml(template.name)}» текущим содержимым холста?\n\nСодержимое шаблона будет заменено.`
+            );
+            if (!confirmed) return false;
+        }
 
         // Snapshot blocks immediately — user may switch templates while preview renders
         const blocksSnapshot = JSON.parse(JSON.stringify(AppState.blocks));
@@ -569,14 +684,17 @@ const TemplatesUI = {
         if (success) {
             progress.resolve('success', `Шаблон «${template.name}» обновлён`);
             this.currentTemplate = template;
+            this.syncSavedSnapshot(blocksSnapshot);
             window.updateCanvasContext?.();
 
             // Generate preview in background — does not block the user
             generateTemplatePreview()
                 .then(preview => preview && TemplatesAPI.updatePreview(template.id, template.type, preview))
                 .catch(() => {});
+            return true;
         } else {
             progress.resolve('error', `Ошибка обновления шаблона «${template.name}»`);
+            return false;
         }
     },
 
@@ -604,6 +722,7 @@ const TemplatesUI = {
             if (success) {
                 if (this.currentTemplate?.id === template.id) {
                     this.currentTemplate = null;
+                    this.savedSnapshot = null;
                     window.updateCanvasContext?.();
                 }
                 // Optimistic local update — no round-trip needed
@@ -687,11 +806,21 @@ const TemplatesUI = {
             return;
         }
 
+        if (this.currentTemplate && this.hasUnsavedChanges()) {
+            const decision = await showUnsavedChangesDialog(decodeHtml(this.currentTemplate.name));
+            if (decision === 'cancel') return;
+            if (decision === 'save') {
+                const saved = await this.updateTemplateFromCanvas(this.currentTemplate, { confirm: false });
+                if (!saved) return;
+            }
+        }
+
         const confirmed = await showConfirmDialog('Очистить холст?');
         if (!confirmed) return;
 
         AppState.blocks = [];
         this.currentTemplate = null;
+        this.savedSnapshot = null;
 
         renderCanvas();
         renderSettings();
@@ -702,6 +831,10 @@ const TemplatesUI = {
         });
     }
 };
+
+// Expose TemplatesUI on window so main.js can read currentTemplate via window.TemplatesUI.
+// Top-level `const` declarations are not properties of `window`, so we assign explicitly.
+window.TemplatesUI = TemplatesUI;
 
 // Функция сохранения шаблона
 async function saveCurrentTemplate() {
@@ -808,12 +941,15 @@ function showSaveTemplateDialog() {
 
     const _updateOptionsUI = () => {
         const isPreset = saveTypeSelect.value === 'preset';
+        // When switching to preset mode, reset the toggle to OFF (personal)
+        if (isPreset && switchInput.checked) {
+            switchInput.checked = false;
+        }
         const on = switchInput.checked;
-        // Toggle disabled when preset (preset is always shared)
-        switchRow.style.opacity = isPreset ? '0.4' : '1';
-        switchRow.style.pointerEvents = isPreset ? 'none' : '';
-        currentType = (isPreset || on) ? 'shared' : 'personal';
-        // Category only for shared templates (not presets)
+        switchRow.style.opacity = '1';
+        switchRow.style.pointerEvents = '';
+        currentType = on ? 'shared' : 'personal';
+        // Category only for shared non-preset items
         categorySection.style.display = (!isPreset && on) ? 'block' : 'none';
         nameInput.placeholder = isPreset ? 'Название пресета' : 'Название шаблона';
         // Toggle visuals
@@ -925,6 +1061,7 @@ function showSaveTemplateDialog() {
 
     dlg.appendChild(dialog);
     document.body.appendChild(dlg);
+    _updateOptionsUI(); // sync initial UI state — all consts are declared above
     dlg.showModal();
     setTimeout(() => nameInput.focus(), 60);
 
@@ -956,6 +1093,7 @@ function showSaveTemplateDialog() {
             progress.resolve('success', `Шаблон «${templateName}» сохранён`);
             const newItem = { id: savedId, name: templateName, type: currentType, category, isPreset: false };
             TemplatesUI.currentTemplate = newItem;
+            TemplatesUI.syncSavedSnapshot(blocksSnapshot);
             window.updateCanvasContext?.();
             // Optimistic local update — insert and re-sort without a server round-trip
             const list = TemplatesUI.templates[currentType] || [];
@@ -989,17 +1127,18 @@ function showSaveTemplateDialog() {
         closeDialog();
         const progress = Toast.loading(`Сохранение пресета «${presetName}»\u2026`);
 
-        const savedId = await TemplatesAPI.save(presetName, blocks, 'shared', '', null, true);
+        const savedId = await TemplatesAPI.save(presetName, blocks, currentType, '', null, true);
         if (savedId) {
             progress.resolve('success', `Пресет «${presetName}» сохранён`);
-            // Optimistic local update
-            const newItem = { id: savedId, name: presetName, type: 'shared', category: '', isPreset: true };
-            const list = TemplatesUI.templates.shared || [];
+            // Optimistic local update in templates list
+            const newItem = { id: savedId, name: presetName, type: currentType, category: '', isPreset: true };
+            const list = TemplatesUI.templates[currentType] || [];
             list.push(newItem);
             list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-            TemplatesUI.templates.shared = list;
+            TemplatesUI.templates[currentType] = list;
             if (TemplatesUI.isOpen) TemplatesUI.renderTemplates();
-            // Presets don't need a visual preview thumbnail
+            // Update the inline presets panel (sidebar grid)
+            window.addPresetToPanel?.(newItem);
         } else {
             progress.resolve('error', `Ошибка сохранения пресета «${presetName}»`);
         }
@@ -1097,7 +1236,7 @@ document.addEventListener('DOMContentLoaded', () => {
         btnSave.addEventListener('click', async () => {
             const current = TemplatesUI.currentTemplate;
             if (current && !isPresetTemplate(current)) {
-                await TemplatesUI.updateTemplateFromCanvas(current);
+                await TemplatesUI.updateTemplateFromCanvas(current, { confirm: false });
                 return;
             }
             await saveCurrentTemplate();
