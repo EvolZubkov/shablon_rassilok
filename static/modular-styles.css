@@ -330,11 +330,13 @@ body.admin-mode-page .app-container {
   color: var(--text-secondary);
 }
 .settings-panel {
-  width: 340px;
+  width: clamp(320px, 27vw, 380px);
+  min-width: 320px;
   background: var(--bg-tertiary);
   border-left: 1px solid var(--border-primary);
   padding: 84px 20px 20px;
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .settings-panel h2 {
@@ -347,6 +349,8 @@ body.admin-mode-page .app-container {
   display: flex;
   flex-direction: column;
   gap: 16px;
+  min-width: 0;
+  padding: 0 16px 20px;
 }
 
 .settings-empty {
@@ -379,6 +383,7 @@ body.admin-mode-page .app-container {
 
 .setting-group {
   margin-bottom: 16px;
+  min-width: 0;
 }
 
 .setting-label {
@@ -393,6 +398,8 @@ body.admin-mode-page .app-container {
 .setting-textarea,
 .setting-select {
   width: 100%;
+  max-width: 100%;
+  min-width: 0;
   padding: 8px 12px;
   background: var(--bg-secondary);
   border: 1px solid var(--border-tertiary);
@@ -415,7 +422,9 @@ body.admin-mode-page .app-container {
 }
 
 .setting-range {
-  width: calc(100% - 60px);
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
   margin-right: 8px;
 }
 
@@ -434,6 +443,11 @@ body.admin-mode-page .app-container {
 }
 
 .file-upload-btn {
+  display: flex;
+  width: 100%;
+  min-height: 36px;
+  align-items: center;
+  justify-content: center;
   padding: 10px;
   background: var(--bg-secondary);
   border: 2px dashed var(--border-dashed);
@@ -452,6 +466,12 @@ body.admin-mode-page .app-container {
 
 .file-upload-btn input {
   display: none;
+}
+
+.expert-badge-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 
 .banner-grid,
@@ -504,6 +524,7 @@ body.admin-mode-page .app-container {
   height: 120px;
   margin: 0 auto 12px;
   position: relative;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -516,6 +537,7 @@ body.admin-mode-page .app-container {
   overflow: hidden;
   transform: rotate(45deg);
   position: relative;
+  z-index: 1;
 }
 
 .photo-mask img {
@@ -527,13 +549,13 @@ body.admin-mode-page .app-container {
 
 .expert-badge-preview {
   position: absolute;
-  bottom: 0;
-  right: 0;
   width: 36px;
   height: 36px;
   display: flex;
   align-items: center;
   justify-content: center;
+  z-index: 2;
+  pointer-events: none;
 }
 
 .expert-badge-preview img {
@@ -866,6 +888,37 @@ body.admin-mode-page .app-container {
   flex: 1;
   overflow-y: auto;
   padding: 12px;
+  position: relative;
+}
+
+/* Indeterminate loading bar injected as a real element by JS. */
+.templates-loading-bar {
+  position: sticky;
+  top: -12px;
+  left: 0;
+  height: 2px;
+  margin: -12px -12px 10px;
+  background: #9466FF;
+  border-radius: 1px;
+  overflow: hidden;
+  z-index: 5;
+  pointer-events: none;
+}
+
+.templates-loading-bar::after {
+  content: '';
+  display: block;
+  width: 40%;
+  height: 100%;
+  background: rgba(255, 255, 255, 0.45);
+  border-radius: 1px;
+  will-change: transform;
+  animation: tpl-bar 1.2s ease-in-out infinite;
+}
+
+@keyframes tpl-bar {
+  0%   { transform: translate3d(-250%, 0, 0); }
+  100% { transform: translate3d(350%, 0, 0); }
 }
 .template-item {
   display: flex;
@@ -949,6 +1002,11 @@ dialog.app-dialog {
   width: 90%;
   color: #e5e7eb;
   font-family: inherit;
+  margin: auto;
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 
 dialog.app-dialog::backdrop {
@@ -1447,6 +1505,15 @@ dialog.app-dialog::backdrop {
   border-radius: 3px;
   box-shadow: 0 1px 4px rgba(0,0,0,0.5);
   z-index: 1;
+  cursor: ew-resize;
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: none;
+}
+
+.grad-popup__bar-pin--dragging {
+  box-shadow: 0 0 0 2px #9466FF, 0 2px 6px rgba(0,0,0,0.6);
+  z-index: 2;
 }
 .grad-popup__section {
   display: flex;
@@ -1659,7 +1726,7 @@ dialog.app-dialog::backdrop {
   aspect-ratio: 16 / 9;
   border-radius: 10px;
   border: 1px solid #3a3a3a;
-  overflow: visible;
+  overflow: hidden;
   cursor: crosshair;
   user-select: none;
 }
@@ -1931,7 +1998,7 @@ dialog.app-dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 18px 20px 16px;
+  padding: 16px 20px;
   border-bottom: 1px solid var(--exchange-modal-border, #334766);
   flex-shrink: 0;
 }
@@ -1951,7 +2018,7 @@ dialog.app-dialog::backdrop {
   height: 28px;
   padding: 0;
   border: none;
-  border-radius: 7px;
+  border-radius: 8px;
   background: var(--exchange-modal-close-bg, #3a4a66);
   color: var(--exchange-modal-close-color, #dbe4f0);
   cursor: pointer;
@@ -1969,7 +2036,7 @@ dialog.app-dialog::backdrop {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 16px;
   padding: 20px;
   overflow-y: auto;
 }
@@ -1978,7 +2045,7 @@ dialog.app-dialog::backdrop {
 .exc-field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 8px;
 }
 
 /* Лейбл */
@@ -1989,7 +2056,7 @@ dialog.app-dialog::backdrop {
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: 4px;
 }
 
 .exc-hint {
@@ -2090,7 +2157,7 @@ dialog.app-dialog::backdrop {
 /* Результат теста подключения */
 .exc-test-result {
   display: none;
-  padding: 10px 12px;
+  padding: 12px;
   border-radius: 8px;
   font-size: 13px;
   line-height: 1.4;
@@ -2115,18 +2182,18 @@ dialog.app-dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 10px;
-  padding: 14px 20px 16px;
+  gap: 8px;
+  padding: 16px 20px;
   border-top: 1px solid var(--exchange-modal-border, #334766);
   flex-shrink: 0;
 }
 
 /* Кнопки */
 .exc-btn {
-  height: 38px;
+  height: 40px;
   min-width: 110px;
-  padding: 0 18px;
-  border-radius: 9px;
+  padding: 0 16px;
+  border-radius: 8px;
   font-size: 13px;
   font-weight: 600;
   font-family: inherit;
@@ -2230,6 +2297,170 @@ dialog.app-dialog::backdrop {
 .exc-btn--sm {
     padding: 4px 10px;
     font-size: 12px;
+}
+
+.app-settings-meta {
+  min-height: 38px;
+  padding: 9px 12px;
+  border: 1px solid var(--input-border, #344765);
+  border-radius: 8px;
+  background: var(--input-bg, #0c1730);
+  color: var(--input-text, #f5f7fb);
+  font-size: 13px;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.app-settings-actions {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  align-items: stretch;
+}
+
+.exchange-settings-tabs {
+  margin-bottom: 16px;
+}
+
+.exchange-settings-pane {
+  display: none;
+}
+
+.exchange-settings-pane.is-active {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.exchange-settings-footer-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+
+#exchange-settings-cancel-btn {
+  margin-right: auto;
+}
+
+.app-settings-actions .exc-btn {
+  width: 100%;
+  min-width: 0;
+}
+
+.app-settings-actions .exc-btn:last-child {
+  grid-column: 1 / -1;
+}
+
+#exchange-credentials-modal .exchange-settings-panel {
+  width: min(100%, 544px);
+  border-radius: 16px;
+}
+
+#exchange-credentials-modal .exc-header {
+  padding: 16px 24px;
+}
+
+#exchange-credentials-modal .exc-title {
+  font-size: 16px;
+  line-height: 20px;
+}
+
+#exchange-credentials-modal .exc-close {
+  width: 32px;
+  height: 32px;
+}
+
+#exchange-credentials-modal .exc-body {
+  gap: 4px;
+  padding: 20px 24px;
+}
+
+#exchange-credentials-modal .exchange-settings-tabs {
+  margin-bottom: 24px;
+}
+
+#exchange-credentials-modal .exchange-settings-pane.is-active {
+  gap: 4px;
+}
+
+#exchange-credentials-modal #settings-pane-exchange.exchange-settings-pane.is-active {
+  gap: 8px;
+}
+
+#exchange-credentials-modal .exc-field {
+  gap: 4px;
+}
+
+#exchange-credentials-modal #settings-pane-exchange > .exc-field + .exc-field {
+  margin-top: 4px;
+}
+
+#exchange-credentials-modal .exc-label {
+  gap: 4px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-hint {
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-input {
+  height: 40px;
+  padding: 0 12px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-input:focus {
+  box-shadow: 0 0 0 4px var(--input-focus-ring, rgba(124, 58, 237, 0.18));
+}
+
+#exchange-credentials-modal .exc-input--select {
+  padding-right: 32px;
+  background-position: right 12px center;
+}
+
+#exchange-credentials-modal .exc-test-result {
+  padding: 12px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .exc-footer {
+  gap: 4px;
+  padding: 16px 24px;
+}
+
+#exchange-credentials-modal #settings-actions-exchange {
+  gap: 4px;
+}
+
+#exchange-credentials-modal #settings-actions-exchange > .exc-btn + .exc-btn {
+  margin-left: 4px;
+}
+
+#exchange-credentials-modal .exc-btn {
+  height: 40px;
+  min-width: 112px;
+  padding: 0 16px;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+#exchange-credentials-modal .app-settings-actions {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  margin-top: 4px;
+}
+
+#exchange-credentials-modal .app-settings-actions .exc-btn {
+  min-width: 0;
+}
+
+#exchange-credentials-modal #app-settings-result {
+  margin-top: 4px;
 }
 /* ============================================================
    Панель личных ресурсов (userResources.js)
@@ -2615,10 +2846,12 @@ body.admin-mode-page .app-container {
 .menu-dropdown {
   display: none;
   position: absolute;
-  top: calc(100% + 4px);
+  /* Overlap the trigger by 2px so there is no gap for the cursor to
+     escape through. The visual margin is provided by padding-top below. */
+  top: 100%;
   left: 0;
   min-width: 220px;
-  padding: 4px;
+  padding: 6px 4px 4px;
   border: 1px solid var(--border-secondary);
   border-radius: 10px;
   background: var(--bg-secondary);
@@ -2806,7 +3039,7 @@ body.admin-mode-page .app-container {
 .settings-panel-head {
   padding: 16px;
   border-bottom: 1px solid var(--border-primary);
-  background: var(--bg-secondary);
+  background: var(--bg-tertiary);
 }
 
 .sidebar-panel-head h2,
@@ -2852,6 +3085,32 @@ body.admin-mode-page .app-container {
   border-radius: 0;
   background: transparent;
   color: var(--text-secondary);
+}
+
+.sidebar-search-clear {
+  display: none;
+  flex: 0 0 24px;
+  width: 24px;
+  height: 24px;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.2s, color 0.2s;
+}
+
+.sidebar-search-clear.is-visible {
+  display: inline-flex;
+}
+
+.sidebar-search-clear:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: var(--text-primary);
 }
 
 .sidebar-search input:focus {
@@ -2913,6 +3172,13 @@ body.admin-mode-page .app-container {
   gap: 8px;
   font-size: 14px;
   font-weight: 600;
+}
+
+.accordion-trigger-label [data-lucide] {
+  width: 16px;
+  height: 16px;
+  stroke-width: 2;
+  flex-shrink: 0;
 }
 
 .accordion-chevron {
@@ -3157,6 +3423,7 @@ body.admin-mode-page .app-container {
 
 .settings-content {
   overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .modal-header-actions {
@@ -3216,14 +3483,14 @@ body.admin-mode-page .app-container {
   background: var(--bg-secondary);
   border-color: var(--border-secondary);
   color: var(--text-secondary);
-  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 12px 32px rgba(31, 35, 41, 0.12);
 }
 
 /* Template context menu (three-dot dropdown) */
 [data-theme="light"] .template-menu-dropdown {
   background: var(--bg-secondary);
   border-color: var(--border-secondary);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  box-shadow: 0 12px 24px rgba(31, 35, 41, 0.10);
 }
 
 [data-theme="light"] .template-menu-item {
@@ -3269,8 +3536,8 @@ body.admin-mode-page .app-container {
 }
 
 [data-theme="light"] .ur-btn-publish {
-  background: rgba(59, 130, 246, 0.12);
-  color: #1d4ed8;
+  background: rgba(73, 88, 105, 0.12);
+  color: var(--accent-secondary);
 }
 
 /* Exchange modal attachment item */
@@ -3284,9 +3551,9 @@ body.admin-mode-page .app-container {
 
 /* Mode switch overlay widget */
 [data-theme="light"] .mode-switch-widget {
-  background: rgba(241, 245, 249, 0.96);
+  background: rgba(255, 253, 248, 0.96);
   border-color: var(--border-secondary);
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.10);
+  box-shadow: 0 8px 24px rgba(31, 35, 41, 0.12);
 }
 
 [data-theme="light"] .mode-switch-thumb {
@@ -3300,32 +3567,32 @@ body.admin-mode-page .app-container {
 
 /* Admin toolbar accent buttons */
 [data-theme="light"] .toolbar-btn-accent {
-  background: rgba(59, 130, 246, 0.10);
-  border-color: rgba(59, 130, 246, 0.40);
-  color: #1d4ed8;
+  background: rgba(154, 116, 65, 0.14);
+  border-color: rgba(154, 116, 65, 0.34);
+  color: var(--accent-primary);
 }
 
 [data-theme="light"] .toolbar-btn-accent:hover {
-  background: rgba(59, 130, 246, 0.18);
-  border-color: rgba(59, 130, 246, 0.55);
-  color: #1e40af;
+  background: rgba(154, 116, 65, 0.20);
+  border-color: rgba(154, 116, 65, 0.46);
+  color: var(--accent-primary-hover);
 }
 
 [data-theme="light"] .toolbar-btn-accent-muted {
-  background: rgba(139, 92, 246, 0.10);
-  border-color: rgba(139, 92, 246, 0.40);
-  color: #6d28d9;
+  background: rgba(73, 88, 105, 0.12);
+  border-color: rgba(73, 88, 105, 0.32);
+  color: var(--accent-secondary);
 }
 
 [data-theme="light"] .toolbar-btn-accent-muted:hover {
-  background: rgba(139, 92, 246, 0.18);
-  border-color: rgba(139, 92, 246, 0.55);
-  color: #5b21b6;
+  background: rgba(73, 88, 105, 0.18);
+  border-color: rgba(73, 88, 105, 0.44);
+  color: var(--accent-secondary-hover);
 }
 
 [data-theme="light"] .mode-toggle-btn.is-active {
-  background: rgba(249, 115, 22, 0.12);
-  border-color: rgba(249, 115, 22, 0.45);
-  color: #c2410c;
-  box-shadow: inset 0 0 0 1px rgba(249, 115, 22, 0.14);
+  background: rgba(154, 116, 65, 0.14);
+  border-color: rgba(154, 116, 65, 0.40);
+  color: var(--accent-primary-hover);
+  box-shadow: inset 0 0 0 1px rgba(154, 116, 65, 0.16);
 }

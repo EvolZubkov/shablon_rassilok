@@ -222,8 +222,28 @@ function setupAdminMenu() {
                     });
                     break;
                 case 'exit':
-                    fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
-                    window.close();
+                    fetch('/api/shutdown', { method: 'POST' })
+                        .then(() => {
+                            document.body.innerHTML = `
+                                <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+                                            height:100vh;gap:16px;font-family:sans-serif;color:#9ca3af;background:#111827;">
+                                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                                         stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                                        <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/>
+                                        <polyline points="16 17 21 12 16 7"/>
+                                        <line x1="21" y1="12" x2="9" y2="12"/>
+                                    </svg>
+                                    <span style="font-size:18px;color:#e5e7eb;">Приложение закрыто</span>
+                                    <span style="font-size:13px;">Можно закрыть эту вкладку.</span>
+                                </div>`;
+                        })
+                        .catch(() => {
+                            document.body.innerHTML = `
+                                <div style="display:flex;align-items:center;justify-content:center;
+                                            height:100vh;font-family:sans-serif;color:#9ca3af;background:#111827;">
+                                    <span>Не удалось завершить приложение.</span>
+                                </div>`;
+                        });
                     break;
                 default:
                     break;
@@ -251,64 +271,88 @@ function setupSidebarAccordion() {
             if (panel === 'resources' && typeof UserResources !== 'undefined') {
                 await UserResources.open();
             }
+
+            applySidebarSearchFilter();
         });
     });
 }
 
 function setupSidebarSearch() {
     const sidebarSearch = document.getElementById('sidebar-search-input');
+    const clearButton = document.getElementById('sidebar-search-clear');
     if (!sidebarSearch) return;
 
-    sidebarSearch.addEventListener('input', (e) => {
-        const query = e.target.value.trim().toLowerCase();
-        const activePanel = document.querySelector('.sidebar-accordion .accordion-item.active')?.dataset.panel;
-        if (activePanel === 'templates') {
-            TemplatesUI.filterTemplates(query);
-            return;
-        }
-        if (activePanel === 'blocks') {
-            document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
-                const match = el.textContent.toLowerCase().includes(query);
-                el.style.display = match ? '' : 'none';
-            });
-            return;
-        }
-        if (activePanel === 'resources') {
-            document.querySelectorAll('.user-resources-panel--inline .templates-category-group').forEach((group) => {
-                const items = group.querySelectorAll('.ur-item');
-                let anyVisible = false;
-                items.forEach((item) => {
-                    const label = item.querySelector('.ur-item-label')?.textContent.toLowerCase() || '';
-                    const match = !query || label.includes(query);
-                    item.style.display = match ? '' : 'none';
-                    if (match) anyVisible = true;
-                });
-                group.style.display = (!query || anyVisible) ? '' : 'none';
-            });
-        }
+    const syncClearButton = () => {
+        if (!clearButton) return;
+        clearButton.classList.toggle('is-visible', !!sidebarSearch.value.trim());
+    };
+
+    sidebarSearch.addEventListener('input', () => {
+        syncClearButton();
+        applySidebarSearchFilter();
     });
 
-    // Clear search when switching accordion panels
-    document.querySelectorAll('.sidebar-accordion .accordion-trigger').forEach(btn => {
-        btn.addEventListener('click', () => {
+    if (clearButton) {
+        clearButton.addEventListener('click', () => {
             sidebarSearch.value = '';
-            TemplatesUI.filterTemplates('');
-            document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile')
-                .forEach(el => el.style.display = '');
+            syncClearButton();
+            applySidebarSearchFilter();
+            sidebarSearch.focus();
         });
-    });
+    }
+
+    syncClearButton();
+    applySidebarSearchFilter();
+}
+
+function applySidebarSearchFilter() {
+    const sidebarSearch = document.getElementById('sidebar-search-input');
+    if (!sidebarSearch) return;
+
+    const query = sidebarSearch.value.trim().toLowerCase();
+    const activePanel = document.querySelector('.sidebar-accordion .accordion-item.active')?.dataset.panel;
+
+    if (activePanel === 'templates') {
+        TemplatesUI.filterTemplates(query);
+        return;
+    }
+
+    if (activePanel === 'blocks') {
+        document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
+            const match = !query || el.textContent.toLowerCase().includes(query);
+            el.style.display = match ? '' : 'none';
+        });
+        return;
+    }
+
+    if (activePanel === 'resources') {
+        document.querySelectorAll('.user-resources-panel--inline .templates-category-group').forEach((group) => {
+            const items = group.querySelectorAll('.ur-item');
+            let anyVisible = false;
+            items.forEach((item) => {
+                const label = item.querySelector('.ur-item-label')?.textContent.toLowerCase() || '';
+                const match = !query || label.includes(query);
+                item.style.display = match ? '' : 'none';
+                if (match) anyVisible = true;
+            });
+            group.style.display = (!query || anyVisible) ? '' : 'none';
+        });
+    }
 }
 
 function setupCanvasContextTracking() {
-    const originalRenderCanvas = renderCanvas;
-    renderCanvas = function (...args) {
+    // `renderCanvas` and `renderSettings` are declared with `function` in other
+    // modules — they live on `window`.  We must patch `window` directly so every
+    // caller (regardless of which file it's in) goes through the wrapper.
+    const originalRenderCanvas = window.renderCanvas;
+    window.renderCanvas = function (...args) {
         const result = originalRenderCanvas.apply(this, args);
         updateCanvasContext();
         return result;
     };
 
-    const originalRenderSettings = renderSettings;
-    renderSettings = function (...args) {
+    const originalRenderSettings = window.renderSettings;
+    window.renderSettings = function (...args) {
         const result = originalRenderSettings.apply(this, args);
         updateCanvasContext();
         return result;
@@ -331,7 +375,8 @@ function updateCanvasContext() {
         currentTemplateBadge.textContent = `Шаблон: ${currentTemplate?.name || 'Новый'}`;
     }
     if (currentStatusBadge) {
-        currentStatusBadge.textContent = `Статус: ${currentTemplate ? 'Сохранено' : (hasBlocks ? 'Не сохранено' : 'Пустой холст')}`;
+        const isDirty = !!window.TemplatesUI?.hasUnsavedChanges?.();
+        currentStatusBadge.textContent = `Статус: ${currentTemplate ? (isDirty ? 'Не сохранено' : 'Сохранено') : (hasBlocks ? 'Не сохранено' : 'Пустой холст')}`;
     }
     if (selectedBlockBadge) {
         selectedBlockBadge.textContent = `Выбран блок: ${selected ? getBlockTypeName(selected.type) : 'нет'}`;
@@ -382,6 +427,24 @@ async function setupInlinePresetLibrary() {
     } catch (_) {
         grid.innerHTML = '<div class="sidebar-placeholder">Не удалось загрузить пресеты</div>';
     }
+
+    /**
+     * Add a newly saved preset to the panel without a server round-trip.
+     * Called from savePreset() in templatesUI.js after a successful save.
+     * @param {{ id: string, name: string, type: string, isPreset: boolean }} item
+     */
+    window.addPresetToPanel = (item) => {
+        const bucket = item.type === 'personal' ? 'personal' : 'shared';
+        const list = presetCache[bucket] || [];
+        list.push(item);
+        list.sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        presetCache[bucket] = list;
+        // Switch the active tab to the bucket where the preset was saved
+        // so the user immediately sees it.
+        activeScope = bucket;
+        tabs.forEach((el) => el.classList.toggle('active', (el.dataset.scope || 'shared') === activeScope));
+        render();
+    };
 }
 
 // Функция скачивания HTML

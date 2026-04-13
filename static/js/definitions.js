@@ -70,6 +70,18 @@ const BANNER_KEYS = [
     'gradientCenterX',
     'gradientCenterY',
     'gradientBalance',
+    'backgroundGradientEnabled',
+    'backgroundGradientStops',
+    'backgroundGradientAngle',
+    'backgroundGradientCenterX',
+    'backgroundGradientCenterY',
+    'backgroundGradientBalance',
+    'leftBlockGradientEnabled',
+    'leftBlockGradientStops',
+    'leftBlockGradientAngle',
+    'leftBlockGradientCenterX',
+    'leftBlockGradientCenterY',
+    'leftBlockGradientBalance',
 
     'bgImage',
     'rightImage', 'rightImageCustom', 'rightImageX', 'rightImageY', 'rightImageRotate', 'rightImageScale',
@@ -116,6 +128,24 @@ const DEFAULT_SETTINGS = {
         gradientCenterX: 42,
         gradientCenterY: 38,
         gradientBalance: 120,
+        backgroundGradientEnabled: false,
+        backgroundGradientStops: [
+            { id: 1, color: '#9466FF', opacity: 100, position: 0 },
+            { id: 2, color: '#7505FF', opacity: 100, position: 100 }
+        ],
+        backgroundGradientAngle: 24,
+        backgroundGradientCenterX: 42,
+        backgroundGradientCenterY: 38,
+        backgroundGradientBalance: 120,
+        leftBlockGradientEnabled: false,
+        leftBlockGradientStops: [
+            { id: 1, color: '#9466FF', opacity: 100, position: 0 },
+            { id: 2, color: '#7505FF', opacity: 100, position: 100 }
+        ],
+        leftBlockGradientAngle: 24,
+        leftBlockGradientCenterX: 42,
+        leftBlockGradientCenterY: 38,
+        leftBlockGradientBalance: 120,
         leftBlockColor: '#1D2533',
         rightImageMode: 'mask', // 'mask' | 'rounded'
         rightRoundedRadius: 32,

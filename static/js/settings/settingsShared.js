@@ -21,7 +21,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
     });
     card.dataset.index = index;
     card.style.cssText = `
-        background: #1e293b; border: 1px solid #374151;
+        background: var(--bg-secondary); border: 1px solid var(--border-primary);
         border-radius: 8px; padding: 12px;
         cursor: grab; transition: all 0.2s;
     `;
@@ -32,7 +32,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     const dragHandle = document.createElement('span');
     dragHandle.textContent = '⋮⋮';
-    dragHandle.style.cssText = 'color: #64748b; cursor: grab; font-size: 16px; margin-right: 8px;';
+    dragHandle.style.cssText = 'color: var(--text-muted); cursor: grab; font-size: 16px; margin-right: 8px;';
 
     const titleWrapper = document.createElement('div');
     titleWrapper.style.cssText = 'display: flex; align-items: center; flex: 1;';
@@ -40,13 +40,13 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     const title = document.createElement('span');
     title.textContent = `Текст ${index + 1}`;
-    title.style.cssText = 'color: #e5e7eb; font-size: 13px; font-weight: 500;';
+    title.style.cssText = 'color: var(--text-secondary); font-size: 13px; font-weight: 500;';
     titleWrapper.appendChild(title);
 
     const deleteBtn = document.createElement('button');
     deleteBtn.textContent = '✕';
     deleteBtn.style.cssText = `
-        background: transparent; border: none; color: #ef4444;
+        background: transparent; border: none; color: var(--accent-danger);
         cursor: pointer; font-size: 16px; padding: 4px 8px;
         border-radius: 4px; transition: all 0.2s;
     `;
@@ -62,7 +62,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
     const textInput = document.createElement('textarea');
     textInput.value = textEl.text || '';
     textInput.rows = 2;
-    textInput.style.cssText = 'width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #e5e7eb; font-size: 13px; resize: vertical; margin-bottom: 12px;';
+    textInput.style.cssText = 'width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-input); color: var(--text-secondary); font-size: 13px; resize: vertical; margin-bottom: 12px;';
     textInput.addEventListener('input', (e) => {
         updateBannerTextElement(blockId, textEl.id, 'text', e.target.value);
     });
@@ -91,7 +91,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     // Шрифт
     const fontSelect = document.createElement('select');
-    fontSelect.style.cssText = 'width: 100%; padding: 8px; border-radius: 6px; border: 1px solid #475569; background: #0f172a; color: #e5e7eb; font-size: 13px; margin-bottom: 12px;';
+    fontSelect.style.cssText = 'width: 100%; padding: 8px; border-radius: 6px; border: 1px solid var(--border-secondary); background: var(--bg-input); color: var(--text-secondary); font-size: 13px; margin-bottom: 12px;';
     SELECT_OPTIONS.textFontFamily.forEach(opt => {
         const option = document.createElement('option');
         option.value = opt.value;
@@ -107,7 +107,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
     // Межстрочный интервал
     const lineHeightLabel = document.createElement('label');
     lineHeightLabel.textContent = 'Межстрочный интервал';
-    lineHeightLabel.style.cssText = 'display: block; font-size: 11px; color: #9ca3af; margin: 12px 0 4px 0;';
+    lineHeightLabel.style.cssText = 'display: block; font-size: 11px; color: var(--text-muted); margin: 12px 0 4px 0;';
     card.appendChild(lineHeightLabel);
 
     const lineHeightWrapper = document.createElement('div');
@@ -123,7 +123,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     const lineHeightValue = document.createElement('span');
     lineHeightValue.textContent = (textEl.lineHeight || 1.0).toFixed(1);
-    lineHeightValue.style.cssText = 'font-size: 12px; color: #e5e7eb; min-width: 30px;';
+    lineHeightValue.style.cssText = 'font-size: 12px; color: var(--text-secondary); min-width: 30px;';
 
     lineHeightRange.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
@@ -138,7 +138,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
     // Межбуквенный интервал
     const letterSpacingLabel = document.createElement('label');
     letterSpacingLabel.textContent = 'Межбуквенный интервал';
-    letterSpacingLabel.style.cssText = 'display: block; font-size: 11px; color: #9ca3af; margin-bottom: 4px;';
+    letterSpacingLabel.style.cssText = 'display: block; font-size: 11px; color: var(--text-muted); margin-bottom: 4px;';
     card.appendChild(letterSpacingLabel);
 
     const letterSpacingWrapper = document.createElement('div');
@@ -154,7 +154,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     const letterSpacingValue = document.createElement('span');
     letterSpacingValue.textContent = (textEl.letterSpacing || 0) + 'px';
-    letterSpacingValue.style.cssText = 'font-size: 12px; color: #e5e7eb; min-width: 35px;';
+    letterSpacingValue.style.cssText = 'font-size: 12px; color: var(--text-secondary); min-width: 36px;';
 
     letterSpacingRange.addEventListener('input', (e) => {
         const val = parseFloat(e.target.value);
@@ -175,21 +175,21 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     if (textEl.iconEnabled) {
         const iconContent = document.createElement('div');
-        iconContent.style.cssText = 'padding: 12px; background: #0f172a; border-radius: 6px; margin-bottom: 12px;';
+        iconContent.style.cssText = 'padding: 12px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 8px; margin-bottom: 12px;';
 
         // Сетка иконок
         if (window.BANNER_ICONS && window.BANNER_ICONS.length > 0) {
             const iconGrid = document.createElement('div');
-            iconGrid.style.cssText = 'display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px;';
+            iconGrid.style.cssText = 'display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 8px;';
 
             window.BANNER_ICONS.forEach(icon => {
                 const iconOption = document.createElement('div');
                 const isSelected = textEl.icon === icon.src;
                 iconOption.style.cssText = `
-                    border: 2px solid ${isSelected ? '#f97316' : '#374151'};
-                    border-radius: 6px; padding: 8px; cursor: pointer;
+                    border: 2px solid ${isSelected ? 'var(--accent-primary)' : 'var(--border-secondary)'};
+                    border-radius: 8px; padding: 8px; cursor: pointer;
                     display: flex; align-items: center; justify-content: center;
-                    background: ${isSelected ? 'rgba(249, 115, 22, 0.1)' : 'transparent'};
+                    background: ${isSelected ? 'var(--bg-selected)' : 'transparent'};
                 `;
 
                 const iconImg = document.createElement('img');
@@ -216,7 +216,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
         if (textEl.iconCustom) {
             const preview = document.createElement('img');
             preview.src = textEl.iconCustom;
-            preview.style.cssText = 'width: 32px; height: 32px; object-fit: contain; margin-top: 8px; border: 2px solid #f97316; border-radius: 4px;';
+            preview.style.cssText = 'width: 32px; height: 32px; object-fit: contain; margin-top: 8px; border: 2px solid var(--accent-primary); border-radius: 4px;';
             iconContent.appendChild(preview);
         }
 
@@ -232,7 +232,7 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     if (textEl.badgeEnabled) {
         const badgeContent = document.createElement('div');
-        badgeContent.style.cssText = 'padding: 12px; background: #0f172a; border-radius: 6px;';
+        badgeContent.style.cssText = 'padding: 12px; background: var(--bg-primary); border: 1px solid var(--border-primary); border-radius: 6px;';
 
         const badgeGrid = document.createElement('div');
         badgeGrid.style.cssText = 'display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 8px;';
@@ -265,16 +265,16 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
 
     card.addEventListener('dragover', (e) => {
         e.preventDefault();
-        card.style.borderColor = '#f97316';
+        card.style.borderColor = 'var(--accent-primary)';
     });
 
     card.addEventListener('dragleave', () => {
-        card.style.borderColor = '#374151';
+        card.style.borderColor = 'var(--border-primary)';
     });
 
     card.addEventListener('drop', (e) => {
         e.preventDefault();
-        card.style.borderColor = '#374151';
+        card.style.borderColor = 'var(--border-primary)';
         const fromIndex = parseInt(e.dataTransfer.getData('text/plain'));
         const toIndex = index;
         if (fromIndex !== toIndex) {
@@ -292,12 +292,12 @@ function createTextElementNumberInput(label, value, blockId, textElId, key) {
 
     const labelEl = document.createElement('span');
     labelEl.textContent = label;
-    labelEl.style.cssText = 'font-size: 11px; color: #9ca3af;';
+    labelEl.style.cssText = 'font-size: 11px; color: var(--text-muted);';
 
     const input = document.createElement('input');
     input.type = 'number';
     input.value = value;
-    input.style.cssText = 'width: 100%; padding: 6px; border-radius: 4px; border: 1px solid #475569; background: #1e293b; color: #e5e7eb; font-size: 12px;';
+    input.style.cssText = 'width: 100%; padding: 6px; border-radius: 4px; border: 1px solid var(--border-secondary); background: var(--bg-input); color: var(--text-secondary); font-size: 12px;';
     input.addEventListener('input', (e) => {
         updateBannerTextElement(blockId, textElId, key, parseInt(e.target.value) || 0);
     });
@@ -314,20 +314,28 @@ function createTextElementColorInput(label, value, blockId, textElId, key) {
 
     const labelEl = document.createElement('span');
     labelEl.textContent = label;
-    labelEl.style.cssText = 'font-size: 11px; color: #9ca3af;';
+    labelEl.style.cssText = 'font-size: 11px; color: var(--text-muted);';
 
-    const colorWrapper = document.createElement('label');
-    colorWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px; cursor: pointer;';
+    const colorWrapper = document.createElement('div');
+    colorWrapper.style.cssText = 'display: flex; align-items: center; gap: 8px;';
 
-    const colorInput = document.createElement('input');
-    colorInput.type = 'color';
-    colorInput.value = value;
-    colorInput.style.cssText = 'width: 100%; height: 32px; border: none; border-radius: 4px; cursor: pointer;';
-    colorInput.addEventListener('input', (e) => {
-        updateBannerTextElement(blockId, textElId, key, e.target.value);
+    const colorSwatch = document.createElement('button');
+    colorSwatch.type = 'button';
+    colorSwatch.style.cssText = 'width: 100%; height: 32px; border: 1px solid var(--border-secondary); border-radius: 4px; cursor: pointer; background: ' + (value || '#ffffff') + ';';
+    colorSwatch.addEventListener('click', () => {
+        pickColor({
+            title: label,
+            currentColor: value || '#ffffff',
+            allowTransparent: false,
+            onApply: (chosen) => {
+                colorSwatch.style.background = chosen;
+                value = chosen;
+                updateBannerTextElement(blockId, textElId, key, chosen);
+            },
+        });
     });
 
-    colorWrapper.appendChild(colorInput);
+    colorWrapper.appendChild(colorSwatch);
     wrapper.appendChild(labelEl);
     wrapper.appendChild(colorWrapper);
     return wrapper;
@@ -340,15 +348,15 @@ function createToggleSection(label, enabled, onChange) {
 
     const labelEl = document.createElement('span');
     labelEl.textContent = label;
-    labelEl.style.cssText = 'font-size: 13px; color: #e5e7eb;';
+    labelEl.style.cssText = 'font-size: 13px; color: var(--text-secondary);';
 
     const toggle = document.createElement('button');
     toggle.textContent = enabled ? 'ВКЛ' : 'ВЫКЛ';
     toggle.style.cssText = `
         padding: 4px 12px; border-radius: 12px; font-size: 11px;
         border: none; cursor: pointer; font-weight: 500;
-        background: ${enabled ? '#22c55e' : '#475569'};
-        color: ${enabled ? '#ffffff' : '#9ca3af'};
+        background: ${enabled ? 'var(--accent-success)' : 'var(--border-hover)'};
+        color: ${enabled ? '#ffffff' : 'var(--text-muted)'};
     `;
     toggle.addEventListener('click', () => onChange(!enabled));
 
@@ -362,7 +370,7 @@ function createFileUploadButtonForTextElement(label, blockId, textElId, key) {
     const uploadWrapper = document.createElement('label');
     uploadWrapper.className = 'file-upload-btn';
     uploadWrapper.textContent = label;
-    uploadWrapper.style.cssText = 'display: inline-block; padding: 6px 12px; background: #334155; border-radius: 6px; color: #e5e7eb; font-size: 12px; cursor: pointer;';
+    uploadWrapper.style.cssText = 'display: inline-block; padding: 6px 12px; background: var(--bg-hover); border-radius: 6px; color: var(--text-secondary); font-size: 12px; cursor: pointer;';
 
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
@@ -384,4 +392,3 @@ function createFileUploadButtonForTextElement(label, blockId, textElId, key) {
     uploadWrapper.appendChild(fileInput);
     return uploadWrapper;
 }
-

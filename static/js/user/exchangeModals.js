@@ -6,6 +6,7 @@ const ExchangeModals = (() => {
     // ─── Состояние ───────────────────────────────────────────────────────────
 
     let _credentialsStatus = null; // кеш: { exists, username, server }
+    let _appSettingsStatus = null;
 
     // ─── Утилиты ─────────────────────────────────────────────────────────────
 
@@ -25,6 +26,22 @@ const ExchangeModals = (() => {
     function _open(id) {
         const el = _q(id);
         if (el) el.style.display = 'flex';
+    }
+
+    function _setActiveSettingsTab(tab) {
+        const exchangeTab = _q('settings-tab-exchange');
+        const repoTab = _q('settings-tab-repository');
+        const exchangePane = _q('settings-pane-exchange');
+        const repoPane = _q('settings-pane-repository');
+        const testBtn = _q('exc-test-btn');
+
+        const isExchange = tab !== 'repository';
+
+        exchangeTab?.classList.toggle('active', isExchange);
+        repoTab?.classList.toggle('active', !isExchange);
+        exchangePane?.classList.toggle('is-active', isExchange);
+        repoPane?.classList.toggle('is-active', !isExchange);
+        if (testBtn) testBtn.style.display = isExchange ? '' : 'none';
     }
 
     function _setLoading(btnId, loading, text = '') {
@@ -59,58 +76,84 @@ const ExchangeModals = (() => {
 
     function _renderCredentialsModal() {
         _inject(`
-        <div id="exchange-credentials-modal" class="modal exc-modal" style="display:none;">
+        <div id="exchange-credentials-modal" class="modal exc-modal exchange-settings-modal" style="display:none;">
           <div class="modal-overlay" onclick="ExchangeModals.closeCredentials()"></div>
-          <div class="exc-panel exc-panel--sm">
+          <div class="exc-panel exc-panel--md exchange-settings-panel">
             <div class="exc-header">
-              <span class="exc-title">⚙️ Настройки подключения</span>
+              <span class="exc-title">⚙️ Настройки</span>
               <button class="exc-close" onclick="ExchangeModals.closeCredentials()">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               </button>
             </div>
             <div class="exc-body">
-
-              <div class="exc-field">
-                <label class="exc-label">Сервер Exchange</label>
-                <input id="exc-server" type="text" class="exc-input"
-                       placeholder="mail.company.ru" autocomplete="off">
+              <div class="exchange-settings-tabs library-subtabs">
+                <button id="settings-tab-exchange" type="button" class="library-subtab active">Exchange</button>
+                <button id="settings-tab-repository" type="button" class="library-subtab">Репозиторий</button>
               </div>
 
-              <div class="exc-field">
-                <label class="exc-label">Логин</label>
-                <input id="exc-username" type="text" class="exc-input"
-                       placeholder="user@company.ru" autocomplete="username">
+              <div id="settings-pane-exchange" class="exchange-settings-pane is-active">
+                <div class="exc-field">
+                  <label class="exc-label">Сервер Exchange</label>
+                  <input id="exc-server" type="text" class="exc-input"
+                         placeholder="mail.company.ru" autocomplete="off">
+                </div>
+
+                <div class="exc-field">
+                  <label class="exc-label">Логин</label>
+                  <input id="exc-username" type="text" class="exc-input"
+                         placeholder="user@company.ru" autocomplete="username">
+                </div>
+
+                <div class="exc-field">
+                  <label class="exc-label">Пароль</label>
+                  <input id="exc-password" type="password" class="exc-input"
+                         placeholder="••••••••" autocomplete="current-password">
+                </div>
+
+                <div class="exc-field">
+                  <label class="exc-label">Email отправителя по умолчанию</label>
+                  <input id="exc-from-email" type="text" class="exc-input"
+                         placeholder="user@company.ru" autocomplete="email">
+                </div>
+
+                <div class="exc-field">
+                  <label class="exc-label">
+                    Дополнительные ящики
+                    <span class="exc-hint"> (через запятую, необязательно)</span>
+                  </label>
+                  <input id="exc-senders" type="text" class="exc-input"
+                         placeholder="sender1@rt.ru, sender2@rt.ru">
+                </div>
+
+                <div id="exc-test-result" class="exc-test-result"></div>
               </div>
 
-              <div class="exc-field">
-                <label class="exc-label">Пароль</label>
-                <input id="exc-password" type="password" class="exc-input"
-                       placeholder="••••••••" autocomplete="current-password">
-              </div>
+              <div id="settings-pane-repository" class="exchange-settings-pane">
+                <div class="exc-field">
+                  <label class="exc-label">
+                    <span id="app-settings-repo-label">Путь к репозиторию ресурсов</span>
+                  </label>
+                  <input id="app-settings-repo-path" type="text" class="exc-input" placeholder="">
+                </div>
 
-              <div class="exc-field">
-                <label class="exc-label">Email отправителя по умолчанию</label>
-                <input id="exc-from-email" type="text" class="exc-input"
-                       placeholder="user@company.ru" autocomplete="email">
-              </div>
+                <div class="app-settings-actions">
+                  <button id="app-settings-verify-btn" type="button" class="exc-btn exc-btn--secondary">Проверить путь</button>
+                  <button id="app-settings-search-btn" type="button" class="exc-btn exc-btn--secondary">Найти репозиторий</button>
+                  <button id="app-settings-create-btn" type="button" class="exc-btn exc-btn--secondary">Создать новый репозиторий</button>
+                  <button id="app-settings-refresh-cache-btn" type="button" class="exc-btn exc-btn--secondary">Обновить кеш</button>
+                </div>
 
-              <div class="exc-field">
-                <label class="exc-label">
-                  Дополнительные ящики
-                  <span class="exc-hint"> (через запятую, необязательно)</span>
-                </label>
-                <input id="exc-senders" type="text" class="exc-input"
-                       placeholder="sender1@rt.ru, sender2@rt.ru">
+                <div id="app-settings-result" class="exc-test-result"></div>
               </div>
-
-              <div id="exc-test-result" class="exc-test-result"></div>
 
             </div>
             <div class="exc-footer">
-              <button id="exc-test-btn" class="exc-btn exc-btn--secondary"
-                      onclick="ExchangeModals.testConnection()">Проверить</button>
-              <button id="exc-save-btn" class="exc-btn exc-btn--primary"
-                      onclick="ExchangeModals.saveCredentials()">Сохранить</button>
+              <div id="settings-actions-shared" class="exchange-settings-footer-actions">
+                <button id="exc-test-btn" class="exc-btn exc-btn--secondary"
+                        onclick="ExchangeModals.testConnection()">Проверить</button>
+                <button id="exc-save-btn" class="exc-btn exc-btn--primary"
+                        onclick="ExchangeModals.saveSettings()">Закрыть</button>
+              </div>
             </div>
           </div>
         </div>`);
@@ -199,7 +242,7 @@ const ExchangeModals = (() => {
           <div class="modal-overlay" onclick="ExchangeModals.closeMeeting()"></div>
           <div class="exc-panel exc-panel--md">
             <div class="exc-header">
-              <span class="exc-title">📅 Создать встречу</span>
+              <span class="exc-title">📅 Отправить встречу</span>
               <button class="exc-close" onclick="ExchangeModals.closeMeeting()">
                 <svg width="14" height="14" viewBox="0 0 14 14" fill="none"><path d="M1 1l12 12M13 1L1 13" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
               </button>
@@ -277,7 +320,7 @@ const ExchangeModals = (() => {
             <div class="exc-footer">
               <button class="exc-btn exc-btn--secondary" onclick="ExchangeModals.closeMeeting()">Отмена</button>
               <button id="meeting-send-btn" class="exc-btn exc-btn--primary"
-                      onclick="ExchangeModals.sendMeeting()">Создать встречу</button>
+                      onclick="ExchangeModals.sendMeeting()">Отправить встречу</button>
             </div>
           </div>
         </div>`);
@@ -285,19 +328,74 @@ const ExchangeModals = (() => {
 
     // ─── Credentials: открыть / закрыть ──────────────────────────────────────
 
+    function _updateSettingsDirtyState() {
+        const saveBtn = _q('exc-save-btn');
+        if (!saveBtn) return;
+        const data = _getExchangeFormData();
+        const dirty = _isExchangeFormDirty(data);
+        if (dirty) {
+            saveBtn.textContent = 'Сохранить';
+            saveBtn.classList.add('exc-btn--primary');
+            saveBtn.classList.remove('exc-btn--secondary');
+        } else {
+            saveBtn.textContent = 'Закрыть';
+            saveBtn.classList.remove('exc-btn--primary');
+            saveBtn.classList.add('exc-btn--secondary');
+        }
+    }
+
     async function openCredentials() {
         _open('exchange-credentials-modal');
+        _setActiveSettingsTab('exchange');
         const status = await _loadCredentialsStatus(true);
+        try {
+            await _loadAppSettings(true);
+        } catch (error) {
+            _showRepoResult(error.message || 'Не удалось загрузить настройки репозитория', 'error');
+        }
         if (status.exists) {
             if (status.server)     _q('exc-server').value     = status.server;
             if (status.username)   _q('exc-username').value   = status.username;
             if (status.from_email) _q('exc-from-email').value = status.from_email;
             else                   _q('exc-from-email').value = '';
-            // Дополнительные ящики
             const senders = status.default_senders || [];
             _q('exc-senders').value = senders.join(', ');
         }
         _q('exc-test-result').style.display = 'none';
+
+        // Track changes to toggle Save ↔ Close button label.
+        const watchedIds = ['exc-server', 'exc-username', 'exc-password', 'exc-from-email', 'exc-senders'];
+        watchedIds.forEach(id => {
+            const el = _q(id);
+            if (el) el.addEventListener('input', _updateSettingsDirtyState);
+        });
+        _updateSettingsDirtyState();
+    }
+
+    function _getExchangeFormData() {
+        const sendersRaw = _q('exc-senders').value.trim();
+        return {
+            server: _q('exc-server').value.trim(),
+            username: _q('exc-username').value.trim(),
+            password: _q('exc-password').value,
+            fromEmail: _q('exc-from-email').value.trim(),
+            defaultSenders: sendersRaw
+                ? sendersRaw.split(',').map(s => s.trim()).filter(Boolean)
+                : [],
+        };
+    }
+
+    function _isExchangeFormDirty(data) {
+        const status = _credentialsStatus || {};
+        const currentSenders = Array.isArray(status.default_senders) ? status.default_senders : [];
+        const nextSenders = Array.isArray(data.defaultSenders) ? data.defaultSenders : [];
+
+        if (data.password) return true;
+        if ((status.server || '') !== data.server) return true;
+        if ((status.username || '') !== data.username) return true;
+        if ((status.from_email || '') !== data.fromEmail) return true;
+        if (currentSenders.length !== nextSenders.length) return true;
+        return currentSenders.some((value, index) => value !== nextSenders[index]);
     }
 
     function closeCredentials() { _close('exchange-credentials-modal'); }
@@ -343,25 +441,207 @@ const ExchangeModals = (() => {
         el.textContent = text;
     }
 
-    // ─── Credentials: сохранить ───────────────────────────────────────────────
+    async function _loadAppSettings(force = false) {
+        if (_appSettingsStatus && !force) return _appSettingsStatus;
+        const response = await fetch('/api/app-settings');
+        const data = await response.json();
+        if (!data.success) {
+            throw new Error(data.error || 'Не удалось загрузить настройки репозитория');
+        }
 
-    async function saveCredentials() {
-        const server    = _q('exc-server').value.trim();
-        const username  = _q('exc-username').value.trim();
-        const password  = _q('exc-password').value;
-        const fromEmail = _q('exc-from-email').value.trim();
-        const sendersRaw = _q('exc-senders').value.trim();
-        const defaultSenders = sendersRaw
-            ? sendersRaw.split(',').map(s => s.trim()).filter(Boolean)
-            : [];
+        _appSettingsStatus = data;
+        _q('app-settings-repo-label').textContent = data.repo_label || 'Путь к репозиторию ресурсов';
+        _q('app-settings-repo-path').value = data.repo_path || '';
+        _q('app-settings-repo-path').placeholder = data.repo_placeholder || '';
+        _q('app-settings-create-btn').style.display = data.can_create_repo ? '' : 'none';
 
-        if (!server || !username || !password || !fromEmail) {
-            Toast.warning('Заполните все обязательные поля');
+        _clearRepoResult();
+        if (data.repo_path) {
+            if (data.repo_valid) {
+                _showRepoResult('✓ Текущий путь к репозиторию корректен', 'success');
+            } else if (data.repo_reason) {
+                _showRepoResult(`✗ ${data.repo_reason}`, 'error');
+            }
+        }
+        return data;
+    }
+
+    function _showRepoResult(text, type) {
+        const el = _q('app-settings-result');
+        if (!el) return;
+        el.className = `exc-test-result exc-test-result--${type}`;
+        el.textContent = text;
+    }
+
+    function _clearRepoResult() {
+        const el = _q('app-settings-result');
+        if (!el) return;
+        el.className = 'exc-test-result';
+        el.textContent = '';
+    }
+
+    async function verifyRepoPath() {
+        const repoPath = _q('app-settings-repo-path').value.trim();
+        if (!repoPath) {
+            _showRepoResult('Введите путь к репозиторию', 'error');
             return;
         }
-        if (!_validateEmail(fromEmail)) {
-            Toast.warning('Некорректный email отправителя');
+
+        _setLoading('app-settings-verify-btn', true, 'Проверить путь');
+        try {
+            const response = await fetch('/api/app-settings/repo/verify', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo_path: repoPath }),
+            });
+            const data = await response.json();
+            if (data.valid) {
+                _showRepoResult('✓ Репозиторий найден и структура корректна', 'success');
+            } else {
+                _showRepoResult(`✗ ${data.reason || 'Некорректный путь'}`, 'error');
+            }
+        } catch {
+            _showRepoResult('Не удалось проверить путь', 'error');
+        } finally {
+            _setLoading('app-settings-verify-btn', false, 'Проверить путь');
+        }
+    }
+
+    async function searchRepo() {
+        _setLoading('app-settings-search-btn', true, 'Найти репозиторий');
+        try {
+            const response = await fetch('/api/app-settings/repo/search', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({}),
+            });
+            const data = await response.json();
+            if (data.success && data.repo_path) {
+                _q('app-settings-repo-path').value = data.repo_path;
+                _showRepoResult(`✓ Найден репозиторий: ${data.repo_path}`, 'success');
+            } else {
+                _showRepoResult(data.error || data.reason || 'Репозиторий не найден', 'error');
+            }
+        } catch {
+            _showRepoResult('Не удалось выполнить поиск репозитория', 'error');
+        } finally {
+            _setLoading('app-settings-search-btn', false, 'Найти репозиторий');
+        }
+    }
+
+    async function createRepo() {
+        const repoPath = _q('app-settings-repo-path').value.trim();
+        if (!repoPath) {
+            _showRepoResult('Введите путь, где нужно создать репозиторий', 'error');
             return;
+        }
+
+        _setLoading('app-settings-create-btn', true, 'Создать новый репозиторий');
+        try {
+            const response = await fetch('/api/app-settings/repo/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo_path: repoPath }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                _appSettingsStatus = null;
+                _showRepoResult(`✓ Новый репозиторий создан: ${data.repo_path}`, 'success');
+            } else {
+                _showRepoResult(data.error || 'Не удалось создать репозиторий', 'error');
+            }
+        } catch {
+            _showRepoResult('Не удалось создать репозиторий', 'error');
+        } finally {
+            _setLoading('app-settings-create-btn', false, 'Создать новый репозиторий');
+        }
+    }
+
+    async function saveRepoPath(options = {}) {
+        const { buttonId = 'exc-save-btn', buttonText = 'Сохранить' } = options;
+        const repoPath = _q('app-settings-repo-path').value.trim();
+        if (!repoPath) {
+            _showRepoResult('Введите путь к репозиторию', 'error');
+            return false;
+        }
+
+        _setLoading(buttonId, true, buttonText);
+        try {
+            const response = await fetch('/api/app-settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo_path: repoPath }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                _appSettingsStatus = null;
+                _showRepoResult('✓ Путь к репозиторию сохранён', 'success');
+                Toast.success('Путь к репозиторию сохранён');
+                return true;
+            } else {
+                _showRepoResult(data.error || 'Ошибка сохранения настроек', 'error');
+                return false;
+            }
+        } catch {
+            _showRepoResult('Нет связи с сервером приложения', 'error');
+            return false;
+        } finally {
+            _setLoading(buttonId, false, buttonText);
+        }
+    }
+
+    async function refreshRepoCache() {
+        const repoPath = _q('app-settings-repo-path').value.trim();
+        if (!repoPath) {
+            _showRepoResult('Введите путь к репозиторию', 'error');
+            return false;
+        }
+
+        _setLoading('app-settings-refresh-cache-btn', true, 'Обновить кеш');
+        try {
+            const response = await fetch('/api/app-settings/repo/refresh-cache', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ repo_path: repoPath }),
+            });
+            const data = await response.json();
+            if (data.success) {
+                _appSettingsStatus = null;
+                _showRepoResult(`✓ Кеш репозитория обновлён${data.version ? ` (версия ${data.version})` : ''}`, 'success');
+                Toast.success('Кеш репозитория обновлён');
+                return true;
+            }
+
+            _showRepoResult(data.error || 'Не удалось обновить кеш репозитория', 'error');
+            return false;
+        } catch {
+            _showRepoResult('Нет связи с сервером приложения', 'error');
+            return false;
+        } finally {
+            _setLoading('app-settings-refresh-cache-btn', false, 'Обновить кеш');
+        }
+    }
+
+    // ─── Credentials: сохранить ───────────────────────────────────────────────
+
+    async function saveCredentials(options = {}) {
+        const { closeOnSuccess = true } = options;
+        const {
+            server,
+            username,
+            password,
+            fromEmail,
+            defaultSenders,
+        } = _getExchangeFormData();
+
+        const isDirty = _isExchangeFormDirty({ server, username, password, fromEmail, defaultSenders });
+
+        if (!isDirty) {
+            return true;
+        }
+
+        if (fromEmail && !_validateEmail(fromEmail)) {
+            Toast.warning('Некорректный email отправителя');
         }
 
         _setLoading('exc-save-btn', true, 'Сохранить');
@@ -378,16 +658,38 @@ const ExchangeModals = (() => {
             const data = await r.json();
             if (data.success) {
                 _credentialsStatus = null; // сбросить кеш
+                await _loadCredentialsStatus(true);
+                _q('exc-password').value = '';
                 Toast.success('Настройки сохранены');
-                closeCredentials();
+                if (closeOnSuccess) {
+                    closeCredentials();
+                }
+                return true;
             } else {
                 Toast.error(data.error || 'Ошибка сохранения');
+                return false;
             }
         } catch {
             Toast.error('Нет связи с сервером');
+            return false;
         } finally {
             _setLoading('exc-save-btn', false, 'Сохранить');
         }
+    }
+
+    async function saveSettings() {
+        const data = _getExchangeFormData();
+        const dirty = _isExchangeFormDirty(data);
+
+        if (!dirty) {
+            closeCredentials();
+            return;
+        }
+
+        await saveCredentials({ closeOnSuccess: false });
+        await saveRepoPath({ buttonId: 'exc-save-btn', buttonText: 'Сохранить' });
+
+        closeCredentials();
     }
 
     // ─── Send Email: открыть ──────────────────────────────────────────────────
@@ -576,7 +878,7 @@ const ExchangeModals = (() => {
         const badAddr = [...to, ...bcc].find(e => !_validateEmail(e));
         if (badAddr) { Toast.warning(`Некорректный адрес: ${badAddr}`); return; }
 
-        _setLoading('meeting-send-btn', true, 'Создать встречу');
+        _setLoading('meeting-send-btn', true, 'Отправить встречу');
         try {
             const html = await _generateHtml();
             const attachments = await _filesToBase64(_attachments.meeting);
@@ -603,7 +905,7 @@ const ExchangeModals = (() => {
         } catch {
             Toast.error('Нет связи с сервером');
         } finally {
-            _setLoading('meeting-send-btn', false, 'Создать встречу');
+            _setLoading('meeting-send-btn', false, 'Отправить встречу');
         }
     }
 
@@ -712,6 +1014,14 @@ const ExchangeModals = (() => {
             btnSettings.addEventListener('click', openCredentials);
         }
 
+        _q('settings-tab-exchange')?.addEventListener('click', () => _setActiveSettingsTab('exchange'));
+        _q('settings-tab-repository')?.addEventListener('click', () => _setActiveSettingsTab('repository'));
+        _q('app-settings-verify-btn')?.addEventListener('click', verifyRepoPath);
+        _q('app-settings-search-btn')?.addEventListener('click', searchRepo);
+        _q('app-settings-create-btn')?.addEventListener('click', createRepo);
+        _q('app-settings-refresh-cache-btn')?.addEventListener('click', refreshRepoCache);
+        _q('app-settings-repo-path')?.addEventListener('input', _clearRepoResult);
+
         // Предзагружаем статус
         _loadCredentialsStatus();
     }
@@ -724,7 +1034,13 @@ const ExchangeModals = (() => {
         openEmail,       closeEmail,
         openMeeting,     closeMeeting,
         saveCredentials,
+        saveSettings,
         testConnection,
+        verifyRepoPath,
+        searchRepo,
+        createRepo,
+        saveRepoPath,
+        refreshRepoCache,
         sendEmail,
         sendMeeting,
         pickAttachments,        

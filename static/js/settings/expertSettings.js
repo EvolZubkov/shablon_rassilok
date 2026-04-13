@@ -24,10 +24,12 @@ function renderExpertSettings(container, block) {
             <div class="photo-mask">
                 <img id="expert-photo-img-${block.id}" src="${s.photo}" style="width: 100%; height: 100%; object-fit: cover; transform: rotate(-45deg) scale(${s.scale / 100}) translate(${s.positionX}%, ${s.positionY}%);">
             </div>
-            ${s.badgeIcon ? `<div class="expert-badge-preview"><img src="${s.badgeIcon}"></div>` : ''}
         </div>
     `;
     container.appendChild(previewGroup);
+    if (typeof updateExpertSettingsPreview === 'function') {
+        updateExpertSettingsPreview(block.id);
+    }
 
     container.appendChild(createFileUploadButton('Загрузить фото', block.id, 'photo'));
 
@@ -52,7 +54,7 @@ function renderExpertSettings(container, block) {
 
     // Выбор значка
     const badgeGroup = document.createElement('div');
-    badgeGroup.className = 'setting-group';
+    badgeGroup.className = 'setting-group expert-badge-settings';
 
     const badgeLabel = document.createElement('label');
     badgeLabel.className = 'setting-label';
@@ -68,7 +70,7 @@ function renderExpertSettings(container, block) {
     // Настройки положения значка (только если значок выбран)
     if (s.badgeIcon) {
         const badgePositionGroup = document.createElement('div');
-        badgePositionGroup.style.cssText = 'margin-top: 12px; padding: 12px; background: #1e293b; border-radius: 6px;';
+        badgePositionGroup.style.cssText = 'margin-top: 12px; padding: 12px; background: var(--bg-secondary); border: 1px solid var(--border-secondary); border-radius: 8px;';
 
         const badgePositionLabel = document.createElement('div');
         badgePositionLabel.className = 'setting-label';
@@ -85,17 +87,18 @@ function renderExpertSettings(container, block) {
         ];
 
         const presetsContainer = document.createElement('div');
-        presetsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(2, 1fr); gap: 6px; margin-bottom: 12px;';
+        presetsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 12px;';
 
         positionPresets.forEach(preset => {
             const btn = document.createElement('button');
             btn.textContent = preset.label;
-            btn.style.cssText = 'padding: 6px; background: #334155; color: #e5e7eb; border: 1px solid #475569; border-radius: 4px; cursor: pointer; font-size: 11px;';
+            btn.style.cssText = 'padding: 8px; background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border-secondary); border-radius: 4px; cursor: pointer; font-size: 11px;';
 
             // Подсветка активного пресета
             if (s.badgePositionX === preset.x && s.badgePositionY === preset.y) {
-                btn.style.background = '#f97316';
-                btn.style.borderColor = '#f97316';
+                btn.style.background = 'var(--accent-primary)';
+                btn.style.borderColor = 'var(--accent-primary)';
+                btn.style.color = '#ffffff';
             }
 
             btn.addEventListener('click', () => {
@@ -126,10 +129,20 @@ function renderExpertSettings(container, block) {
         badgeGroup.appendChild(badgePositionGroup);
     }
     const removeBadgeBtn = document.createElement('button');
+    removeBadgeBtn.type = 'button';
     removeBadgeBtn.textContent = 'Убрать значок';
-    removeBadgeBtn.style.cssText = 'width: 100%; padding: 8px; background: #dc2626; color: white; border: none; border-radius: 6px; cursor: pointer; margin-top: 8px;';
+    removeBadgeBtn.style.cssText = 'width: 100%; min-height: 36px; padding: 8px 12px; background: var(--accent-danger); color: white; border: none; border-radius: 6px; cursor: pointer;';
+    removeBadgeBtn.disabled = !s.badgeIcon;
+    if (!s.badgeIcon) {
+        removeBadgeBtn.style.opacity = '0.5';
+        removeBadgeBtn.style.cursor = 'not-allowed';
+    }
     removeBadgeBtn.addEventListener('click', () => {
+        if (!block.settings.badgeIcon) return;
+        block.settings.badgeIcon = '';
+        block.settings.renderedExpert = null;
         updateBlockSetting(block.id, 'badgeIcon', '');
+        renderCanvas();
         renderSettings();
     });
     badgeGroup.appendChild(removeBadgeBtn);
@@ -155,7 +168,7 @@ function renderExpertSettings(container, block) {
     // Цвет фона + кнопка "Бесцветный фон"
     const bgColorGroup = createSettingInput(
         'Цвет фона',
-        s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : '#0f172a',
+        s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : '#FFFFFF',
         block.id,
         'bgColor',
         'color'
@@ -165,9 +178,9 @@ function renderExpertSettings(container, block) {
     noBgBtn.type = 'button';
     noBgBtn.textContent = 'Бесцветный фон';
     noBgBtn.style.cssText =
-        'margin-top:8px; width:100%; padding:6px 10px; ' +
-        'border-radius:4px; border:1px solid #4b5563; background:none; ' +
-        'color:#e5e7eb; font-size:12px; cursor:pointer;';
+        'margin-top:8px; width:100%; padding:8px 12px; ' +
+        'border-radius:4px; border:1px solid var(--border-secondary); background:none; ' +
+        'color:var(--text-secondary); font-size:12px; cursor:pointer;';
 
     noBgBtn.addEventListener('click', () => {
         updateBlockSetting(block.id, 'bgColor', 'transparent');
@@ -191,8 +204,8 @@ function createExpertAlignToggle(label, value, blockId) {
 
     const wrap = document.createElement('div');
     wrap.style.cssText = `
-        display:flex; align-items:center; border:1px solid #475569;
-        border-radius:999px; padding:4px; background:#0b1220;
+        display:flex; align-items:center; border:1px solid var(--border-secondary);
+        border-radius:999px; padding:4px; background:var(--bg-primary);
     `;
 
     const mkBtn = (mode, text) => {
@@ -203,8 +216,8 @@ function createExpertAlignToggle(label, value, blockId) {
         b.style.cssText = `
             min-width:90px; padding:8px 10px; border-radius:999px;
             border:0; cursor:pointer; font-size:13px;
-            background:${active ? '#f97316' : 'transparent'};
-            color:${active ? '#0b1220' : '#e5e7eb'};
+            background:${active ? 'var(--accent-primary)' : 'transparent'};
+            color:${active ? '#ffffff' : 'var(--text-secondary)'};
         `;
         b.onclick = () => {
             updateBlockSetting(blockId, 'align', mode);
@@ -222,5 +235,3 @@ function createExpertAlignToggle(label, value, blockId) {
     group.appendChild(wrap);
     return group;
 }
-
-

@@ -25,10 +25,10 @@ function renderDividerSettings(container, block) {
             const isSelected = s.image === divider.src;
             option.style.cssText = `
                 padding: 8px;
-                border: 2px solid ${isSelected ? '#f97316' : '#475569'};
+                border: 2px solid ${isSelected ? 'var(--accent-primary)' : 'var(--border-secondary)'};
                 border-radius: 8px;
                 cursor: pointer;
-                background: ${isSelected ? 'rgba(249, 115, 22, 0.1)' : '#1e293b'};
+                background: ${isSelected ? 'var(--bg-selected)' : 'var(--bg-secondary)'};
                 transition: all 0.2s;
             `;
 
@@ -46,10 +46,10 @@ function renderDividerSettings(container, block) {
             });
 
             option.addEventListener('mouseenter', () => {
-                if (!isSelected) option.style.borderColor = '#64748b';
+                if (!isSelected) option.style.borderColor = 'var(--border-hover)';
             });
             option.addEventListener('mouseleave', () => {
-                if (!isSelected) option.style.borderColor = '#475569';
+                if (!isSelected) option.style.borderColor = 'var(--border-secondary)';
             });
 
             dividerGrid.appendChild(option);
@@ -59,7 +59,7 @@ function renderDividerSettings(container, block) {
     } else {
         const noImages = document.createElement('p');
         noImages.textContent = 'Нет доступных разделителей';
-        noImages.style.cssText = 'color: #9ca3af; font-size: 13px; margin: 8px 0;';
+        noImages.style.cssText = 'color: var(--text-muted); font-size: 13px; margin: 8px 0;';
         imageGroup.appendChild(noImages);
     }
 
@@ -76,10 +76,9 @@ function renderDividerSettings(container, block) {
 
         const preview = document.createElement('img');
         preview.src = s.customImage;
-        preview.style.cssText = 'width: 100%; height: auto; border-radius: 4px; margin-top: 8px; border: 2px solid #f97316;';
+        preview.style.cssText = 'width: 100%; height: auto; border-radius: 4px; margin-top: 8px; border: 2px solid var(--accent-primary);';
         imageGroup.appendChild(preview);
     }
 
     container.appendChild(imageGroup);
 }
-

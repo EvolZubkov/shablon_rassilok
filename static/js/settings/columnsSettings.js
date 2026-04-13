@@ -17,12 +17,12 @@ function renderColumnsSettings(container, block) {
     const info = document.createElement('div');
     info.className = 'columns-width-info';
     info.textContent = `Левая: ${leftCol.width}% · Правая: ${rightCol.width}%`;
-    info.style.cssText = 'margin-bottom: 12px; color: #9ca3af; font-size: 13px;';
+    info.style.cssText = 'margin-bottom: 12px; color: var(--text-muted); font-size: 13px;';
     group.appendChild(info);
 
     // Кнопки-пресеты
     const presetsContainer = document.createElement('div');
-    presetsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 12px;';
+    presetsContainer.style.cssText = 'display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin-bottom: 12px;';
 
     const presets = [
         { left: 20, right: 80, label: '20/80' },
@@ -37,24 +37,27 @@ function renderColumnsSettings(container, block) {
     presets.forEach(preset => {
         const btn = document.createElement('button');
         btn.textContent = preset.label;
-        btn.style.cssText = 'padding: 6px 8px; background: #334155; color: #e5e7eb; border: 1px solid #475569; border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s;';
+        btn.style.cssText = 'padding: 8px; background: var(--bg-hover); color: var(--text-secondary); border: 1px solid var(--border-secondary); border-radius: 4px; cursor: pointer; font-size: 11px; transition: all 0.2s;';
 
         // Подсветка активного пресета
         if (leftCol.width === preset.left) {
-            btn.style.background = '#f97316';
-            btn.style.borderColor = '#f97316';
+            btn.style.background = 'var(--accent-primary)';
+            btn.style.borderColor = 'var(--accent-primary)';
+            btn.style.color = '#ffffff';
             btn.style.fontWeight = '600';
         }
 
         btn.addEventListener('mouseenter', () => {
             if (leftCol.width !== preset.left) {
-                btn.style.background = '#475569';
+                btn.style.background = 'var(--bg-selected)';
+                btn.style.borderColor = 'var(--border-hover)';
             }
         });
 
         btn.addEventListener('mouseleave', () => {
             if (leftCol.width !== preset.left) {
-                btn.style.background = '#334155';
+                btn.style.background = 'var(--bg-hover)';
+                btn.style.borderColor = 'var(--border-secondary)';
             }
         });
 
@@ -74,7 +77,7 @@ function renderColumnsSettings(container, block) {
     // Слайдер для точной настройки
     const sliderLabel = document.createElement('div');
     sliderLabel.textContent = 'Точная настройка:';
-    sliderLabel.style.cssText = 'font-size: 12px; color: #9ca3af; margin-bottom: 6px;';
+    sliderLabel.style.cssText = 'font-size: 12px; color: var(--text-muted); margin-bottom: 8px;';
     group.appendChild(sliderLabel);
 
     const range = document.createElement('input');
@@ -113,4 +116,3 @@ function renderColumnsSettings(container, block) {
     group.appendChild(range);
     container.appendChild(group);
 }
-
