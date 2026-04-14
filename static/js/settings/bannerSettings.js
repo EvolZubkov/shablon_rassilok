@@ -34,10 +34,6 @@ function renderBannerSettings(container, block) {
         mainSection.appendChild(createBannerPaintControl(block, target, label, mode));
     });
 
-    if (mode === 'rounded') {
-        mainSection.appendChild(createFileUploadButton('Фоновое изображение', block.id, 'bgImage'));
-    }
-
     container.appendChild(mainSection);
 
     // === ПРАВАЯ КАРТИНКА ===
@@ -58,6 +54,45 @@ function renderBannerSettings(container, block) {
     }
 
     rightImageSection.appendChild(createFileUploadButton('Загрузить свою картинку', block.id, 'rightImageCustom'));
+
+    if (s.rightImage || s.rightImageCustom) {
+        const clearRightImageBtn = document.createElement('button');
+        clearRightImageBtn.type = 'button';
+        clearRightImageBtn.textContent = 'Убрать картинку';
+        clearRightImageBtn.style.cssText = `
+            width: 100%;
+            height: 36px;
+            margin-top: 8px;
+            padding: 0 12px;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-secondary);
+            border-radius: 8px;
+            color: var(--text-secondary);
+            cursor: pointer;
+            font-size: 13px;
+            transition: border-color 0.2s, background 0.2s, color 0.2s;
+        `;
+        clearRightImageBtn.addEventListener('mouseenter', () => {
+            clearRightImageBtn.style.borderColor = 'var(--accent-primary)';
+            clearRightImageBtn.style.color = 'var(--text-primary)';
+        });
+        clearRightImageBtn.addEventListener('mouseleave', () => {
+            clearRightImageBtn.style.borderColor = 'var(--border-secondary)';
+            clearRightImageBtn.style.color = 'var(--text-secondary)';
+        });
+        clearRightImageBtn.addEventListener('click', () => {
+            const currentBlock = AppState.findBlockById(block.id);
+            if (!currentBlock) return;
+            currentBlock.settings.rightImage = '';
+            currentBlock.settings.rightImageCustom = '';
+            renderBannerToDataUrl(currentBlock, (dataUrl) => {
+                currentBlock.settings.renderedBanner = dataUrl || null;
+                renderCanvas();
+            });
+            renderSettings();
+        });
+        rightImageSection.appendChild(clearRightImageBtn);
+    }
 
     if (s.rightImageCustom) {
         const preview = document.createElement('img');
@@ -524,12 +559,99 @@ function openBannerColorDialog(options) {
     }
 }
 
+function getBannerPaintImageMeta(target) {
+    if (target === 'background') {
+        return {
+            imageKey: 'bgImage',
+            xKey: 'bgImageX',
+            yKey: 'bgImageY',
+            rotateKey: 'bgImageRotate',
+            scaleKey: 'bgImageScale'
+        };
+    }
+
+    return {
+        imageKey: 'leftBlockImage',
+        xKey: 'leftBlockImageX',
+        yKey: 'leftBlockImageY',
+        rotateKey: 'leftBlockImageRotate',
+        scaleKey: 'leftBlockImageScale'
+    };
+}
+
+function getBannerPaintMode(settings, target) {
+    if (Boolean(getBannerGradientSettingValue(settings, target, 'gradientEnabled'))) {
+        return 'gradient';
+    }
+    const imageMeta = getBannerPaintImageMeta(target);
+    if (settings?.[imageMeta.imageKey]) {
+        return 'image';
+    }
+    return 'solid';
+}
+
+function clearBannerPaintImage(blockId, target) {
+    const block = AppState.findBlockById(blockId);
+    if (!block) return;
+    const imageMeta = getBannerPaintImageMeta(target);
+    block.settings[imageMeta.imageKey] = '';
+}
+
+function createBannerPaintAdjustField(label, value, min, max, onApply, unit = '') {
+    const field = document.createElement('div');
+    field.className = 'banner-paint-row__adjust-field';
+
+    const title = document.createElement('label');
+    title.className = 'banner-paint-row__adjust-label';
+    title.textContent = label;
+
+    const control = document.createElement('div');
+    control.className = 'banner-paint-row__adjust-control';
+
+    const input = document.createElement('input');
+    input.type = 'number';
+    input.className = 'banner-paint-row__adjust-input';
+    input.value = Number(value ?? 0);
+    input.min = min;
+    input.max = max;
+    input.step = 1;
+
+    if (unit) {
+        const suffix = document.createElement('span');
+        suffix.className = 'banner-paint-row__adjust-unit';
+        suffix.textContent = unit;
+        control.appendChild(input);
+        control.appendChild(suffix);
+    } else {
+        control.appendChild(input);
+    }
+
+    const applyValue = (nextValue) => {
+        const clamped = Math.max(min, Math.min(max, Math.round(Number(nextValue) || 0)));
+        input.value = clamped;
+        onApply(clamped);
+    };
+
+    input.addEventListener('input', () => applyValue(input.value));
+    attachDragScrubToNumberControl(control, input, {
+        min,
+        max,
+        onApply: applyValue
+    });
+
+    field.appendChild(title);
+    field.appendChild(control);
+    return field;
+}
+
 function createBannerPaintControl(block, target, label, mode) {
     const s = block.settings || {};
     const meta = getBannerGradientMeta(target);
     const solidColor = getBannerGradientBaseColor(s, target);
-    const gradientEnabled = Boolean(getBannerGradientSettingValue(s, target, 'gradientEnabled'));
-    const gradientPreview = buildGradientPreviewCss(s, target);
+    const paintMode = getBannerPaintMode(s, target);
+    const gradientEnabled = paintMode === 'gradient';
+    const imageMeta = getBannerPaintImageMeta(target);
+    const imageValue = s[imageMeta.imageKey] || '';
     const isRoundedMode = mode === 'rounded';
     const isMaskMode = mode === 'mask';
     const isDisabled = target === 'leftBlock' && isRoundedMode;
@@ -568,7 +690,7 @@ function createBannerPaintControl(block, target, label, mode) {
 
     const modeBadge = document.createElement('span');
     modeBadge.className = `banner-paint-row__mode${gradientEnabled ? ' banner-paint-row__mode--gradient' : ''}`;
-    modeBadge.textContent = gradientEnabled ? 'Gradient' : 'Solid';
+    modeBadge.textContent = paintMode === 'image' ? 'Image' : gradientEnabled ? 'Gradient' : 'Solid';
 
     const statusBadge = document.createElement('span');
     statusBadge.className = `banner-paint-row__status banner-paint-row__status--${statusKind}`;
@@ -589,13 +711,11 @@ function createBannerPaintControl(block, target, label, mode) {
     row.appendChild(hint);
 
     const controls = document.createElement('div');
-    controls.className = 'banner-paint-row__controls';
-
-    // Solid-color button opens the custom color picker — no native fallback needed.
+    controls.className = 'banner-paint-row__toolbar';
 
     const solidBtn = document.createElement('button');
     solidBtn.type = 'button';
-    solidBtn.className = `banner-paint-row__solid${!gradientEnabled ? ' banner-paint-row__solid--active' : ''}`;
+    solidBtn.className = `banner-paint-row__tool banner-paint-row__solid${paintMode === 'solid' ? ' banner-paint-row__tool--active' : ''}`;
     solidBtn.title = 'Сплошная заливка';
     solidBtn.setAttribute('aria-label', 'Сплошная заливка');
     solidBtn.style.background = isTransparentBannerColor(solidColor)
@@ -624,6 +744,7 @@ function createBannerPaintControl(block, target, label, mode) {
                     currentColor: solidColor,
                     allowTransparent: true,
                     onApply: (nextColor) => {
+                        clearBannerPaintImage(block.id, target);
                         updateBannerGradientSetting(block.id, target, 'gradientEnabled', false);
                         updateBlockSetting(block.id, meta.colorKey, nextColor);
                         renderSettings();
@@ -640,60 +761,112 @@ function createBannerPaintControl(block, target, label, mode) {
     solidBtn.onclick = openSolidColorDialog;
     solidBtn.addEventListener('pointerup', openSolidColorDialog);
 
+    const imageBtn = document.createElement('button');
+    imageBtn.type = 'button';
+    imageBtn.className = `banner-paint-row__tool banner-paint-row__tool--image${paintMode === 'image' ? ' banner-paint-row__tool--active' : ''}`;
+    imageBtn.title = 'Картинка';
+    imageBtn.setAttribute('aria-label', 'Картинка');
+    imageBtn.disabled = isDisabled;
+    imageBtn.innerHTML = '<i data-lucide="image"></i>';
+
+    const imageInput = document.createElement('input');
+    imageInput.type = 'file';
+    imageInput.accept = 'image/*';
+    imageInput.className = 'banner-paint-row__file-input';
+    imageInput.disabled = isDisabled;
+    imageInput.addEventListener('change', (event) => {
+        const file = event.target.files?.[0];
+        if (!file || !file.type.startsWith('image/')) {
+            event.target.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = (loadEvent) => {
+            clearBannerPaintImage(block.id, target);
+            updateBannerGradientSetting(block.id, target, 'gradientEnabled', false);
+            updateBlockSetting(block.id, imageMeta.imageKey, loadEvent.target.result);
+            renderSettings();
+            event.target.value = '';
+        };
+        reader.readAsDataURL(file);
+    });
+    imageBtn.addEventListener('click', (event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        if (isDisabled) return;
+        imageInput.click();
+    });
+
     const gradientBtn = document.createElement('button');
     gradientBtn.type = 'button';
-    gradientBtn.className = `banner-gradient-toggle${gradientEnabled ? ' banner-gradient-toggle--active' : ''}`;
+    gradientBtn.className = `banner-paint-row__tool banner-gradient-toggle${gradientEnabled ? ' banner-paint-row__tool--active banner-gradient-toggle--active' : ''}`;
     gradientBtn.title = 'Градиент';
     gradientBtn.setAttribute('aria-label', 'Градиент');
     gradientBtn.dataset.bannerGradientBtn = `${block.id}-${target}`;
     gradientBtn.disabled = isDisabled;
-    gradientBtn.innerHTML = `<svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
-        <defs>
-            <linearGradient id="banner_fill_grad_icon_${target}_${block.id}" x1="2" y1="12" x2="12" y2="2" gradientUnits="userSpaceOnUse">
-                <stop stop-color="white" stop-opacity="0.35"/>
-                <stop offset="1" stop-color="white"/>
-            </linearGradient>
-        </defs>
-        <rect x="2" y="2" width="10" height="10" rx="2.5" fill="url(#banner_fill_grad_icon_${target}_${block.id})" stroke="rgba(255,255,255,0.4)"/>
-        <path d="M3.8 10.2L10.2 3.8" stroke="white" stroke-width="1.1" stroke-linecap="round" opacity="0.9"/>
-    </svg>`;
+    gradientBtn.innerHTML = `
+        <span class="banner-gradient-toggle__icon" aria-hidden="true">
+            <span class="banner-gradient-toggle__icon-fill"></span>
+        </span>
+    `;
     gradientBtn.addEventListener('click', () => {
         if (isDisabled) return;
-        updateBannerGradientSetting(block.id, target, 'gradientEnabled', true);
-        block.settings = AppState.findBlockById(block.id).settings;
-        renderSettings();
-        // Re-query the button after renderSettings() rebuilt the DOM.
-        const newGradBtn = document.querySelector(
-            `[data-banner-gradient-btn="${block.id}-${target}"]`
-        ) || gradientBtn;
-        openGradientPopup(block, newGradBtn, target);
-    });
-
-    const previewBtn = document.createElement('button');
-    previewBtn.type = 'button';
-    previewBtn.className = `banner-gradient-preview${gradientEnabled ? ' banner-gradient-preview--active' : ''}`;
-    previewBtn.title = 'Редактировать градиент';
-    previewBtn.setAttribute('aria-label', 'Редактировать градиент');
-    previewBtn.disabled = isDisabled;
-    previewBtn.innerHTML = '<span class="banner-gradient-preview__rail"></span>';
-    // Always render the rail left-to-right (90 deg) regardless of the
-    // gradient's actual angle so the colour transition is always visible
-    // on the narrow horizontal strip.
-    const railStops = getGradientStopsModel(block.settings, target)
-        .map(stop => `${hexToRgba(stop.color, stop.opacity)} ${stop.position}%`);
-    previewBtn.querySelector('.banner-gradient-preview__rail').style.background =
-        `linear-gradient(90deg, ${railStops.join(', ')})`;
-    previewBtn.addEventListener('click', () => {
-        if (isDisabled) return;
-        updateBannerGradientSetting(block.id, target, 'gradientEnabled', true);
-        block.settings = AppState.findBlockById(block.id).settings;
-        openGradientPopup(block, previewBtn, target);
+        clearBannerPaintImage(block.id, target);
+        openGradientPopup(block, gradientBtn, target);
     });
 
     controls.appendChild(solidBtn);
+    controls.appendChild(imageBtn);
+    controls.appendChild(imageInput);
     controls.appendChild(gradientBtn);
-    controls.appendChild(previewBtn);
     row.appendChild(controls);
+
+    if (paintMode === 'image' && !isDisabled) {
+        const imageSettings = document.createElement('div');
+        imageSettings.className = 'banner-paint-row__image-settings';
+
+        const updateImageSetting = (key, value) => {
+            updateBlockSetting(block.id, key, value);
+        };
+
+        imageSettings.appendChild(
+            createBannerPaintAdjustField('Масштаб', s[imageMeta.scaleKey] ?? 100, 10, 300, (value) => updateImageSetting(imageMeta.scaleKey, value), '%')
+        );
+        imageSettings.appendChild(
+            createBannerPaintAdjustField('X', s[imageMeta.xKey] ?? 0, -300, 300, (value) => updateImageSetting(imageMeta.xKey, value))
+        );
+        imageSettings.appendChild(
+            createBannerPaintAdjustField('Y', s[imageMeta.yKey] ?? 0, -300, 300, (value) => updateImageSetting(imageMeta.yKey, value))
+        );
+        imageSettings.appendChild(
+            createBannerPaintAdjustField('Угол', s[imageMeta.rotateKey] ?? 0, -180, 180, (value) => updateImageSetting(imageMeta.rotateKey, value), '°')
+        );
+
+        row.appendChild(imageSettings);
+    }
+
+    if (paintMode === 'gradient' && !isDisabled) {
+        const previewBtn = document.createElement('button');
+        previewBtn.type = 'button';
+        previewBtn.className = 'banner-gradient-preview banner-gradient-preview--active';
+        previewBtn.title = 'Редактировать градиент';
+        previewBtn.setAttribute('aria-label', 'Редактировать градиент');
+        previewBtn.innerHTML = '<span class="banner-gradient-preview__rail"></span>';
+        const previewGradient = buildGradientPreviewCss(block.settings, target);
+        previewBtn.style.backgroundImage = previewGradient;
+        previewBtn.style.backgroundOrigin = 'content-box';
+        previewBtn.style.backgroundClip = 'content-box';
+        previewBtn.addEventListener('click', () => {
+            openGradientPopup(block, previewBtn, target);
+        });
+        row.appendChild(previewBtn);
+    }
+
+    if (window.lucide && typeof window.lucide.createIcons === 'function') {
+        requestAnimationFrame(() => window.lucide.createIcons());
+    }
 
     return row;
 }
+
+window.openBannerColorDialog = openBannerColorDialog;

@@ -194,7 +194,7 @@ function buildEmailThemeStyles() {
     background-color:${DEFAULT_COLORS.BULLET} !important;
 }
 
-.email-important-cell {
+.email-important-cell--accent {
     border-left:4px solid ${DEFAULT_COLORS.BORDER};
     padding-left:12px !important;
 }
@@ -244,8 +244,8 @@ body.email-force-dark .email-bullet-dot,
     background-color:#c4b5fd !important;
 }
 
-body.email-force-dark .email-important-cell,
-.email-wrapper.email-force-dark .email-important-cell {
+body.email-force-dark .email-important-cell--accent,
+.email-wrapper.email-force-dark .email-important-cell--accent {
     border-left-color:#fb923c !important;
 }
 
@@ -295,8 +295,8 @@ body.email-force-dark .email-important-cell,
         background-color:#c4b5fd !important;
     }
 
-    .email-important-cell,
-    [data-ogsc] .email-important-cell {
+    .email-important-cell--accent,
+    [data-ogsc] .email-important-cell--accent {
         border-left-color:#fb923c !important;
     }
 }
@@ -606,7 +606,37 @@ function generateButtonHTML(s) {
     const src = s.renderedButton;
 
     if (!src) {
-        return '';
+        const scale = Number(s.size || 1);
+        const paddingY = Math.round(12 * scale);
+        const paddingX = Math.round(24 * scale);
+        const borderRadius = Math.round(6 * scale);
+        const fontSize = Math.round(14 * scale);
+        const bgColor = s.color || '#f97316';
+        const textColor = s.textColor || '#ffffff';
+        const text = escapeHtml(s.text || 'Кнопка');
+        const url = sanitizeUrl(s.url);
+
+        return `
+            <tr>
+                <td align="${align}" style="${getPadding()} text-align:${align};">
+                    <a href="${url}" style="
+                        display:inline-block;
+                        padding:${paddingY}px ${paddingX}px;
+                        border-radius:${borderRadius}px;
+                        background:${bgColor};
+                        color:${textColor};
+                        font-size:${fontSize}px;
+                        font-weight:600;
+                        line-height:1;
+                        text-align:center;
+                        text-decoration:none;
+                        white-space:nowrap;
+                    ">
+                        ${text}
+                    </a>
+                </td>
+            </tr>
+        `;
     }
 
     const w = s.renderedButtonW;
@@ -759,6 +789,9 @@ function generateImportantHTML(s) {
     const textCellAccent = iconSrc
         ? 'padding-left:0;'
         : `border-left:4px solid ${borderColor}; padding-left:12px;`;
+    const textCellClass = iconSrc
+        ? 'email-text email-important-cell'
+        : 'email-text email-important-cell email-important-cell--accent';
 
     const iconHTML = iconSrc ? `
     <td valign="top"
@@ -777,7 +810,7 @@ function generateImportantHTML(s) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     <tr>
                         ${iconHTML}
-                        <td valign="middle" class="email-text email-important-cell" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; font-family:${fontFamily}; ${textCellAccent}">
+                        <td valign="middle" class="${textCellClass}" style="font-size:${fontSize}px; line-height:${lineHeight}; color:${adaptedColor}; font-family:${fontFamily}; ${textCellAccent}">
                             ${textContent}
                         </td>
                     </tr>
@@ -916,3 +949,143 @@ function generateColumnsHTML(block) {
 }
 
 window.EmailPreviewTheme = EmailPreviewTheme;
+
+function ensureSharedEmailPreviewModal(options = {}) {
+    const {
+        title = 'Превью письма',
+    } = options;
+
+    let modal = document.getElementById('email-preview-modal');
+    if (!modal) {
+        modal = document.createElement('div');
+        modal.id = 'email-preview-modal';
+        modal.className = 'modal';
+        modal.style.display = 'none';
+        modal.innerHTML = `
+            <div class="modal-overlay"></div>
+            <div class="modal-content modal-email-preview">
+                <div class="modal-header">
+                    <h2 id="email-preview-title">${title}</h2>
+                    <div class="modal-header-actions">
+                        <div id="email-preview-theme-slot"></div>
+                        <button id="email-preview-close" type="button" class="modal-close" aria-label="Закрыть">&times;</button>
+                    </div>
+                </div>
+                <div class="modal-body modal-email-preview__body">
+                    <div id="email-preview-container" class="preview-container preview-container--email"></div>
+                </div>
+            </div>
+        `;
+        document.body.appendChild(modal);
+
+        const closeModal = () => {
+            modal.style.display = 'none';
+        };
+
+        const closeButton = modal.querySelector('#email-preview-close');
+        const overlay = modal.querySelector('.modal-overlay');
+        closeButton?.addEventListener('click', closeModal);
+        overlay?.addEventListener('click', closeModal);
+        modal.addEventListener('click', (event) => {
+            if (event.target === modal) {
+                closeModal();
+            }
+        });
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && modal.style.display === 'flex') {
+                closeModal();
+            }
+        });
+    }
+
+    const titleNode = document.getElementById('email-preview-title');
+    if (titleNode) {
+        titleNode.textContent = title;
+    }
+
+    const themeSlot = document.getElementById('email-preview-theme-slot');
+    if (themeSlot && typeof window.EmailPreviewTheme?.mount === 'function') {
+        themeSlot.innerHTML = '';
+        window.EmailPreviewTheme.mount(themeSlot);
+    }
+
+    return modal;
+}
+
+function sharedRenderEmailPreviewFrame(container, html) {
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    const frame = document.createElement('iframe');
+    frame.className = 'email-preview-frame';
+    frame.setAttribute('sandbox', 'allow-same-origin');
+    frame.style.cssText = [
+        'display:block;',
+        'width:100%;',
+        'min-height:100%;',
+        'border:none;',
+        'background:#ffffff;',
+        'border-radius:8px;',
+    ].join('');
+    frame.srcdoc = html;
+
+    const resizeFrame = () => {
+        try {
+            const frameDocument = frame.contentDocument;
+            if (!frameDocument) return;
+            const documentElement = frameDocument.documentElement;
+            const body = frameDocument.body;
+            if (!documentElement || !body) return;
+
+            const contentHeight = Math.max(
+                body.scrollHeight,
+                body.offsetHeight,
+                documentElement.scrollHeight,
+                documentElement.offsetHeight
+            );
+            const containerHeight = container.clientHeight || 640;
+            frame.style.height = `${Math.max(contentHeight, containerHeight)}px`;
+        } catch (_) {}
+    };
+
+    frame.addEventListener('load', () => {
+        resizeFrame();
+        window.requestAnimationFrame(resizeFrame);
+        window.setTimeout(resizeFrame, 100);
+    });
+
+    container.appendChild(frame);
+}
+
+function openSharedEmailPreviewModal(options = {}) {
+    const {
+        html = '',
+        title = 'Превью письма',
+    } = options;
+
+    const modal = ensureSharedEmailPreviewModal({ title });
+    const container = document.getElementById('email-preview-container');
+    if (!modal || !container) return;
+
+    sharedRenderEmailPreviewFrame(container, html);
+    modal.style.display = 'flex';
+}
+
+function closeSharedEmailPreviewModal() {
+    const modal = document.getElementById('email-preview-modal');
+    if (modal) {
+        modal.style.display = 'none';
+    }
+}
+
+function isSharedEmailPreviewOpen() {
+    const modal = document.getElementById('email-preview-modal');
+    return modal?.style.display === 'flex';
+}
+
+window.ensureSharedEmailPreviewModal = ensureSharedEmailPreviewModal;
+window.sharedRenderEmailPreviewFrame = sharedRenderEmailPreviewFrame;
+window.openSharedEmailPreviewModal = openSharedEmailPreviewModal;
+window.closeSharedEmailPreviewModal = closeSharedEmailPreviewModal;
+window.isSharedEmailPreviewOpen = isSharedEmailPreviewOpen;

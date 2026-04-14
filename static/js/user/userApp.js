@@ -546,10 +546,7 @@ function initEditorHandlers() {
  * Показать превью
  */
 async function showUserPreview() {
-    const modal = document.getElementById('preview-modal-user');
-    const container = document.getElementById('preview-container-user');
-
-    if (!modal || !container) return;
+    if (typeof window.openSharedEmailPreviewModal !== 'function') return;
 
     // Временно устанавливаем блоки в AppState для генерации HTML
     const originalBlocks = AppState.blocks;
@@ -559,8 +556,10 @@ async function showUserPreview() {
         const previewTheme = window.EmailPreviewTheme?.get?.() || 'light';
         const html = await generateEmailHTML({ previewTheme });
         UserAppState.previewBlocks = JSON.parse(JSON.stringify(UserAppState.blocks || []));
-        renderEmailPreviewFrame(container, html);
-        modal.style.display = 'flex';
+        window.openSharedEmailPreviewModal({
+            html,
+            title: 'Превью письма',
+        });
     } catch (error) {
         console.error('[USER APP] Error generating preview:', error);
         alert('Ошибка генерации превью');
@@ -664,24 +663,9 @@ async function renderTemplatePreview(container, blocks) {
 }
 
 function renderEmailPreviewFrame(container, html) {
-    if (!container) return;
-
-    container.innerHTML = '';
-
-    const frame = document.createElement('iframe');
-    frame.className = 'email-preview-frame';
-    frame.setAttribute('sandbox', 'allow-same-origin');
-    frame.style.cssText = [
-        'display:block;',
-        'width:100%;',
-        'min-height:640px;',
-        'border:none;',
-        'background:#ffffff;',
-        'border-radius:8px;',
-    ].join('');
-    frame.srcdoc = html;
-
-    container.appendChild(frame);
+    if (typeof window.sharedRenderEmailPreviewFrame === 'function') {
+        window.sharedRenderEmailPreviewFrame(container, html);
+    }
 }
 
 /**
@@ -710,18 +694,16 @@ function closeBulkMail() {
 }
 
 function mountUserEmailPreviewThemeToggle() {
-    const slot = document.getElementById('preview-user-theme-slot');
-    if (!slot || typeof window.EmailPreviewTheme?.mount !== 'function') return;
-    slot.innerHTML = '';
-    window.EmailPreviewTheme.mount(slot);
+    if (typeof window.ensureSharedEmailPreviewModal === 'function') {
+        window.ensureSharedEmailPreviewModal({ title: 'Превью письма' });
+    }
 }
 
 function initUserPreviewThemeRerender() {
     document.addEventListener('email-preview-theme-change', async () => {
-        const previewModal = document.getElementById('preview-modal-user');
         const templatePreviewModal = document.getElementById('template-preview-modal');
 
-        if (previewModal?.style.display === 'flex') {
+        if (typeof window.isSharedEmailPreviewOpen === 'function' && window.isSharedEmailPreviewOpen()) {
             await showUserPreview();
             return;
         }

@@ -83,7 +83,8 @@ const BANNER_KEYS = [
     'leftBlockGradientCenterY',
     'leftBlockGradientBalance',
 
-    'bgImage',
+    'bgImage', 'bgImageX', 'bgImageY', 'bgImageRotate', 'bgImageScale',
+    'leftBlockImage', 'leftBlockImageX', 'leftBlockImageY', 'leftBlockImageRotate', 'leftBlockImageScale',
     'rightImage', 'rightImageCustom', 'rightImageX', 'rightImageY', 'rightImageRotate', 'rightImageScale',
     'logo', 'logoCustom', 'logoX', 'logoY', 'logoScale',
     'textElements', 'nextTextId'
@@ -151,6 +152,15 @@ const DEFAULT_SETTINGS = {
         rightRoundedRadius: 32,
 
         bgImage: '',
+        bgImageX: 0,
+        bgImageY: 0,
+        bgImageRotate: 0,
+        bgImageScale: 100,
+        leftBlockImage: '',
+        leftBlockImageX: 0,
+        leftBlockImageY: 0,
+        leftBlockImageRotate: 0,
+        leftBlockImageScale: 100,
 
         // Правая картинка
         rightImage: '',
@@ -231,7 +241,7 @@ const DEFAULT_SETTINGS = {
         customFontFamily: '',
         fontSize: 14,
         lineHeight: 1.0,
-        bulletSize: 40,
+        bulletSize: 20,
         bulletGap: 10,
         itemSpacing: 8,
         listStyle: 'bullets'

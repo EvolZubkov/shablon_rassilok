@@ -1146,8 +1146,8 @@ body,
   margin-right: 0;
 }
 
-/* ===== INLINE PREVIEW MODAL ===== */
-#inline-preview-modal {
+/* ===== EMAIL PREVIEW MODAL ===== */
+#email-preview-modal {
   position: fixed;
   top: 0;
   right: 0;
@@ -1156,53 +1156,65 @@ body,
   z-index: 10000;
 }
 
-#inline-preview-close {
-  background: none;
-  border: none;
-  color: #9ca3af;
-  font-size: 20px;
-  cursor: pointer;
-  line-height: 1;
-  padding: 0 4px;
+#email-preview-theme-slot {
+  display: flex;
+  align-items: center;
 }
 
-.modal-preview-email {
-  width: 860px;
+#email-preview-theme-slot .email-theme-toggle {
+  min-height: 36px;
+  border-radius: 8px;
+}
+
+.modal-email-preview {
+  width: min(1200px, calc(100vw - 32px));
   max-width: 95vw;
-  /* Use a fixed viewport height minus safe margins so the modal never
-     overflows the screen.  The inner iframe then fills the remaining space
-     after the header row. */
   height: min(90vh, calc(100vh - 32px));
-}
-
-.modal-preview-email-body {
-  padding: 0 !important;
-  overflow: hidden;
-  /* Must be a block-formatting context so the child iframe fills it. */
   display: flex;
   flex-direction: column;
+  overflow: hidden;
+  border-radius: 12px;
 }
 
-.preview-container--frame {
-  max-width: none;
+.modal-email-preview .modal-header {
+  padding: 20px;
+}
+
+.modal-email-preview .modal-header h2 {
+  font-size: 20px;
+}
+
+.modal-email-preview .modal-close {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+
+.modal-email-preview .modal-close:hover {
+  background: var(--accent-danger);
+  color: #ffffff;
+}
+
+.modal-email-preview__body {
   flex: 1;
-  /* Fallback for browsers that don't respect flex: 1 on block children. */
-  height: 100%;
-  background: #ffffff;
-  display: flex;
-  flex-direction: column;
+  min-height: 0;
+  padding: 20px !important;
   overflow: hidden;
+  display: block;
+}
+
+.preview-container--email {
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
+  max-height: none;
+  overflow-y: auto;
 }
 
 .email-preview-frame {
   display: block;
-  flex: 1;
   width: 100%;
-  /* height: 100% alone does not work when the parent is a flex container —
-     flex: 1 above already sizes it correctly.  The explicit height + min-height
-     act as a fallback for non-flex layout paths. */
-  height: 100%;
-  min-height: 0;
+  min-height: 100%;
   border: none;
   background: #ffffff;
+  border-radius: 8px;
 }
