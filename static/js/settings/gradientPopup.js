@@ -234,9 +234,10 @@ function refreshGradientPopupBody(popup, block) {
             const boxW = boxRect.width;
             const boxH = boxRect.height;
 
-            // Позиция мыши в px относительно превью
-            const mxPx = e.clientX - boxRect.left;
-            const myPx = e.clientY - boxRect.top;
+            // Mouse position in px relative to preview, clamped to box bounds
+            // so handles can never escape the preview area during drag.
+            const mxPx = Math.max(0, Math.min(boxW, e.clientX - boxRect.left));
+            const myPx = Math.max(0, Math.min(boxH, e.clientY - boxRect.top));
 
             const bs = AppState.findBlockById(block.id).settings;
             const curAngle   = Number(bs.gradientAngle   ?? 0);
@@ -686,6 +687,11 @@ function _outsideClickHandler(e) {
         document.removeEventListener('mousedown', _outsideClickHandler);
         return;
     }
+    // Do not close the gradient popup while the color picker modal is open —
+    // the user must be able to pick a stop color and return here.
+    const colorModal = document.getElementById('banner-color-modal');
+    if (colorModal && colorModal.style.display === 'flex') return;
+
     if (!_gradientPopupEl.contains(e.target) && !e.target.closest('.color-gradient-btn')) {
         closeGradientPopup();
         document.removeEventListener('mousedown', _outsideClickHandler);
