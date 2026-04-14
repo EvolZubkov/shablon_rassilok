@@ -471,6 +471,12 @@ function attachDragScrubToNumberControl(target, input, options = {}) {
         onApply = null
     } = options;
 
+    const isIntegerControl = () => {
+        if (input.dataset.integer === 'true') return true;
+        const stepValue = Number(input.step);
+        return Number.isFinite(stepValue) && stepValue >= 1 && Number.isInteger(stepValue);
+    };
+
     target.style.cursor = 'ns-resize';
     input.style.cursor = 'ns-resize';
 
@@ -526,9 +532,12 @@ function attachDragScrubToNumberControl(target, input, options = {}) {
         if (e.altKey) speed = 0.05;
 
         const next = clampValue(startValue + dy * speed);
-        input.value = Number.isInteger(next) ? next : Number(next.toFixed(2));
+        const formattedValue = isIntegerControl()
+            ? Math.round(next)
+            : (Number.isInteger(next) ? next : Number(next.toFixed(2)));
+        input.value = formattedValue;
         if (typeof onApply === 'function') {
-            onApply(next);
+            onApply(formattedValue);
         }
     };
 
