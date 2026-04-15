@@ -48,7 +48,7 @@
         <button type="button" class="menu-root-btn">Справка</button>
         <div class="menu-dropdown">
           <button type="button" class="menu-action user-menu-action" data-action="about">О программе</button>
-          <button type="button" class="menu-action user-menu-action user-menu-action--admin" data-action="open-log">Журнал работы</button>
+          <button type="button" class="menu-action user-menu-action" data-action="open-log">Журнал работы</button>
         </div>
       </div>
     </header>
@@ -318,7 +318,10 @@
       <div class="modal-content modal-preview-template">
         <div class="modal-header">
           <h2 id="template-preview-title">Просмотр шаблона</h2>
-          <button class="modal-close" onclick="closeTemplatePreview()">&times;</button>
+          <div class="modal-header-actions">
+            <div id="template-preview-theme-slot"></div>
+            <button type="button" class="modal-close" onclick="closeTemplatePreview()">&times;</button>
+          </div>
         </div>
         <div class="modal-body">
           <div class="template-preview-scroll">
@@ -879,7 +882,7 @@
                   const data = await r.json().catch(() => ({}));
                   if (!data.success) throw new Error(data.error || 'open-log failed');
                 })
-                .catch(() => { window.open('/protocol.log', '_blank'); });
+                .catch(() => { window.location.href = '/protocol.log'; });
             } else if (action === 'exit') {
               fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
               window.close();
