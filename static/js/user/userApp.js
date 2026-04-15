@@ -615,6 +615,13 @@ async function previewTemplate(id, type) {
     if (!modal || !content) return;
 
     modal.style.display = 'flex';
+
+    const themeSlot = document.getElementById('template-preview-theme-slot');
+    if (themeSlot && typeof window.EmailPreviewTheme?.mount === 'function') {
+        themeSlot.innerHTML = '';
+        window.EmailPreviewTheme.mount(themeSlot);
+    }
+
     content.innerHTML = '<div class="preview-loading"><div class="spinner"></div><p>Загрузка...</p></div>';
 
     try {

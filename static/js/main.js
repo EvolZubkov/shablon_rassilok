@@ -255,7 +255,7 @@ function setupAdminMenu() {
                             }
                         })
                         .catch(() => {
-                            window.open('/protocol.log', '_blank');
+                            window.location.href = '/protocol.log';
                         });
                     break;
                 case 'exit':
