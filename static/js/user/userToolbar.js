@@ -318,9 +318,18 @@ function initToolbarHandlers() {
         e.preventDefault();
         e.stopPropagation();
         const input = document.getElementById('toolbar-link-input');
-        if (input && input.value) {
-            window.open(input.value, '_blank');
-        }
+        if (!input || !input.value) return;
+        const url = input.value.trim();
+        if (!url || url === 'https://') return;
+        // QWebEngineView blocks window.open(); use the Flask proxy instead.
+        fetch('/api/open-url', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+        }).catch(() => {
+            // Fallback for browser mode (no Flask).
+            window.open(url, '_blank');
+        });
     });
 
     // Кнопка "Применить ссылку"
@@ -433,8 +442,8 @@ function applyLink() {
         return;
     }
 
-    restoreSelection();
     currentEditableElement?.focus();
+    restoreSelection();
 
     if (currentLinkElement) {
         currentLinkElement.href = url;
