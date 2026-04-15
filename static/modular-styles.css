@@ -419,6 +419,14 @@ body.admin-mode-page .app-container {
 .setting-textarea {
   resize: vertical;
   min-height: 80px;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+textarea.setting-input,
+textarea.list-item-textarea {
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .setting-range {
@@ -3134,6 +3142,11 @@ body.admin-mode-page .app-container {
   display: grid;
   grid-template-columns: 320px minmax(0, 1fr) 340px;
   width: 100vw;
+}
+
+body.admin-mode-page .settings-panel {
+  width: auto;
+  min-width: 0;
 }
 
 .admin-menu-bar {
