@@ -1365,7 +1365,7 @@ function renderListItemsEditor(items) {
 
     editor.innerHTML = items.map((item, index) => `
         <div class="list-item-row" data-index="${index}">
-            <input type="text" value="${escapeHtmlAttr(item)}" placeholder="Текст пункта...">
+            <input type="text" value="${escapeHtmlAttr(TextSanitizer.toPlainText(item))}" placeholder="Текст пункта...">
             <button type="button" class="btn-delete-item" title="Удалить">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
