@@ -57,6 +57,7 @@ INSTALLER_VERSION="$VERSION"
 INSTALL_DIR="\$HOME/Pochtelye"
 BIN="\$INSTALL_DIR/Pochtelye"
 ICON_PATH="\$INSTALL_DIR/icon.png"
+LAUNCHER="\$INSTALL_DIR/run-pochtelye.sh"
 
 # Locate directory of this script regardless of how it was invoked
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
@@ -77,10 +78,12 @@ cat >> "$OUTPUT" << 'SCRIPT_BODY'
 # Extract a named section from this script file (base64-encoded, single line)
 _extract() {
   local marker="$1" dest="$2"
-  local start
-  start=$(grep -n "^SECTION:${marker}$" "$0" | cut -d: -f1)
-  [ -z "$start" ] && return 1
-  tail -n +$(( start + 1 )) "$0" | head -n 1 | base64 -d > "$dest"
+  local payload
+  payload=$(awk -v marker="SECTION:${marker}" '
+    $0 == marker { getline; gsub(/\r/, "", $0); print; exit }
+  ' "$0")
+  [ -z "$payload" ] && return 1
+  printf '%s' "$payload" | base64 -d > "$dest"
 }
 
 # Returns 0 (true) if semver $1 is strictly greater than $2
@@ -98,13 +101,20 @@ _version_gt() {
 
 # (Re)create the desktop .desktop file
 _make_shortcut() {
+  printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'set -e' \
+    "cd \"$INSTALL_DIR\"" \
+    "exec \"$BIN\" \"\$@\"" > "$LAUNCHER"
+  chmod +x "$LAUNCHER"
+
   {
     echo "[Desktop Entry]"
     echo "Version=1.0"
     echo "Type=Application"
     echo "Name=Почтелье"
     echo "Comment=HTML email and meeting builder"
-    echo "Exec=$BIN"
+    echo "Exec=$LAUNCHER"
     [ -f "$ICON_PATH" ] && echo "Icon=$ICON_PATH"
     echo "Terminal=false"
     echo "Categories=Office;"
@@ -112,6 +122,18 @@ _make_shortcut() {
   chmod +x "$DESKTOP_FILE"
   command -v gio >/dev/null 2>&1 \
     && gio set "$DESKTOP_FILE" metadata::trusted true 2>/dev/null || true
+}
+
+_sync_config() {
+  if [ -f "$SCRIPT_DIR/config.ini" ]; then
+    echo "  Копирование config.ini из папки инсталлятора..."
+    cp "$SCRIPT_DIR/config.ini" "$INSTALL_DIR/config.ini"
+    return
+  fi
+
+  if [ ! -f "$INSTALL_DIR/config.ini" ]; then
+    _extract CONFIG "$INSTALL_DIR/config.ini" 2>/dev/null || true
+  fi
 }
 
 # ── Determine action ──────────────────────────────────────────────────────────
@@ -135,9 +157,7 @@ if [ ! -f "$BIN" ]; then
 
   _extract ICON "$ICON_PATH" 2>/dev/null || true
 
-  if [ ! -f "$INSTALL_DIR/config.ini" ]; then
-    _extract CONFIG "$INSTALL_DIR/config.ini" 2>/dev/null || true
-  fi
+  _sync_config
 
   if [ -f "$SCRIPT_DIR/.lic" ] && [ ! -f "$INSTALL_DIR/.lic" ]; then
     echo "  Копирование .lic..."
@@ -165,7 +185,8 @@ elif _version_gt "$INSTALLER_VERSION" "${INSTALLED_VERSION:-0.0.0}"; then
 
   _extract ICON "$ICON_PATH" 2>/dev/null || true
 
-  # config.ini — не перезаписываем: пользователь мог изменить настройки
+  _sync_config
+
   # .lic — копируем только если ещё не установлен
   if [ -f "$SCRIPT_DIR/.lic" ] && [ ! -f "$INSTALL_DIR/.lic" ]; then
     echo "  Копирование .lic..."
@@ -181,10 +202,12 @@ else
 
   # ── Already up to date ────────────────────────────────────────────────────
   echo "Почтелье $INSTALLED_VERSION уже установлен и актуален."
+  _sync_config
 
 fi
 
 # ── Launch ────────────────────────────────────────────────────────────────────
+cd "$INSTALL_DIR"
 exec "$BIN"
 
 # ── Data sections (do not edit below this line) ───────────────────────────────
@@ -249,8 +272,9 @@ bash Pochtelye.sh
 \`\`\`
 
 Скрипт автоматически определит установленную версию.
-При наличии более новой версии обновит только бинарный файл.
-Настройки (\`config.ini\`) сохраняются без изменений.
+При наличии более новой версии обновит бинарный файл.
+Если рядом с \`Pochtelye.sh\` лежит \`config.ini\`, он будет скопирован в
+\`~/Pochtelye/config.ini\` и использован приложением при следующем запуске.
 
 ## Настройка config.ini
 

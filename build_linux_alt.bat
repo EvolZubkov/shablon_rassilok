@@ -64,7 +64,15 @@ if errorlevel 1 (
 )
 echo        OK
 
-echo [4/5] Building Pochtelye...
+echo [4/6] Regenerating icon assets...
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/convert_icon.py --ico /app/icon.ico"
+if errorlevel 1 (
+    echo [ERROR] Failed to regenerate icon.ico
+    goto error
+)
+echo        OK
+
+echo [5/6] Building Pochtelye...
 docker exec %CONTAINER_NAME% bash -c "cd /app && pyinstaller build.spec --noconfirm --distpath dist/linux --workpath build/app --clean"
 if errorlevel 1 (
     echo [ERROR] Build failed
@@ -72,14 +80,14 @@ if errorlevel 1 (
 )
 echo        OK
 
-echo [5/5] chmod +x, icon conversion, creating installer...
+echo [6/6] chmod +x, icon conversion, creating installer...
 docker exec %CONTAINER_NAME% bash -c "chmod +x /app/dist/linux/Pochtelye"
 if errorlevel 1 (
     echo [ERROR] Failed to set executable permissions
     goto error
 )
 
-docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/convert_icon.py || echo '[WARN] icon conversion failed'"
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/convert_icon.py --png /app/dist/linux/icon.png || echo '[WARN] icon conversion failed'"
 if exist config.ini (
     if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
     copy /y config.ini "%DIST_DIR%\config.ini" >nul
