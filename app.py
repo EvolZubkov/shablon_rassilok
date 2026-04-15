@@ -120,11 +120,13 @@ def _load_config():
         cfg.get(section, 'network_path_linux_hint', fallback='email-builder'),
         cfg.get(section, 'network_path_smb', fallback=None),
         cfg.get(section, 'network_path_linux_resolved', fallback=None),
+        cfg.get(section, 'exchange_server', fallback='').strip(),
     )
 
 
 try:
-    NETWORK_RESOURCES_PATH, PORT, _CONFIG_PATH, _LINUX_HINT, _SMB_PATH, _LINUX_RESOLVED = _load_config()
+    (NETWORK_RESOURCES_PATH, PORT, _CONFIG_PATH, _LINUX_HINT,
+     _SMB_PATH, _LINUX_RESOLVED, _DEFAULT_EXCHANGE_SERVER) = _load_config()
 except RuntimeError as _cfg_err:
     try:
         from PyQt5.QtWidgets import QApplication, QMessageBox
@@ -661,7 +663,6 @@ def show_splash(main_logic):
         title_lbl.setStyleSheet('''
             color: white;
             background: transparent;
-            text-shadow: 0px 1px 4px rgba(0,0,0,200);
         ''')
         title_lbl.setFixedWidth(W)
         title_lbl.move(0, H - 68)
@@ -997,9 +998,19 @@ def _show_resource_finder_dialog(is_admin, reason=''):
 
     # Info -------------------------------------------------------------------
     reason_text = f'<br><i style="color:#b45309">{reason}</i>' if reason else ''
+    current_repo_path = _get_runtime_repo_path() or ''
+    if sys.platform == 'win32':
+        expected_param = 'network_path_win'
+        browse_placeholder = r'\\server\share\email-builder'
+    else:
+        expected_param = 'network_path_linux_resolved'
+        browse_placeholder = '/mnt/share/email-builder'
+
+    shown_path = current_repo_path or 'не указан'
     info_lbl = QLabel(
-        f'Репозиторий ресурсов не обнаружен по пути:<br>'
-        f'<b>{NETWORK_RESOURCES_PATH}</b>'
+        f'Репозиторий ресурсов не обнаружен по пути из параметра '
+        f'<b>{expected_param}</b>:<br>'
+        f'<b>{shown_path}</b>'
         f'{reason_text}<br><br>'
         f'Укажите корректный путь вручную или воспользуйтесь автоматическим поиском.'
     )
@@ -1014,12 +1025,13 @@ def _show_resource_finder_dialog(is_admin, reason=''):
 
     # Path input -------------------------------------------------------------
     layout.addWidget(QLabel('Путь к каталогу ресурсов:'))
-    path_edit = QLineEdit(NETWORK_RESOURCES_PATH or '')
-    if sys.platform == 'win32':
-        path_edit.setPlaceholderText(r'\\server\share\email-builder')
-    else:
-        path_edit.setPlaceholderText('/mnt/share/email-builder')
-    layout.addWidget(path_edit)
+    path_row = QHBoxLayout()
+    path_edit = QLineEdit(current_repo_path)
+    path_edit.setPlaceholderText(browse_placeholder)
+    btn_browse = QPushButton('Выбрать папку')
+    path_row.addWidget(path_edit, 1)
+    path_row.addWidget(btn_browse)
+    layout.addLayout(path_row)
 
     # Verify row -------------------------------------------------------------
     verify_row = QHBoxLayout()
@@ -1035,7 +1047,7 @@ def _show_resource_finder_dialog(is_admin, reason=''):
     mode_layout = QHBoxLayout(mode_box)
     rb_network  = QRadioButton('В сети')
     rb_local    = QRadioButton('Локально')
-    rb_network.setChecked(True)
+    rb_local.setChecked(True)
     btn_grp = QButtonGroup(dlg)
     btn_grp.addButton(rb_network)
     btn_grp.addButton(rb_local)
@@ -1094,6 +1106,25 @@ def _show_resource_finder_dialog(is_admin, reason=''):
         verify_status.setText(''),
         btn_ok.setEnabled(False),
     ))
+
+    def _do_browse():
+        raw = path_edit.text().strip()
+        start_dir = raw
+        if raw and not os.path.isdir(start_dir):
+            start_dir = os.path.dirname(raw)
+        if not start_dir or not os.path.isdir(start_dir):
+            if sys.platform == 'win32':
+                start_dir = os.path.expanduser('~')
+            else:
+                for candidate in ('/mnt', '/media', os.path.expanduser('~')):
+                    if os.path.isdir(candidate):
+                        start_dir = candidate
+                        break
+        chosen = _browse_folder_native(start_dir)
+        if chosen:
+            path_edit.setText(chosen)
+
+    btn_browse.clicked.connect(_do_browse)
 
     # Search -----------------------------------------------------------------
     def _do_search():
@@ -2761,11 +2792,50 @@ _template_cache: dict = {}
 _template_cache_lock = threading.Lock()
 _TEMPLATE_CACHE_TTL: dict = {'shared': 60.0, 'personal': 10.0}
 
+# Template content cache: {absolute_path: {'data': dict, 'mtime': float}}
+# Avoids re-reading template JSON files from slow network filesystems on
+# every /api/templates/load request.  Invalidated automatically when the
+# file's mtime changes (admin saves/overwrites the template).
+_template_content_cache: dict = {}
+_template_content_cache_lock = threading.Lock()
+
 # ── Categories cache ──────────────────────────────────────────────────────────
 _categories_cache: Optional[list] = None
 _categories_cache_ts: float = 0.0
 _categories_cache_lock = threading.Lock()
 _CATEGORIES_TTL: float = 60.0
+
+
+def _load_template_file(fpath: str) -> Optional[dict]:
+    """Return parsed JSON for *fpath* using an mtime-keyed in-memory cache.
+
+    The cache entry is considered valid as long as the file's mtime has not
+    changed, so any write (admin save / external edit) is picked up on the
+    next request without an explicit flush call.
+
+    :param fpath: Absolute path to the template ``.json`` file.
+    :returns: Parsed template dict, or ``None`` on read/parse error.
+    """
+    try:
+        mtime = os.path.getmtime(fpath)
+    except OSError:
+        return None
+
+    with _template_content_cache_lock:
+        cached = _template_content_cache.get(fpath)
+        if cached and cached['mtime'] == mtime:
+            return cached['data']
+
+    try:
+        with open(fpath, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except Exception:
+        return None
+
+    with _template_content_cache_lock:
+        _template_content_cache[fpath] = {'data': data, 'mtime': mtime}
+
+    return data
 
 
 def _invalidate_template_cache(template_type=None):
@@ -2940,29 +3010,24 @@ def _find_template_by_id(base_dir, template_id, template_type=None):
     if not os.path.isdir(base_dir):
         return None, None
 
-    # Fast path — O(1) index lookup
+    # Fast path — O(1) index lookup + mtime-cached read
     if template_type:
         _, index, _ = _get_template_index(template_type, base_dir)
         fpath = index.get(template_id)
         if fpath and os.path.exists(fpath):
-            try:
-                with open(fpath, 'r', encoding='utf-8') as f:
-                    return fpath, json.load(f)
-            except Exception:
-                pass  # index stale; fall through to full scan
+            data = _load_template_file(fpath)
+            if data is not None:
+                return fpath, data
+            # content cache miss (read error) — fall through to full scan
 
     # Slow path — linear scan by id field
     for fname in sorted(os.listdir(base_dir)):
         if not fname.endswith('.json'):
             continue
         fpath = os.path.join(base_dir, fname)
-        try:
-            with open(fpath, 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            if data.get('id') == template_id:
-                return fpath, data
-        except Exception:
-            continue
+        data = _load_template_file(fpath)
+        if data is not None and data.get('id') == template_id:
+            return fpath, data
 
     # Fallback — legacy templates without id field: filename stem was used as id
     fallback_fname = template_id + '.json'
@@ -2970,13 +3035,9 @@ def _find_template_by_id(base_dir, template_id, template_type=None):
     if safe == fallback_fname:  # no sanitization needed — safe to use as path
         fpath = os.path.join(base_dir, safe)
         if os.path.abspath(fpath).startswith(os.path.abspath(base_dir) + os.sep):
-            if os.path.exists(fpath):
-                try:
-                    with open(fpath, 'r', encoding='utf-8') as f:
-                        data = json.load(f)
-                    return fpath, data
-                except Exception:
-                    pass
+            data = _load_template_file(fpath)
+            if data is not None:
+                return fpath, data
 
     return None, None
 
@@ -3560,35 +3621,16 @@ def main():
         print(f"💾 Локальный кеш: {CACHE_DIR}")
         print("=" * 60 + "\n")
 
-        candidate = NETWORK_RESOURCES_PATH
-        if sys.platform != 'win32':
-            candidate = _LINUX_RESOLVED or NETWORK_RESOURCES_PATH
+        candidate = _get_runtime_repo_path() or ''
 
         ok, reason = _validate_resource_repo(candidate)
-
-        # On Linux: if the cached path is invalid (e.g. kio-fuse session path
-        # expired), attempt a silent auto-search before showing the dialog.
-        if not ok and sys.platform != 'win32':
-            update_status('Поиск сетевого ресурса...')
-            found = find_or_mount_linux_path(
-                _SMB_PATH, hint=_LINUX_HINT,
-                status_callback=update_status,
-            )
-            if found:
-                ok, reason = _validate_resource_repo(found)
-                if ok:
-                    candidate = found
-                    # Persist only stable mount points (/mnt, /media).
-                    # kio-fuse and gvfs paths are session-specific and will
-                    # expire on the next login, so saving them is pointless.
-                    if found.startswith(('/mnt/', '/media/')):
-                        _save_network_path(found)
-                    print(f'✓ Путь к ресурсам найден автоматически: {found}')
 
         if ok:
             if candidate != NETWORK_RESOURCES_PATH:
                 globals()['NETWORK_RESOURCES_PATH'] = candidate
                 globals()['NETWORK_VERSION_FILE'] = os.path.join(candidate, 'version.txt')
+                if sys.platform != 'win32':
+                    globals()['_LINUX_RESOLVED'] = candidate
             print(f'✓ Репозиторий ресурсов: {candidate}')
         else:
             print(f'✗ Репозиторий ресурсов недоступен: {candidate} — {reason}')
@@ -3656,6 +3698,8 @@ def main():
                 sys.exit(1)
             globals()['NETWORK_RESOURCES_PATH'] = resolved
             globals()['NETWORK_VERSION_FILE']   = os.path.join(resolved, 'version.txt')
+            if sys.platform != 'win32':
+                globals()['_LINUX_RESOLVED'] = resolved
             # Save only stable paths; kio-fuse/gvfs are session-specific.
             if sys.platform == 'win32' or resolved.startswith(('/mnt/', '/media/')):
                 _save_network_path(resolved)
@@ -3707,12 +3751,16 @@ def api_credentials_status():
             creds = load_credentials(path)
             return jsonify({
                 'exists':          True,
+                'has_password':    bool(creds and creds.get('password')),
                 'username':        creds.get('username') if creds else None,
                 'server':          creds.get('server') if creds else None,
                 'from_email':      creds.get('from_email') if creds else None,
                 'default_senders': creds.get('default_senders') if creds else [],
             })
-        return jsonify({'exists': False, 'username': None, 'server': None, 'from_email': None, 'default_senders': []})
+        return jsonify({'exists': False, 'has_password': False,
+                        'username': None, 'server': None,
+                        'from_email': None, 'default_senders': [],
+                        'default_server': _DEFAULT_EXCHANGE_SERVER or None})
     except Exception as e:
         app.logger.error('credentials_status error: %s', e, exc_info=True)
         return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
@@ -3728,6 +3776,16 @@ def api_credentials_save():
         password = str(data.get('password') or '').strip()
         from_email = str(data.get('from_email') or '').strip()
         default_senders = data.get('default_senders') or []
+        path = get_credentials_path()
+
+        # Opening the settings form does not repopulate the password field.
+        # Reuse the existing secret when the username stays unchanged and the
+        # user saved other settings without entering a new password.
+        if not password and credentials_exist(path):
+            existing_creds = load_credentials(path)
+            if (existing_creds and existing_creds.get('password')
+                    and existing_creds.get('username') == username):
+                password = existing_creds['password']
 
         ok, err = validate_credentials_data({
             'server': server, 'username': username,
@@ -3736,7 +3794,6 @@ def api_credentials_save():
         if not ok:
             return jsonify({'success': False, 'error': err}), 400
 
-        path = get_credentials_path()
         save_credentials(path, server, username, password,
                          from_email, default_senders)
         return jsonify({'success': True})
@@ -3892,18 +3949,49 @@ def api_license_status():
 
 @app.route('/api/open-log', methods=['POST'])
 def api_open_log():
-    """Opens protocol.log in the system-default external application."""
+    """Opens protocol.log in the system-default external application.
+
+    On Linux tries ``xdg-open`` first, then falls back to a list of common
+    text editors.  Returns 500 only when every candidate fails so the client
+    can fall back to serving the file in the browser.
+    """
     if not _ACTIVE_LOG_FILE or not os.path.exists(_ACTIVE_LOG_FILE):
         return jsonify({'success': False, 'error': 'protocol.log не найден'}), 404
 
     try:
         if sys.platform.startswith('win'):
             os.startfile(_ACTIVE_LOG_FILE)
-        elif sys.platform == 'darwin':
+            return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
+
+        if sys.platform == 'darwin':
             subprocess.Popen(['open', _ACTIVE_LOG_FILE])
-        else:
-            subprocess.Popen(['xdg-open', _ACTIVE_LOG_FILE])
-        return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
+            return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
+
+        # Linux: xdg-open → gio open → common text editors
+        candidates = [
+            ['xdg-open', _ACTIVE_LOG_FILE],
+            ['gio', 'open', _ACTIVE_LOG_FILE],
+            ['gedit', _ACTIVE_LOG_FILE],
+            ['kate', _ACTIVE_LOG_FILE],
+            ['mousepad', _ACTIVE_LOG_FILE],
+            ['geany', _ACTIVE_LOG_FILE],
+            ['pluma', _ACTIVE_LOG_FILE],
+        ]
+        last_exc = None
+        for cmd in candidates:
+            try:
+                subprocess.Popen(cmd)
+                return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
+            except FileNotFoundError:
+                continue
+            except Exception as exc:
+                last_exc = exc
+                break
+
+        err = str(last_exc) if last_exc else 'Не найдено подходящего приложения для открытия файла'
+        print(f'⚠️  Не удалось открыть protocol.log внешним приложением: {err}')
+        return jsonify({'success': False, 'error': err}), 500
+
     except Exception as exc:
         print(f'⚠️  Не удалось открыть protocol.log внешним приложением: {exc}')
         return jsonify({'success': False, 'error': str(exc)}), 500
@@ -4033,6 +4121,89 @@ def api_app_settings_repo_refresh_cache():
     except Exception as exc:
         app.logger.error("repo_refresh_cache error: %s", exc, exc_info=True)
         return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+def _browse_folder_native(initial: str = '') -> Optional[str]:
+    """Show a native OS folder-picker dialog without touching the Qt event loop.
+
+    Tries platform-specific tools in order, then falls back to tkinter.
+
+    :param initial: Directory to open the dialog at initially.
+    :returns: Absolute path selected by the user, or ``None`` if cancelled.
+    """
+    if sys.platform.startswith('win'):
+        # PowerShell + WinForms FolderBrowserDialog — available on every Windows.
+        safe_initial = initial.replace("'", "''")
+        set_path = f"$d.SelectedPath = '{safe_initial}'; " if initial else ''
+        script = (
+            'Add-Type -AssemblyName System.Windows.Forms; '
+            '$d = New-Object System.Windows.Forms.FolderBrowserDialog; '
+            '$d.Description = "Выбор папки репозитория"; '
+            + set_path +
+            'if ($d.ShowDialog() -eq "OK") { Write-Output $d.SelectedPath }'
+        )
+        try:
+            r = subprocess.run(
+                ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
+                capture_output=True, text=True, timeout=120,
+            )
+            return r.stdout.strip() or None
+        except Exception:
+            pass
+    else:
+        # Linux: kdialog → zenity → yad (first available wins).
+        initial_arg = (initial.rstrip('/') + '/') if initial else '/'
+        candidates = [
+            ['kdialog', '--getexistingdirectory', initial or '/'],
+            ['zenity', '--file-selection', '--directory',
+             '--title=Выбор папки репозитория', f'--filename={initial_arg}'],
+            ['yad', '--file', '--directory',
+             '--title=Выбор папки репозитория', f'--filename={initial_arg}'],
+        ]
+        for cmd in candidates:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+                if r.returncode == 0:
+                    return r.stdout.strip() or None
+            except FileNotFoundError:
+                continue
+            except Exception:
+                break
+
+    # Universal fallback: tkinter (stdlib, works on Win and Linux with python3-tk).
+    try:
+        import tkinter as tk          # noqa: PLC0415
+        from tkinter import filedialog  # noqa: PLC0415
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        chosen = filedialog.askdirectory(
+            parent=root,
+            title='Выбор папки репозитория',
+            initialdir=initial or '/',
+        )
+        root.destroy()
+        return chosen or None
+    except Exception:
+        return None
+
+
+@app.route('/api/app-settings/repo/browse', methods=['POST'])
+def api_app_settings_repo_browse():
+    """Open a native folder-picker dialog and return the chosen path.
+
+    Delegates to :func:`_browse_folder_native` which uses OS-level tools
+    (PowerShell on Windows, kdialog/zenity/yad on Linux) and falls back to
+    tkinter.  No Qt event-loop interaction required.
+
+    :returns: ``{'success': True, 'path': '...'}`` on selection or
+              ``{'success': False, 'path': null}`` when the user cancels.
+    """
+    initial = _get_runtime_repo_path() or ''
+    path = _browse_folder_native(initial)
+    if path:
+        return jsonify({'success': True, 'path': path})
+    return jsonify({'success': False, 'path': None})
 
 
 @app.route('/api/shutdown', methods=['POST'])
