@@ -961,6 +961,7 @@ textarea.list-item-textarea {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  -webkit-user-select: text;
   user-select: none;
 }
 
@@ -970,6 +971,7 @@ textarea.list-item-textarea {
   border-radius: 4px;
   padding: 4px 6px;
   outline: none;
+  -webkit-user-select: text;
   user-select: text;
   white-space: normal;
 }
@@ -2417,8 +2419,8 @@ dialog.app-dialog::backdrop {
   font-family: inherit;
   outline: none;
   transition: border-color 0.18s ease, box-shadow 0.18s ease;
-  appearance: none;
   -webkit-appearance: none;
+  appearance: none;
 }
 
 .exc-input::placeholder {
@@ -3008,9 +3010,11 @@ dialog.app-dialog::backdrop {
   border: 1px solid #334155;
   border-radius: 24px;
   padding: 6px 14px 6px 10px;
+  -webkit-backdrop-filter: blur(4px);
   backdrop-filter: blur(4px);
   box-shadow: 0 2px 12px rgba(0, 0, 0, 0.4);
   cursor: pointer;
+  -webkit-user-select:none;
   user-select: none;
   pointer-events: none;
 }
