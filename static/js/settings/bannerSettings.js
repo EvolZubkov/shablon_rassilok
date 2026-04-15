@@ -744,10 +744,33 @@ function createBannerPaintControl(block, target, label, mode) {
                     currentColor: solidColor,
                     allowTransparent: true,
                     onApply: (nextColor) => {
-                        clearBannerPaintImage(block.id, target);
-                        updateBannerGradientSetting(block.id, target, 'gradientEnabled', false);
-                        updateBlockSetting(block.id, meta.colorKey, nextColor);
-                        renderSettings();
+                        const blockToUpdate = AppState.findBlockById(block.id);
+                        if (!blockToUpdate) return;
+
+                        // Batch all updates before triggering async render.
+                        // This prevents multiple render calls that could race each other.
+
+                        // 1. Clear paint image
+                        const imageMeta = getBannerPaintImageMeta(target);
+                        blockToUpdate.settings[imageMeta.imageKey] = '';
+
+                        // 2. Disable gradient
+                        const gradientKey = getBannerGradientKey(target, 'enabled');
+                        blockToUpdate.settings[gradientKey] = false;
+
+                        // 3. Set new color (wraps gradient check)
+                        blockToUpdate.settings[meta.colorKey] = nextColor;
+
+                        // 4. Now trigger single async render with all changes applied
+                        if (blockToUpdate.type === 'banner' && BANNER_KEYS.includes(meta.colorKey)) {
+                            renderBannerToDataUrl(blockToUpdate, (dataUrl) => {
+                                blockToUpdate.settings.renderedBanner = dataUrl || null;
+                                renderCanvas();
+                                renderSettings();
+                            });
+                        } else {
+                            renderSettings();
+                        }
                     }
                 });
             } catch (error) {
@@ -782,10 +805,30 @@ function createBannerPaintControl(block, target, label, mode) {
         }
         const reader = new FileReader();
         reader.onload = (loadEvent) => {
-            clearBannerPaintImage(block.id, target);
-            updateBannerGradientSetting(block.id, target, 'gradientEnabled', false);
-            updateBlockSetting(block.id, imageMeta.imageKey, loadEvent.target.result);
-            renderSettings();
+            const blockToUpdate = AppState.findBlockById(block.id);
+            if (!blockToUpdate) return;
+
+            // Batch all updates before triggering async render
+            // to prevent multiple render calls that could race each other.
+
+            // 1. Disable gradient
+            const gradientKey = getBannerGradientKey(target, 'enabled');
+            blockToUpdate.settings[gradientKey] = false;
+
+            // 2. Set image
+            blockToUpdate.settings[imageMeta.imageKey] = loadEvent.target.result;
+
+            // 3. Trigger single async render with all changes applied
+            if (blockToUpdate.type === 'banner' && BANNER_KEYS.includes(imageMeta.imageKey)) {
+                renderBannerToDataUrl(blockToUpdate, (dataUrl) => {
+                    blockToUpdate.settings.renderedBanner = dataUrl || null;
+                    renderCanvas();
+                    renderSettings();
+                });
+            } else {
+                renderSettings();
+            }
+
             event.target.value = '';
         };
         reader.readAsDataURL(file);
