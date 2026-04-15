@@ -107,7 +107,6 @@ function setupPreviewButton() {
     document.addEventListener('app-theme-change', handleAppThemeChange);
 
     btnPreview.onclick = async () => {
-        syncPreviewThemeToAppTheme();
         renderPreviewModal();
     };
     jslog('log', '[PREVIEW] onclick handler attached to #btn-preview');
@@ -128,7 +127,7 @@ function syncPreviewThemeToAppTheme() {
 async function renderPreviewModal() {
     jslog('log', '[PREVIEW] onclick fired');
     try {
-        const previewTheme = document.documentElement?.getAttribute('data-theme') || 'dark';
+        const previewTheme = window.EmailPreviewTheme?.get?.() || 'dark';
         jslog('log', '[PREVIEW] theme: ' + previewTheme);
         const html = await generateEmailHTML({ previewTheme });
         openInlinePreview(html);
@@ -144,6 +143,13 @@ async function renderPreviewModal() {
 }
 
 function handlePreviewThemeChange() {
+    if (typeof TemplatesUI !== 'undefined'
+        && typeof TemplatesUI.isQuickPreviewOpen === 'function'
+        && TemplatesUI.isQuickPreviewOpen()) {
+        TemplatesUI.renderQuickPreview();
+        return;
+    }
+
     if (typeof window.isSharedEmailPreviewOpen === 'function' && window.isSharedEmailPreviewOpen()) {
         renderPreviewModal();
     }
@@ -151,6 +157,15 @@ function handlePreviewThemeChange() {
 
 function handleAppThemeChange() {
     const changed = syncPreviewThemeToAppTheme();
+    if (typeof TemplatesUI !== 'undefined'
+        && typeof TemplatesUI.isQuickPreviewOpen === 'function'
+        && TemplatesUI.isQuickPreviewOpen()) {
+        if (!changed) {
+            TemplatesUI.renderQuickPreview();
+        }
+        return;
+    }
+
     if (!changed && typeof window.isSharedEmailPreviewOpen === 'function' && window.isSharedEmailPreviewOpen()) {
         renderPreviewModal();
     }
@@ -161,6 +176,14 @@ function handleAppThemeChange() {
  * Не использует window.open() — не блокируется браузером.
  */
 function openInlinePreview(html) {
+    if (typeof TemplatesUI !== 'undefined'
+        && typeof TemplatesUI.clearQuickPreviewState === 'function') {
+        if (typeof TemplatesUI.closeTemplatePreview === 'function') {
+            TemplatesUI.closeTemplatePreview();
+        }
+        TemplatesUI.clearQuickPreviewState();
+    }
+
     if (typeof window.openSharedEmailPreviewModal !== 'function') {
         jslog('error', '[PREVIEW] shared preview modal helper missing');
         return;
@@ -221,9 +244,19 @@ function setupAdminMenu() {
                     alert('Почтелье\nАдминистративный режим конструктора.');
                     break;
                 case 'open-log':
-                    fetch('/api/open-log', { method: 'POST' }).catch(() => {
-                        window.open('/protocol.log', '_blank');
-                    });
+                    fetch('/api/open-log', { method: 'POST' })
+                        .then(async (r) => {
+                            if (!r.ok) {
+                                throw new Error('open-log failed');
+                            }
+                            const data = await r.json().catch(() => ({}));
+                            if (!data.success) {
+                                throw new Error(data.error || 'open-log failed');
+                            }
+                        })
+                        .catch(() => {
+                            window.open('/protocol.log', '_blank');
+                        });
                     break;
                 case 'exit':
                     fetch('/api/shutdown', { method: 'POST' })
