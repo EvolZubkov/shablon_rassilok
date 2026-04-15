@@ -101,7 +101,7 @@ const ExchangeModals = (() => {
                 <div class="exc-field">
                   <label class="exc-label">Логин</label>
                   <input id="exc-username" type="text" class="exc-input"
-                         placeholder="user@company.ru" autocomplete="username">
+                         placeholder="domain\\user_name" autocomplete="username">
                 </div>
 
                 <div class="exc-field">
@@ -113,7 +113,7 @@ const ExchangeModals = (() => {
                 <div class="exc-field">
                   <label class="exc-label">Email отправителя по умолчанию</label>
                   <input id="exc-from-email" type="text" class="exc-input"
-                         placeholder="user@company.ru" autocomplete="email">
+                         placeholder="user_name@company.ru" autocomplete="email">
                 </div>
 
                 <div class="exc-field">
@@ -133,7 +133,14 @@ const ExchangeModals = (() => {
                   <label class="exc-label">
                     <span id="app-settings-repo-label">Путь к репозиторию ресурсов</span>
                   </label>
-                  <input id="app-settings-repo-path" type="text" class="exc-input" placeholder="">
+                  <div class="exc-input-with-btn">
+                    <input id="app-settings-repo-path" type="text" class="exc-input" placeholder="">
+                    <button id="app-settings-browse-btn" type="button" class="exc-btn exc-btn--secondary exc-btn--icon" title="Выбрать папку">
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"></path>
+                      </svg>
+                    </button>
+                  </div>
                 </div>
 
                 <div class="app-settings-actions">
@@ -332,7 +339,7 @@ const ExchangeModals = (() => {
         const saveBtn = _q('exc-save-btn');
         if (!saveBtn) return;
         const data = _getExchangeFormData();
-        const dirty = _isExchangeFormDirty(data);
+        const dirty = _isExchangeFormDirty(data) || _isRepoFormDirty();
         if (dirty) {
             saveBtn.textContent = 'Сохранить';
             saveBtn.classList.add('exc-btn--primary');
@@ -360,6 +367,15 @@ const ExchangeModals = (() => {
             else                   _q('exc-from-email').value = '';
             const senders = status.default_senders || [];
             _q('exc-senders').value = senders.join(', ');
+        } else if (status.default_server) {
+            _q('exc-server').value = status.default_server;
+        }
+        const passwordInput = _q('exc-password');
+        if (passwordInput) {
+            passwordInput.value = '';
+            passwordInput.placeholder = status.has_password
+                ? 'Оставьте пустым, чтобы не менять'
+                : '••••••••';
         }
         _q('exc-test-result').style.display = 'none';
 
@@ -396,6 +412,12 @@ const ExchangeModals = (() => {
         if ((status.from_email || '') !== data.fromEmail) return true;
         if (currentSenders.length !== nextSenders.length) return true;
         return currentSenders.some((value, index) => value !== nextSenders[index]);
+    }
+
+    function _isRepoFormDirty() {
+        const currentPath = _q('app-settings-repo-path')?.value.trim() || '';
+        const savedPath = (_appSettingsStatus?.repo_path || '').trim();
+        return currentPath !== savedPath;
     }
 
     function closeCredentials() { _close('exchange-credentials-modal'); }
@@ -480,6 +502,24 @@ const ExchangeModals = (() => {
         el.textContent = '';
     }
 
+    async function browseRepo() {
+        const btn = _q('app-settings-browse-btn');
+        if (btn) btn.disabled = true;
+        try {
+            const response = await fetch('/api/app-settings/repo/browse', { method: 'POST' });
+            const data = await response.json();
+            if (data.success && data.path) {
+                _q('app-settings-repo-path').value = data.path;
+                _clearRepoResult();
+                _updateSettingsDirtyState();
+            }
+        } catch {
+            // Dialog unavailable (browser-fallback mode) — silently ignore.
+        } finally {
+            if (btn) btn.disabled = false;
+        }
+    }
+
     async function verifyRepoPath() {
         const repoPath = _q('app-settings-repo-path').value.trim();
         if (!repoPath) {
@@ -519,6 +559,7 @@ const ExchangeModals = (() => {
             if (data.success && data.repo_path) {
                 _q('app-settings-repo-path').value = data.repo_path;
                 _showRepoResult(`✓ Найден репозиторий: ${data.repo_path}`, 'success');
+                _updateSettingsDirtyState();
             } else {
                 _showRepoResult(data.error || data.reason || 'Репозиторий не найден', 'error');
             }
@@ -547,6 +588,7 @@ const ExchangeModals = (() => {
             if (data.success) {
                 _appSettingsStatus = null;
                 _showRepoResult(`✓ Новый репозиторий создан: ${data.repo_path}`, 'success');
+                _updateSettingsDirtyState();
             } else {
                 _showRepoResult(data.error || 'Не удалось создать репозиторий', 'error');
             }
@@ -577,6 +619,8 @@ const ExchangeModals = (() => {
                 _appSettingsStatus = null;
                 _showRepoResult('✓ Путь к репозиторию сохранён', 'success');
                 Toast.success('Путь к репозиторию сохранён');
+                await _loadAppSettings(true);
+                _updateSettingsDirtyState();
                 return true;
             } else {
                 _showRepoResult(data.error || 'Ошибка сохранения настроек', 'error');
@@ -679,17 +723,25 @@ const ExchangeModals = (() => {
 
     async function saveSettings() {
         const data = _getExchangeFormData();
-        const dirty = _isExchangeFormDirty(data);
+        const exchangeDirty = _isExchangeFormDirty(data);
+        const repoDirty = _isRepoFormDirty();
 
-        if (!dirty) {
+        if (!exchangeDirty && !repoDirty) {
             closeCredentials();
             return;
         }
 
-        await saveCredentials({ closeOnSuccess: false });
-        await saveRepoPath({ buttonId: 'exc-save-btn', buttonText: 'Сохранить' });
+        let ok = true;
+        if (exchangeDirty) {
+            ok = await saveCredentials({ closeOnSuccess: false });
+        }
+        if (ok && repoDirty) {
+            ok = await saveRepoPath({ buttonId: 'exc-save-btn', buttonText: 'Сохранить' });
+        }
 
-        closeCredentials();
+        if (ok) {
+            closeCredentials();
+        }
     }
 
     // ─── Send Email: открыть ──────────────────────────────────────────────────
@@ -1016,11 +1068,15 @@ const ExchangeModals = (() => {
 
         _q('settings-tab-exchange')?.addEventListener('click', () => _setActiveSettingsTab('exchange'));
         _q('settings-tab-repository')?.addEventListener('click', () => _setActiveSettingsTab('repository'));
+        _q('app-settings-browse-btn')?.addEventListener('click', browseRepo);
         _q('app-settings-verify-btn')?.addEventListener('click', verifyRepoPath);
         _q('app-settings-search-btn')?.addEventListener('click', searchRepo);
         _q('app-settings-create-btn')?.addEventListener('click', createRepo);
         _q('app-settings-refresh-cache-btn')?.addEventListener('click', refreshRepoCache);
-        _q('app-settings-repo-path')?.addEventListener('input', _clearRepoResult);
+        _q('app-settings-repo-path')?.addEventListener('input', () => {
+            _clearRepoResult();
+            _updateSettingsDirtyState();
+        });
 
         // Предзагружаем статус
         _loadCredentialsStatus();
