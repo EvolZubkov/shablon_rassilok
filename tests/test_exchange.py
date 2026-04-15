@@ -20,7 +20,7 @@ import hashlib
 import base64
 import datetime
 import unittest.mock as mock
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import ANY, MagicMock, patch, call
 
 # ─── Мокаем Windows и exchangelib до импорта ─────────────────────────────────
 for mod in ('win32com', 'win32com.client', 'pythoncom', 'pywin32_runtime'):
@@ -714,6 +714,7 @@ class TestApiCredentialsStatus:
     def test_exists_true_when_file_present(self, client):
         creds = {
             'server': 'mail.rt.ru', 'username': 'user@rt.ru',
+            'password': 'secret',
             'from_email': 'user@rt.ru', 'default_senders': []
         }
         with patch.object(email_app, 'credentials_exist', return_value=True, create=True), \
@@ -721,6 +722,7 @@ class TestApiCredentialsStatus:
             resp = client.get('/api/credentials/status')
             data = resp.get_json()
         assert data['exists'] is True
+        assert data['has_password'] is True
 
     def test_returns_username_when_exists(self, client):
         creds = {'server': 'mail.rt.ru', 'username': 'user@rt.ru',
@@ -783,6 +785,24 @@ class TestApiCredentialsSave:
         body = {**self.VALID_BODY, 'password': ''}
         resp = client.post('/api/credentials/save', json=body)
         assert resp.status_code == 400
+
+    def test_blank_password_reuses_existing_secret(self, client):
+        body = {**self.VALID_BODY, 'password': '', 'from_email': 'updated@rt.ru'}
+        existing = {**self.VALID_BODY}
+        with patch.object(email_app, 'credentials_exist', return_value=True, create=True), \
+             patch.object(email_app, 'load_credentials', return_value=existing, create=True), \
+             patch.object(email_app, 'save_credentials', return_value=None, create=True) as save_mock:
+            resp = client.post('/api/credentials/save', json=body)
+
+        assert resp.status_code == 200
+        save_mock.assert_called_once_with(
+            ANY,
+            self.VALID_BODY['server'],
+            self.VALID_BODY['username'],
+            self.VALID_BODY['password'],
+            'updated@rt.ru',
+            self.VALID_BODY['default_senders'],
+        )
 
     def test_missing_from_email_returns_400(self, client):
         body = {**self.VALID_BODY, 'from_email': ''}
