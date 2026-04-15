@@ -636,11 +636,13 @@ body.admin-mode-page .app-container {
 }
 
 .preview-container {
-  max-width: 600px;
-  margin: 0 auto;
-  background: #111111;
+  width: 100%;
+  margin: 0;
+  background: #ffffff;
   border-radius: 8px;
-  overflow: hidden;
+  min-height: 400px;
+  max-height: 60vh;
+  overflow-y: auto;
 }
 
 .modal-footer {
@@ -1050,6 +1052,168 @@ dialog.app-dialog::backdrop {
   background: #7f1d1d;
   color: #fca5a5;
 }
+
+.template-preview-popup {
+  position: fixed;
+  z-index: 2000;
+  display: none;
+  width: 280px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 12px;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.44);
+}
+
+.template-preview-popup__card {
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 12px;
+  overflow: hidden;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.template-preview-popup__card:hover {
+  border-color: #64748b;
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.18);
+}
+
+.template-preview-popup__preview {
+  width: 100%;
+  height: 200px;
+  background: var(--bg-primary, #0f172a);
+  overflow: hidden;
+  position: relative;
+  display: block;
+}
+
+.template-preview-popup__preview .email-preview-frame {
+  pointer-events: none;
+  border-radius: 0 !important;
+}
+
+.template-preview-popup__preview .template-card-overlay {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.template-preview-popup__card:hover .template-card-overlay {
+  opacity: 1;
+}
+
+.template-preview-popup__info {
+  padding: 16px;
+}
+
+.template-preview-popup__action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  background: #7700ff;
+  color: #ffffff;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.template-preview-popup__action:hover {
+  background: #6600dd;
+  transform: scale(1.05);
+}
+
+.modal-preview-template {
+  max-width: 704px;
+  width: min(96vw, 704px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal-preview-template .modal-body {
+  flex: 1;
+  overflow: hidden;
+  padding: 0;
+}
+
+.template-preview-scroll {
+  height: 100%;
+  max-height: 60vh;
+  overflow-y: auto;
+  background: #f5f5f5;
+}
+
+.template-preview-wrapper {
+  background: #ffffff;
+  max-width: 600px;
+  margin: 0 auto;
+  min-height: 400px;
+}
+
+.preview-loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 64px 20px;
+  color: var(--text-secondary, #9ca3af);
+}
+
+.preview-error {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 20px;
+  color: #ef4444;
+  font-size: 14px;
+}
+
+.modal-footer--template-preview {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  padding: 16px 24px;
+}
+
+.modal-footer--template-preview .btn-secondary {
+  width: auto;
+  min-width: 120px;
+}
+
+.template-preview-open-btn {
+  min-height: var(--ui-btn-size);
+  min-width: 140px;
+  padding: 0 16px;
+  background: var(--accent-primary);
+  border: 1px solid var(--accent-primary);
+  border-radius: var(--ui-btn-radius);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.template-preview-open-btn:hover {
+  background: var(--accent-primary-hover);
+  border-color: var(--accent-primary-hover);
+}
+
 .templates-empty {
   text-align: center;
   padding: 40px 20px;
@@ -1350,12 +1514,15 @@ dialog.app-dialog::backdrop {
 .grad-popup {
   position: fixed;
   z-index: 9999;
-  width: 300px;
+  width: 360px;
+  max-height: calc(100vh - 32px);
   background: #1c1c1e;
   border: 1px solid #3a3a3a;
   border-radius: 12px;
   box-shadow: 0 8px 32px rgba(0,0,0,0.55), 0 2px 8px rgba(0,0,0,0.3);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
 }
 
@@ -1363,8 +1530,12 @@ dialog.app-dialog::backdrop {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 12px 8px;
+  padding: 8px 12px;
   border-bottom: 1px solid #2e2e2e;
+  flex: 0 0 auto;
+  cursor: move;
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 .grad-popup__mode {
@@ -1374,14 +1545,14 @@ dialog.app-dialog::backdrop {
 }
 
 .grad-popup__close {
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   background: transparent;
   border: none;
-  border-radius: 5px;
+  border-radius: 4px;
   color: #888;
   cursor: pointer;
   transition: background 0.15s, color 0.15s;
@@ -1392,23 +1563,27 @@ dialog.app-dialog::backdrop {
   color: #f5f5f5;
 }
 
+.grad-popup--dragging {
+  cursor: move;
+}
+
 .grad-popup__top-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid #2a2a2a;
 }
 
 .grad-popup__enable-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   flex: 1;
-  padding: 5px 10px;
+  padding: 4px 8px;
   background: #2a2a2a;
   border: 1px solid #3a3a3a;
-  border-radius: 7px;
+  border-radius: 8px;
   color: #aaa;
   font-size: 12px;
   cursor: pointer;
@@ -1438,16 +1613,12 @@ dialog.app-dialog::backdrop {
   padding: 0 20px 0 8px;
   background: #2a2a2a;
   border: 1px solid #3a3a3a;
-  border-radius: 7px;
+  border-radius: 8px;
   color: #f5f5f5;
   font-size: 12px;
   text-align: center;
   outline: none;
-  -moz-appearance: textfield;
 }
-
-.grad-popup__opacity-input::-webkit-outer-spin-button,
-.grad-popup__opacity-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
 .grad-popup__opacity-input:focus {
   border-color: #9466FF;
@@ -1455,7 +1626,7 @@ dialog.app-dialog::backdrop {
 
 .grad-popup__opacity-suffix {
   position: absolute;
-  right: 7px;
+  right: 8px;
   font-size: 10px;
   color: #666;
   pointer-events: none;
@@ -1466,22 +1637,57 @@ dialog.app-dialog::backdrop {
   display: flex;
   flex-direction: column;
   gap: 12px;
-  max-height: 420px;
+  min-height: 0;
+  overflow-x: hidden;
   overflow-y: auto;
+  flex: 1 1 auto;
 }
 
-.grad-popup__body::-webkit-scrollbar {
-  width: 4px;
+.grad-popup__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 4px;
+  padding: 4px 12px 12px;
+  border-top: 1px solid var(--border-secondary);
+  flex: 0 0 auto;
 }
 
-.grad-popup__body::-webkit-scrollbar-track {
-  background: transparent;
+.grad-popup__footer .grad-popup__action:first-child {
+  margin-right: 4px;
 }
 
-.grad-popup__body::-webkit-scrollbar-thumb {
-  background: #3a3a3a;
-  border-radius: 2px;
+.grad-popup__action {
+  min-width: 88px;
+  height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--border-secondary);
+  border-radius: 8px;
+  background: var(--bg-secondary);
+  color: var(--text-secondary);
+  font-size: 12px;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
 }
+
+.grad-popup__action:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.grad-popup__action--primary {
+  background: var(--accent-primary);
+  border-color: var(--accent-primary);
+  color: #ffffff;
+}
+
+.grad-popup__action--primary:hover {
+  background: var(--accent-primary-hover);
+  border-color: var(--accent-primary-hover);
+  color: #ffffff;
+}
+
+
 .grad-popup__bar-wrap {
   padding: 0 0 4px;
 }
@@ -1490,7 +1696,7 @@ dialog.app-dialog::backdrop {
   position: relative;
   width: 100%;
   height: 20px;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid #3a3a3a;
   overflow: visible;
 }
@@ -1502,8 +1708,8 @@ dialog.app-dialog::backdrop {
   width: 12px;
   height: 12px;
   border: 2px solid rgba(255,255,255,0.85);
-  border-radius: 3px;
-  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  border-radius: 4px;
+  box-shadow: 0 4px 8px rgba(0,0,0,0.5);
   z-index: 1;
   cursor: ew-resize;
   -webkit-user-select: none;
@@ -1512,13 +1718,13 @@ dialog.app-dialog::backdrop {
 }
 
 .grad-popup__bar-pin--dragging {
-  box-shadow: 0 0 0 2px #9466FF, 0 2px 6px rgba(0,0,0,0.6);
+  box-shadow: 0 0 0 4px rgba(148,102,255,0.2), 0 4px 8px rgba(0,0,0,0.6);
   z-index: 2;
 }
 .grad-popup__section {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 4px;
 }
 
 .grad-popup__section-head {
@@ -1539,11 +1745,11 @@ dialog.app-dialog::backdrop {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 24px;
+  height: 24px;
   background: transparent;
   border: 1px solid transparent;
-  border-radius: 5px;
+  border-radius: 4px;
   color: #888;
   font-size: 15px;
   cursor: pointer;
@@ -1563,13 +1769,26 @@ dialog.app-dialog::backdrop {
 .grad-popup__stop-list {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
+}
+
+.grad-popup__stop-label-row {
+  display: grid;
+  grid-template-columns: 88px 1fr 88px 24px;
+  gap: 4px;
+  align-items: end;
+}
+
+.grad-popup__stop-col-label {
+  font-size: 10px;
+  color: #666;
+  line-height: 1.2;
 }
 
 .grad-popup__stop-row {
   display: grid;
-  grid-template-columns: 52px 1fr 52px 22px;
-  gap: 5px;
+  grid-template-columns: 88px 1fr 88px 24px;
+  gap: 4px;
   align-items: center;
 }
 
@@ -1580,8 +1799,8 @@ dialog.app-dialog::backdrop {
   height: 28px;
   background: #252525;
   border: 1px solid #383838;
-  border-radius: 6px;
-  padding: 0 6px;
+  border-radius: 8px;
+  padding: 0 8px;
   gap: 4px;
   min-width: 0;
 }
@@ -1593,7 +1812,7 @@ dialog.app-dialog::backdrop {
 .grad-popup__stop-swatch {
   width: 12px;
   height: 12px;
-  border-radius: 3px;
+  border-radius: 4px;
   border: 1px solid rgba(255,255,255,0.2);
   flex-shrink: 0;
   cursor: pointer;
@@ -1624,11 +1843,7 @@ dialog.app-dialog::backdrop {
   color: #f5f5f5;
   font-size: 11px;
   text-align: center;
-  -moz-appearance: textfield;
 }
-
-.grad-popup__mini-input::-webkit-outer-spin-button,
-.grad-popup__mini-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
 .grad-popup__mini-suffix {
   font-size: 10px;
@@ -1639,7 +1854,7 @@ dialog.app-dialog::backdrop {
 .grad-popup__geo-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 6px;
+  gap: 4px;
 }
 
 .grad-popup__geo-cell {
@@ -1665,7 +1880,7 @@ dialog.app-dialog::backdrop {
   height: 28px;
   background: #252525;
   border: 1px solid #383838;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0 8px;
   gap: 4px;
 }
@@ -1682,39 +1897,12 @@ dialog.app-dialog::backdrop {
   color: #f5f5f5;
   font-size: 11px;
   text-align: left;
-  -moz-appearance: textfield;
 }
-
-.grad-popup__geo-input::-webkit-outer-spin-button,
-.grad-popup__geo-input::-webkit-inner-spin-button { -webkit-appearance: none; }
 
 .grad-popup__geo-unit {
   font-size: 10px;
   color: #555;
   flex-shrink: 0;
-}
-.grad-popup__balance-row {
-  display: grid;
-  grid-template-columns: 1fr 48px;
-  align-items: center;
-  gap: 6px;
-}
-
-.grad-popup__balance-slider {
-  width: 100%;
-  accent-color: #9466FF;
-}
-
-.grad-popup__balance-value {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  height: 26px;
-  background: #252525;
-  border: 1px solid #383838;
-  border-radius: 6px;
-  font-size: 11px;
-  color: #f5f5f5;
 }
 .grad-preview {
   padding: 0 0 8px;
@@ -1723,20 +1911,23 @@ dialog.app-dialog::backdrop {
 .grad-preview__box {
   position: relative;
   width: 100%;
-  aspect-ratio: 16 / 9;
-  border-radius: 10px;
+  border-radius: 12px;
   border: 1px solid #3a3a3a;
-  overflow: hidden;
+  /* clip-path clips visual overflow at rounded corners without creating a BFC,
+     so the ::after padding-top trick can give the box its 3:2 height. */
+  clip-path: inset(0 round 12px);
   cursor: crosshair;
+  -webkit-user-select: none;
   user-select: none;
 }
-.grad-preview__box::before {
+
+/* Padding-top trick: 9/16 = 56.25% gives a 16:9 aspect ratio.
+   This is an in-flow element, so it actually gives the box its height
+   (unlike aspect-ratio which collapses when all children are position:absolute). */
+.grad-preview__box::after {
   content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: 9px;
-  background: inherit;
-  overflow: hidden;
+  display: block;
+  padding-top: 56.25%;
   pointer-events: none;
 }
 
@@ -1746,24 +1937,24 @@ dialog.app-dialog::backdrop {
   width: 100%;
   height: 100%;
   pointer-events: none;
-  border-radius: 10px;
+  border-radius: 12px;
   overflow: hidden;
 }
 
 .grad-preview__line {
   stroke: rgba(255, 255, 255, 0.85);
-  stroke-width: 1.5;
+  stroke-width: 2;
   stroke-linecap: round;
   filter: drop-shadow(0 0 2px rgba(0,0,0,0.5));
 }
 .grad-preview__handle {
   position: absolute;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   transform: translate(-50%, -50%) rotate(45deg);
-  border-radius: 3px;
+  border-radius: 4px;
   border: 2px solid rgba(255, 255, 255, 0.9);
-  box-shadow: 0 0 0 1.5px rgba(0,0,0,0.45), 0 2px 6px rgba(0,0,0,0.5);
+  box-shadow: 0 0 0 2px rgba(0,0,0,0.45), 0 4px 8px rgba(0,0,0,0.5);
   cursor: grab;
   z-index: 10;
   transition: box-shadow 0.12s, transform 0.12s;
@@ -1771,13 +1962,13 @@ dialog.app-dialog::backdrop {
 }
 
 .grad-preview__handle:hover {
-  box-shadow: 0 0 0 2px rgba(255,255,255,0.6), 0 0 0 3.5px rgba(0,0,0,0.4);
+  box-shadow: 0 0 0 4px rgba(255,255,255,0.16), 0 0 0 8px rgba(0,0,0,0.12);
   transform: translate(-50%, -50%) rotate(45deg) scale(1.15);
 }
 
 .grad-preview__handle--dragging {
   cursor: grabbing;
-  box-shadow: 0 0 0 2px #60a5fa, 0 2px 8px rgba(0,0,0,0.6);
+  box-shadow: 0 0 0 4px rgba(96,165,250,0.24), 0 4px 8px rgba(0,0,0,0.6);
   transform: translate(-50%, -50%) rotate(45deg) scale(1.2);
 }
 .grad-preview__handle-dot {
@@ -1791,8 +1982,8 @@ dialog.app-dialog::backdrop {
 .grad-preview__handle-dot::after {
   content: '';
   display: block;
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: rgba(255,255,255,0.5);
   transform: rotate(-45deg);
@@ -1806,8 +1997,141 @@ dialog.app-dialog::backdrop {
 
 .grad-preview__handle-dot--filled::after {
   background: rgba(255,255,255,0.9);
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
+}
+
+/* ── Gradient popup: light theme ─────────────────────────────────────── */
+[data-theme="light"] .grad-popup {
+  background: #fffdf8;
+  border-color: #c5bcad;
+  box-shadow: 0 8px 32px rgba(31,35,41,0.14), 0 2px 8px rgba(31,35,41,0.08);
+}
+
+[data-theme="light"] .grad-popup__header {
+  border-bottom-color: #d7d0c3;
+}
+
+[data-theme="light"] .grad-popup__mode {
+  color: #6d737c;
+}
+
+[data-theme="light"] .grad-popup__close {
+  color: #6d737c;
+}
+
+[data-theme="light"] .grad-popup__close:hover {
+  background: #e7e2d8;
+  color: #1f2329;
+}
+
+[data-theme="light"] .grad-popup__top-row {
+  border-bottom-color: #d7d0c3;
+}
+
+[data-theme="light"] .grad-popup__enable-btn {
+  background: #f3f1eb;
+  border-color: #c5bcad;
+  color: #4a525b;
+}
+
+[data-theme="light"] .grad-popup__enable-btn:hover {
+  background: #e7e2d8;
+  color: #1f2329;
+}
+
+[data-theme="light"] .grad-popup__enable-btn--on {
+  background: rgba(148, 102, 255, 0.1);
+  border-color: #9466FF;
+  color: #6e3fbf;
+}
+
+[data-theme="light"] .grad-popup__opacity-input {
+  background: #fffdfa;
+  border-color: #c5bcad;
+  color: #1f2329;
+}
+
+[data-theme="light"] .grad-popup__opacity-input:focus {
+  border-color: #9466FF;
+}
+
+[data-theme="light"] .grad-popup__opacity-suffix {
+  color: #8e877d;
+}
+
+
+[data-theme="light"] .grad-popup__bar {
+  border-color: #c5bcad;
+}
+
+[data-theme="light"] .grad-popup__section-title {
+  color: #6d737c;
+}
+
+[data-theme="light"] .grad-popup__icon-btn {
+  color: #6d737c;
+}
+
+[data-theme="light"] .grad-popup__icon-btn:hover {
+  background: #e7e2d8;
+  color: #1f2329;
+  border-color: #c5bcad;
+}
+
+[data-theme="light"] .grad-popup__stop-field {
+  background: #fffdfa;
+  border-color: #c5bcad;
+}
+
+[data-theme="light"] .grad-popup__stop-field:focus-within {
+  border-color: #9466FF;
+}
+
+[data-theme="light"] .grad-popup__stop-swatch {
+  border-color: rgba(31,35,41,0.2);
+}
+
+[data-theme="light"] .grad-popup__stop-col-label {
+  color: #6d737c;
+}
+
+[data-theme="light"] .grad-popup__hex-input,
+[data-theme="light"] .grad-popup__mini-input {
+  color: #1f2329;
+}
+
+[data-theme="light"] .grad-popup__mini-suffix {
+  color: #8e877d;
+}
+
+[data-theme="light"] .grad-popup__geo-label {
+  color: #6d737c;
+}
+
+[data-theme="light"] .grad-popup__geo-field {
+  background: #fffdfa;
+  border-color: #c5bcad;
+}
+
+[data-theme="light"] .grad-popup__geo-field:focus-within {
+  border-color: #9466FF;
+}
+
+[data-theme="light"] .grad-popup__geo-input {
+  color: #1f2329;
+}
+
+[data-theme="light"] .grad-popup__geo-unit {
+  color: #8e877d;
+}
+
+[data-theme="light"] .grad-popup__footer {
+  border-top-color: #d9d2c7;
+}
+
+[data-theme="light"] .grad-preview__box {
+  border-color: #c5bcad;
 }
 
 .exchange-credentials-modal {
@@ -3499,6 +3823,19 @@ body.admin-mode-page .app-container {
 
 [data-theme="light"] .template-menu-item:hover {
   background: var(--bg-hover);
+}
+
+[data-theme="light"] .template-preview-popup {
+  box-shadow: 0 16px 32px rgba(31, 35, 41, 0.16);
+}
+
+[data-theme="light"] .template-preview-popup__card {
+  background: var(--bg-secondary, #ffffff);
+  border-color: var(--border-color, #d7dce5);
+}
+
+[data-theme="light"] .template-preview-scroll {
+  background: #f3f4f6;
 }
 
 /* User resources panel (slide-in, non-inline) */

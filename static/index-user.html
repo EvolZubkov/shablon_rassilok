@@ -29,7 +29,7 @@
           <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="create-email">Отправить письмо</button>
           <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="create-meeting">Отправить встречу</button>
           <button type="button" class="menu-action user-menu-action user-menu-action--admin user-menu-action--requires-content" data-action="save">Сохранить</button>
-          <button type="button" class="menu-action user-menu-action user-menu-action--admin" data-action="settings">Настройки...</button>
+          <button type="button" class="menu-action user-menu-action" data-action="settings">Настройки...</button>
           <button type="button" class="menu-action user-menu-action" data-action="exit">Выход</button>
         </div>
       </div>
@@ -310,23 +310,6 @@
         </div>
       </div>
 
-    </div>
-
-    <!-- Модальное окно превью -->
-    <div id="preview-modal-user" class="modal" style="display: none;">
-      <div class="modal-overlay"></div>
-      <div class="modal-content">
-        <div class="modal-header">
-          <h2>Превью письма</h2>
-          <div class="modal-header-actions">
-            <div id="preview-user-theme-slot"></div>
-            <button class="modal-close">&times;</button>
-          </div>
-        </div>
-        <div class="modal-body">
-          <div id="preview-container-user" class="preview-container"></div>
-        </div>
-      </div>
     </div>
 
     <!-- Модальное окно просмотра шаблона (до входа в редактор) -->
@@ -890,9 +873,13 @@
             } else if (action === 'about') {
               alert('Почтелье');
             } else if (action === 'open-log') {
-              fetch('/api/open-log', { method: 'POST' }).catch(() => {
-                window.open('/protocol.log', '_blank');
-              });
+              fetch('/api/open-log', { method: 'POST' })
+                .then(async (r) => {
+                  if (!r.ok) throw new Error('open-log failed');
+                  const data = await r.json().catch(() => ({}));
+                  if (!data.success) throw new Error(data.error || 'open-log failed');
+                })
+                .catch(() => { window.open('/protocol.log', '_blank'); });
             } else if (action === 'exit') {
               fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
               window.close();

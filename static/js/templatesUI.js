@@ -184,6 +184,16 @@ const TemplatesUI = {
     _refreshTimer: null,
     /** Active scope filter: 'shared' | 'personal' */
     _activeScope: 'shared',
+    /** Currently previewed template metadata for quick admin preview. */
+    _previewTemplate: null,
+    /** Snapshot of blocks rendered inside the shared preview modal. */
+    _previewBlocks: null,
+    /** Small row-preview popup state for single-click preview. */
+    _rowPreviewPopup: null,
+    _rowPreviewAnchorEl: null,
+    _rowPreviewTemplateKey: null,
+    _rowPreviewClickTimer: null,
+    _rowPreviewRequestId: 0,
 
     init() {
         this.panel = document.getElementById('templates-panel');
@@ -232,6 +242,21 @@ const TemplatesUI = {
             }
         }, 5 * 60 * 1000);
 
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                this.closeTemplatePreview();
+                this.closeRowPreview();
+            }
+        });
+        document.addEventListener('click', (e) => {
+            if (!this._rowPreviewPopup) return;
+            if (this._rowPreviewPopup.contains(e.target)) return;
+            if (this._rowPreviewAnchorEl?.contains(e.target)) return;
+            this.closeRowPreview();
+        }, true);
+        window.addEventListener('resize', () => this._positionRowPreview());
+        this.panel?.addEventListener('scroll', () => this.closeRowPreview(), true);
+
         console.log('✅ TemplatesUI initialized');
     },
 
@@ -268,6 +293,8 @@ const TemplatesUI = {
         this.isOpen = false;
         this.panel.classList.remove('active');
         this.overlay.classList.remove('active');
+        this.closeTemplatePreview();
+        this.closeRowPreview();
     },
 
     toggle() {
@@ -364,6 +391,7 @@ const TemplatesUI = {
     },
 
     renderTemplates(filteredTemplates = null) {
+        this.closeRowPreview();
         const source = filteredTemplates || this.templates;
         const scope = this._activeScope;
         const templatesToRender = {
@@ -456,9 +484,26 @@ const TemplatesUI = {
         div.dataset.id = template.id;
         div.dataset.type = template.type;
 
+        div.addEventListener('click', (e) => {
+            if (e.target.closest('.template-menu-btn')) return;
+            if (e.target.closest('.template-preview-popup')) return;
+            if (this._rowPreviewClickTimer) {
+                window.clearTimeout(this._rowPreviewClickTimer);
+            }
+            this._rowPreviewClickTimer = window.setTimeout(() => {
+                this._rowPreviewClickTimer = null;
+                this.toggleRowPreview(div, template);
+            }, 180);
+        });
+
         // Двойной клик — применить шаблон / вставить пресет
         div.addEventListener('dblclick', (e) => {
             if (e.target.closest('.template-menu-btn')) return;
+            if (this._rowPreviewClickTimer) {
+                window.clearTimeout(this._rowPreviewClickTimer);
+                this._rowPreviewClickTimer = null;
+            }
+            this.closeRowPreview();
             if (isPresetTemplate(template)) {
                 this.insertPreset(template);
             } else {
@@ -487,6 +532,7 @@ const TemplatesUI = {
     },
 
     _openTemplateMenu(anchor, template, nameSpan) {
+        this.closeRowPreview();
         this._closeOpenMenu();
 
         const dropdown = document.createElement('div');
@@ -511,6 +557,7 @@ const TemplatesUI = {
                 addItem('Удалить', true, () => this.deleteTemplate(template));
             }
         } else {
+            addItem('Просмотр', false, () => this.previewTemplate(template));
             addItem('Применить', false, () => this.selectTemplate(template));
             addItem('Переименовать', false, () => this.startRenaming(nameSpan, template));
             addItem('Обновить из холста', false, () => this.updateTemplateFromCanvas(template));
@@ -537,6 +584,406 @@ const TemplatesUI = {
             }
         };
         setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+    },
+
+    _ensureRowPreviewPopup() {
+        if (this._rowPreviewPopup) return this._rowPreviewPopup;
+
+        const popup = document.createElement('div');
+        popup.className = 'template-preview-popup';
+        popup.innerHTML = `
+            <div class="template-preview-popup__card">
+                <div class="template-card-preview template-preview-popup__preview">
+                    <div class="preview-loading-mini">
+                        <div class="spinner-mini"></div>
+                    </div>
+                    <div class="template-card-overlay">
+                        <button type="button" class="btn-template-preview template-preview-popup__action">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                                <circle cx="12" cy="12" r="3"></circle>
+                            </svg>
+                            Просмотреть
+                        </button>
+                    </div>
+                </div>
+                <div class="template-card-info template-preview-popup__info">
+                    <div class="template-card-name template-preview-popup__title"></div>
+                    <div class="template-card-meta template-preview-popup__meta"></div>
+                </div>
+            </div>
+        `;
+
+        popup.querySelector('.template-preview-popup__action')?.addEventListener('click', async () => {
+            if (!this._rowPreviewAnchorEl) return;
+            const { id, type } = this._rowPreviewAnchorEl.dataset;
+            const templateItem = this._findTemplateByKey(id, type);
+            this.closeRowPreview();
+            if (!templateItem) return;
+            await this.previewTemplate(templateItem);
+        });
+
+        document.body.appendChild(popup);
+        this._rowPreviewPopup = popup;
+        return popup;
+    },
+
+    _positionRowPreview() {
+        const popup = this._rowPreviewPopup;
+        const anchor = this._rowPreviewAnchorEl;
+        if (!popup || !anchor || popup.style.display === 'none') return;
+
+        const rect = anchor.getBoundingClientRect();
+        const popupWidth = 320;
+        const gap = 8;
+        let left = rect.right + gap;
+        let top = rect.top;
+
+        if (left + popupWidth > window.innerWidth - 16) {
+            left = Math.max(16, rect.left - popupWidth - gap);
+        }
+
+        const maxTop = Math.max(16, window.innerHeight - popup.offsetHeight - 16);
+        top = Math.min(Math.max(16, top), maxTop);
+
+        popup.style.left = `${Math.round(left)}px`;
+        popup.style.top = `${Math.round(top)}px`;
+    },
+
+    _findTemplateByKey(id, type) {
+        return this.templates.shared.concat(this.templates.personal)
+            .find((item) => item.id === id && item.type === type);
+    },
+
+    _buildRowPreviewActionMarkup() {
+        return `
+            <button type="button" class="btn-template-preview template-preview-popup__action">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+                    <circle cx="12" cy="12" r="3"></circle>
+                </svg>
+                Просмотреть
+            </button>
+        `;
+    },
+
+    _bindRowPreviewAction(root, template) {
+        root?.querySelector('.template-preview-popup__action')?.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const templateItem = this._findTemplateByKey(template.id, template.type);
+            this.closeRowPreview();
+            if (!templateItem) return;
+            await this.previewTemplate(templateItem);
+        });
+    },
+
+    _renderRowPreviewLoading(previewEl, template) {
+        if (!previewEl) return;
+        previewEl.innerHTML = `
+            <div class="preview-loading-mini">
+                <div class="spinner-mini"></div>
+            </div>
+            <div class="template-card-overlay">
+                ${this._buildRowPreviewActionMarkup()}
+            </div>
+        `;
+        this._bindRowPreviewAction(previewEl, template);
+    },
+
+    _renderRowPreviewFallback(previewEl, template, message = 'Нет превью', withIcon = false) {
+        if (!previewEl) return;
+        previewEl.innerHTML = `
+            <div class="no-preview">
+                ${withIcon ? `
+                    <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1">
+                        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                        <polyline points="13 2 13 9 20 9"></polyline>
+                    </svg>
+                ` : ''}
+                <span>${message}</span>
+            </div>
+            <div class="template-card-overlay">
+                ${this._buildRowPreviewActionMarkup()}
+            </div>
+        `;
+        this._bindRowPreviewAction(previewEl, template);
+    },
+
+    _renderRowPreviewHtml(previewEl, template, html) {
+        if (!previewEl) return;
+        const EMAIL_WIDTH = 640;
+        const CARD_HEIGHT = 200;
+        const cardWidth = previewEl.offsetWidth || 280;
+        const scale = cardWidth / EMAIL_WIDTH;
+
+        const wrapper = document.createElement('div');
+        wrapper.style.cssText = [
+            'width: 100%;',
+            `height: ${CARD_HEIGHT}px`,
+            'overflow: hidden;',
+            'position: relative;',
+            'background: #fff;'
+        ].join('');
+
+        previewEl.innerHTML = '';
+        previewEl.appendChild(wrapper);
+
+        const frame = document.createElement('iframe');
+        frame.className = 'email-preview-frame';
+        frame.style.cssText = [
+            'position: absolute;',
+            'top: 0;',
+            'left: 0;',
+            `width: ${EMAIL_WIDTH}px;`,
+            `height: ${Math.ceil(CARD_HEIGHT / scale)}px;`,
+            'border: none;',
+            `transform: scale(${scale.toFixed(4)});`,
+            'transform-origin: top left;',
+            'pointer-events: none;',
+            'background: #fff;',
+            'border-radius: 0;'
+        ].join('');
+        frame.srcdoc = html;
+        wrapper.appendChild(frame);
+
+        const overlay = document.createElement('div');
+        overlay.className = 'template-card-overlay';
+        overlay.innerHTML = this._buildRowPreviewActionMarkup();
+        previewEl.appendChild(overlay);
+        this._bindRowPreviewAction(previewEl, template);
+    },
+
+    async _generatePreviewHtml(blocks) {
+        const originalBlocks = AppState.blocks;
+
+        try {
+            AppState.blocks = JSON.parse(JSON.stringify(blocks || []));
+            const previewTheme = window.EmailPreviewTheme?.get?.() || 'dark';
+            return await generateEmailHTML({ previewTheme });
+        } finally {
+            AppState.blocks = originalBlocks;
+        }
+    },
+
+    async toggleRowPreview(anchor, template) {
+        const templateKey = `${template.type}:${template.id}`;
+        if (this._rowPreviewPopup
+            && this._rowPreviewTemplateKey === templateKey
+            && this._rowPreviewPopup.style.display === 'block') {
+            this.closeRowPreview();
+            return;
+        }
+
+        await this.openRowPreview(anchor, template);
+    },
+
+    async openRowPreview(anchor, template) {
+        const popup = this._ensureRowPreviewPopup();
+        const titleEl = popup.querySelector('.template-preview-popup__title');
+        const metaEl = popup.querySelector('.template-preview-popup__meta');
+        const previewEl = popup.querySelector('.template-preview-popup__preview');
+        const name = decodeHtml(template.name || 'Шаблон');
+        const requestId = ++this._rowPreviewRequestId;
+
+        this._rowPreviewAnchorEl = anchor;
+        this._rowPreviewTemplateKey = `${template.type}:${template.id}`;
+
+        if (titleEl) {
+            titleEl.textContent = name;
+        }
+        if (metaEl) {
+            metaEl.textContent = template.category || 'Без категории';
+        }
+        this._renderRowPreviewLoading(previewEl, template);
+
+        popup.style.display = 'block';
+        this._positionRowPreview();
+
+        try {
+            const templateData = await TemplatesAPI.load(template.id, template.type);
+            if (requestId !== this._rowPreviewRequestId) return;
+
+            if (!templateData || !Array.isArray(templateData.blocks)) {
+                this._renderRowPreviewFallback(previewEl, template, 'Нет превью', true);
+                this._positionRowPreview();
+                return;
+            }
+
+            const html = await this._generatePreviewHtml(templateData.blocks);
+            if (requestId !== this._rowPreviewRequestId) return;
+
+            if (previewEl && typeof window.sharedRenderEmailPreviewFrame === 'function') {
+                this._renderRowPreviewHtml(previewEl, template, html);
+            }
+            this._positionRowPreview();
+        } catch (error) {
+            if (requestId !== this._rowPreviewRequestId) return;
+            console.error('[TEMPLATE ROW PREVIEW] Error:', error);
+            this._renderRowPreviewFallback(previewEl, template);
+            this._positionRowPreview();
+        }
+    },
+
+    closeRowPreview() {
+        if (!this._rowPreviewPopup) return;
+        this._rowPreviewRequestId += 1;
+        this._rowPreviewAnchorEl = null;
+        this._rowPreviewTemplateKey = null;
+        this._rowPreviewPopup.style.display = 'none';
+    },
+
+    async previewTemplate(template) {
+        this.closeRowPreview();
+        const modal = this._ensureTemplatePreviewModal();
+        const content = modal?.querySelector('#template-preview-content');
+        const title = modal?.querySelector('#template-preview-title');
+        const openBtn = modal?.querySelector('#btn-open-template');
+
+        if (!modal || !content) {
+            Toast.error('Режим превью недоступен');
+            return;
+        }
+
+        const name = decodeHtml(template.name || 'Шаблон');
+        const progress = Toast.loading(`Превью «${name}»\u2026`);
+        modal.style.display = 'flex';
+        content.innerHTML = '<div class="preview-loading"><div class="spinner"></div><p>Загрузка...</p></div>';
+        if (title) {
+            title.textContent = name;
+        }
+        if (openBtn) {
+            openBtn.dataset.id = template.id;
+            openBtn.dataset.type = template.type;
+            openBtn.textContent = isPresetTemplate(template) ? 'Вставить' : 'Открыть шаблон';
+        }
+
+        try {
+            const templateData = await TemplatesAPI.load(template.id, template.type);
+            if (!templateData || !Array.isArray(templateData.blocks)) {
+                content.innerHTML = '<div class="preview-error">Ошибка загрузки шаблона</div>';
+                progress.resolve('error', `Не удалось загрузить шаблон «${name}»`);
+                return;
+            }
+
+            this._previewTemplate = { id: template.id, type: template.type, name };
+            this._previewBlocks = JSON.parse(JSON.stringify(templateData.blocks));
+            await this.renderQuickPreview();
+            progress.dismiss();
+        } catch (error) {
+            console.error('[ADMIN PREVIEW] Error previewing template:', error);
+            content.innerHTML = '<div class="preview-error">Ошибка загрузки</div>';
+            progress.resolve('error', `Ошибка превью «${name}»`);
+        }
+    },
+
+    async renderQuickPreview() {
+        if (!this._previewTemplate || !Array.isArray(this._previewBlocks)) {
+            return false;
+        }
+
+        const modal = this._ensureTemplatePreviewModal();
+        const content = modal?.querySelector('#template-preview-content');
+        const originalBlocks = AppState.blocks;
+
+        try {
+            if (!content) return false;
+            AppState.blocks = JSON.parse(JSON.stringify(this._previewBlocks));
+            const previewTheme = window.EmailPreviewTheme?.get?.() || 'dark';
+            const html = await generateEmailHTML({ previewTheme });
+            if (modal) {
+                modal.style.display = 'flex';
+            }
+            if (typeof window.sharedRenderEmailPreviewFrame === 'function') {
+                window.sharedRenderEmailPreviewFrame(content, html);
+            } else {
+                content.innerHTML = '<div class="preview-error">Режим превью недоступен</div>';
+                return false;
+            }
+            return true;
+        } catch (error) {
+            console.error('[ADMIN PREVIEW] renderQuickPreview error:', error);
+            if (content) {
+                content.innerHTML = '<div class="preview-error">Ошибка генерации превью</div>';
+            }
+            Toast.error('Ошибка генерации превью шаблона');
+            return false;
+        } finally {
+            AppState.blocks = originalBlocks;
+        }
+    },
+
+    isQuickPreviewOpen() {
+        const modal = document.getElementById('template-preview-modal');
+        return Boolean(this._previewTemplate
+            && Array.isArray(this._previewBlocks)
+            && modal?.style.display === 'flex');
+    },
+
+    clearQuickPreviewState() {
+        this._previewTemplate = null;
+        this._previewBlocks = null;
+    },
+
+    _ensureTemplatePreviewModal() {
+        let modal = document.getElementById('template-preview-modal');
+        if (modal) return modal;
+
+        const wrapper = document.createElement('div');
+        wrapper.innerHTML = `
+            <div id="template-preview-modal" class="modal" style="display:none;">
+              <div class="modal-overlay"></div>
+              <div class="modal-content modal-preview-template">
+                <div class="modal-header">
+                  <h2 id="template-preview-title">Просмотр шаблона</h2>
+                  <button type="button" class="modal-close" aria-label="Закрыть">&times;</button>
+                </div>
+                <div class="modal-body">
+                  <div class="template-preview-scroll">
+                    <div id="template-preview-content" class="template-preview-wrapper"></div>
+                  </div>
+                </div>
+                <div class="modal-footer modal-footer--template-preview">
+                  <button type="button" class="btn-secondary" data-action="close-preview">Закрыть</button>
+                  <button type="button" class="template-preview-open-btn" id="btn-open-template">Открыть шаблон</button>
+                </div>
+              </div>
+            </div>
+        `;
+        modal = wrapper.firstElementChild;
+        document.body.appendChild(modal);
+
+        const close = () => this.closeTemplatePreview();
+        modal.querySelector('.modal-overlay')?.addEventListener('click', close);
+        modal.querySelector('.modal-close')?.addEventListener('click', close);
+        modal.querySelector('[data-action=\"close-preview\"]')?.addEventListener('click', close);
+        modal.querySelector('#btn-open-template')?.addEventListener('click', async () => {
+            await this.openTemplateFromPreview();
+        });
+
+        return modal;
+    },
+
+    closeTemplatePreview() {
+        const modal = document.getElementById('template-preview-modal');
+        if (modal) {
+            modal.style.display = 'none';
+        }
+        this.clearQuickPreviewState();
+    },
+
+    async openTemplateFromPreview() {
+        const openBtn = document.getElementById('btn-open-template');
+        if (!openBtn) return;
+
+        const template = this._findTemplateByKey(openBtn.dataset.id, openBtn.dataset.type);
+        this.closeTemplatePreview();
+        if (!template) return;
+
+        if (isPresetTemplate(template)) {
+            await this.insertPreset(template);
+        } else {
+            await this.selectTemplate(template);
+        }
     },
 
     _closeOpenMenu() {
@@ -570,6 +1017,8 @@ const TemplatesUI = {
     },
 
     async selectTemplate(template) {
+        this.closeTemplatePreview();
+        this.closeRowPreview();
         const name = decodeHtml(template.name);
 
         if (this.currentTemplate && this.hasUnsavedChanges()) {
@@ -628,6 +1077,8 @@ const TemplatesUI = {
     },
 
     async insertPreset(template) {
+        this.closeTemplatePreview();
+        this.closeRowPreview();
         console.log('🧩 Вставка пресета:', template.name, `(${template.type})`);
 
         const itemEl = this.list?.querySelector(`[data-id="${template.id}"]`);
@@ -699,6 +1150,8 @@ const TemplatesUI = {
     },
 
     async deleteTemplate(template) {
+        this.closeTemplatePreview();
+        this.closeRowPreview();
         if (template.type === 'shared' && !this._isAdmin) {
             Toast.error('Недостаточно прав для удаления общего шаблона.');
             return;
@@ -738,6 +1191,8 @@ const TemplatesUI = {
     },
 
     startRenaming(nameSpan, template) {
+        this.closeTemplatePreview();
+        this.closeRowPreview();
         const oldName = template.name;
 
         nameSpan.contentEditable = true;
@@ -799,6 +1254,8 @@ const TemplatesUI = {
     },
 
     async clearCanvas() {
+        this.closeTemplatePreview();
+        this.closeRowPreview();
         const hasBlocks = AppState.blocks.length > 0;
 
         if (!hasBlocks) {

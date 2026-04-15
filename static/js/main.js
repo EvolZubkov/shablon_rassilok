@@ -90,19 +90,6 @@ function setupDownloadButton() {
 
 function setupPreviewButton() {
     const btnPreview = document.getElementById('btn-preview');
-    const modal = document.getElementById('inline-preview-modal');
-    const btnClose = document.getElementById('inline-preview-close');
-    const themeSlot = document.getElementById('inline-preview-theme-slot');
-
-    if (btnClose) {
-        btnClose.addEventListener('click', () => { modal.style.display = 'none'; });
-    }
-    if (modal) {
-        modal.addEventListener('click', (e) => { if (e.target === modal) modal.style.display = 'none'; });
-    }
-    document.addEventListener('keydown', (e) => {
-        if (e.key === 'Escape' && modal?.style.display === 'flex') modal.style.display = 'none';
-    });
 
     jslog('log', '[PREVIEW] btn-preview element found: ' + !!btnPreview);
     if (!btnPreview) {
@@ -110,12 +97,14 @@ function setupPreviewButton() {
         return;
     }
 
-    if (themeSlot && typeof window.EmailPreviewTheme?.mount === 'function') {
-        window.EmailPreviewTheme.mount(themeSlot);
+    if (typeof window.ensureSharedEmailPreviewModal === 'function') {
+        window.ensureSharedEmailPreviewModal({ title: 'Превью письма' });
     }
 
     document.removeEventListener('email-preview-theme-change', handlePreviewThemeChange);
     document.addEventListener('email-preview-theme-change', handlePreviewThemeChange);
+    document.removeEventListener('app-theme-change', handleAppThemeChange);
+    document.addEventListener('app-theme-change', handleAppThemeChange);
 
     btnPreview.onclick = async () => {
         renderPreviewModal();
@@ -123,10 +112,22 @@ function setupPreviewButton() {
     jslog('log', '[PREVIEW] onclick handler attached to #btn-preview');
 }
 
+function syncPreviewThemeToAppTheme() {
+    const appTheme = document.documentElement?.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+    if (typeof window.EmailPreviewTheme?.get !== 'function' || typeof window.EmailPreviewTheme?.set !== 'function') {
+        return false;
+    }
+    if (window.EmailPreviewTheme.get() !== appTheme) {
+        window.EmailPreviewTheme.set(appTheme);
+        return true;
+    }
+    return false;
+}
+
 async function renderPreviewModal() {
     jslog('log', '[PREVIEW] onclick fired');
     try {
-        const previewTheme = window.EmailPreviewTheme?.get?.() || 'light';
+        const previewTheme = window.EmailPreviewTheme?.get?.() || 'dark';
         jslog('log', '[PREVIEW] theme: ' + previewTheme);
         const html = await generateEmailHTML({ previewTheme });
         openInlinePreview(html);
@@ -142,8 +143,30 @@ async function renderPreviewModal() {
 }
 
 function handlePreviewThemeChange() {
-    const modal = document.getElementById('inline-preview-modal');
-    if (modal?.style.display === 'flex') {
+    if (typeof TemplatesUI !== 'undefined'
+        && typeof TemplatesUI.isQuickPreviewOpen === 'function'
+        && TemplatesUI.isQuickPreviewOpen()) {
+        TemplatesUI.renderQuickPreview();
+        return;
+    }
+
+    if (typeof window.isSharedEmailPreviewOpen === 'function' && window.isSharedEmailPreviewOpen()) {
+        renderPreviewModal();
+    }
+}
+
+function handleAppThemeChange() {
+    const changed = syncPreviewThemeToAppTheme();
+    if (typeof TemplatesUI !== 'undefined'
+        && typeof TemplatesUI.isQuickPreviewOpen === 'function'
+        && TemplatesUI.isQuickPreviewOpen()) {
+        if (!changed) {
+            TemplatesUI.renderQuickPreview();
+        }
+        return;
+    }
+
+    if (!changed && typeof window.isSharedEmailPreviewOpen === 'function' && window.isSharedEmailPreviewOpen()) {
         renderPreviewModal();
     }
 }
@@ -153,24 +176,28 @@ function handlePreviewThemeChange() {
  * Не использует window.open() — не блокируется браузером.
  */
 function openInlinePreview(html) {
-    const modal = document.getElementById('inline-preview-modal');
-    const container = document.getElementById('inline-preview-container');
-    if (!modal || !container) {
-        jslog('error', '[PREVIEW] modal or container missing');
+    if (typeof TemplatesUI !== 'undefined'
+        && typeof TemplatesUI.clearQuickPreviewState === 'function') {
+        if (typeof TemplatesUI.closeTemplatePreview === 'function') {
+            TemplatesUI.closeTemplatePreview();
+        }
+        TemplatesUI.clearQuickPreviewState();
+    }
+
+    if (typeof window.openSharedEmailPreviewModal !== 'function') {
+        jslog('error', '[PREVIEW] shared preview modal helper missing');
         return;
     }
 
-    container.innerHTML = '';
-    const frame = document.createElement('iframe');
-    frame.className = 'email-preview-frame';
-    frame.setAttribute('sandbox', 'allow-same-origin');
-    frame.srcdoc = html;
-    container.appendChild(frame);
+    window.openSharedEmailPreviewModal({
+        html,
+        title: 'Превью письма',
+    });
 
-    modal.style.display = 'flex';
-    const rect = modal.getBoundingClientRect();
-    jslog('log', '[PREVIEW] modal display set to: ' + modal.style.display);
-    jslog('log', `[PREVIEW] modal rect: ${rect.width}x${rect.height} @ ${rect.left},${rect.top}`);
+    const modal = document.getElementById('email-preview-modal');
+    const rect = modal?.getBoundingClientRect?.();
+    jslog('log', '[PREVIEW] modal display set to: ' + (modal?.style.display || 'unknown'));
+    jslog('log', `[PREVIEW] modal rect: ${rect?.width || 0}x${rect?.height || 0} @ ${rect?.left || 0},${rect?.top || 0}`);
 }
 
 function setupAdminMenu() {
@@ -217,9 +244,19 @@ function setupAdminMenu() {
                     alert('Почтелье\nАдминистративный режим конструктора.');
                     break;
                 case 'open-log':
-                    fetch('/api/open-log', { method: 'POST' }).catch(() => {
-                        window.open('/protocol.log', '_blank');
-                    });
+                    fetch('/api/open-log', { method: 'POST' })
+                        .then(async (r) => {
+                            if (!r.ok) {
+                                throw new Error('open-log failed');
+                            }
+                            const data = await r.json().catch(() => ({}));
+                            if (!data.success) {
+                                throw new Error(data.error || 'open-log failed');
+                            }
+                        })
+                        .catch(() => {
+                            window.open('/protocol.log', '_blank');
+                        });
                     break;
                 case 'exit':
                     fetch('/api/shutdown', { method: 'POST' })

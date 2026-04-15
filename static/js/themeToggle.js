@@ -45,6 +45,9 @@ const ThemeManager = {
             localStorage.setItem(this.STORAGE_KEY, next);
             this.updateToggleIcon(next);
         });
+        document.dispatchEvent(new CustomEvent('app-theme-change', {
+            detail: { theme: next },
+        }));
     },
 
     /**

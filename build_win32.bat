@@ -65,7 +65,23 @@ if errorlevel 1 (
 echo        OK
 
 echo.
-echo [3/4] Building Pochtelye.exe...
+echo [3/4] Regenerating icon assets...
+python -m pip install --quiet Pillow
+if errorlevel 1 (
+    echo [ERROR] Failed to install Pillow
+    pause
+    exit /b 1
+)
+python convert_icon.py --ico icon.ico
+if errorlevel 1 (
+    echo [ERROR] Failed to regenerate icon.ico
+    pause
+    exit /b 1
+)
+echo        OK
+
+echo.
+echo [4/4] Building Pochtelye.exe...
 python -m PyInstaller %SPEC_FILE% --noconfirm --distpath "%DIST_DIR%" --workpath "%WORK_DIR%" --clean
 if errorlevel 1 (
     echo [ERROR] Build failed
@@ -75,7 +91,7 @@ if errorlevel 1 (
 echo        OK
 
 echo.
-echo [4/4] Finalizing distribution...
+echo [5/5] Finalizing distribution...
 
 if not exist "%DIST_DIR%" (
     echo [ERROR] %DIST_DIR% not created - build did not complete

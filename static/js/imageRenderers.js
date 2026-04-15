@@ -102,6 +102,9 @@ function renderBannerToDataUrl(block, callback) {
     if (s.bgImage) {
         imagesToLoad.push({ key: 'bgImage', src: s.bgImage });
     }
+    if (s.leftBlockImage) {
+        imagesToLoad.push({ key: 'leftBlockImage', src: s.leftBlockImage });
+    }
 
     // Правая картинка
     const rightImageSrc = s.rightImageCustom || s.rightImage;
@@ -148,31 +151,16 @@ function renderBannerToDataUrl(block, callback) {
                 balance: backgroundGradient.balance,
                 stops: backgroundGradient.stops
             });
-        } else {
-            ctx.fillStyle = backgroundColor;
-        }
-
-        ctx.beginPath();
-        ctx.roundRect(0, 0, WIDTH, HEIGHT, BORDER_RADIUS);
-        ctx.fill();
-
-        // === 1b. Фоновое изображение поверх заливки (только rounded) ===
-        if (mode === 'rounded' && loadedImages.bgImage) {
-            ctx.save();
             ctx.beginPath();
             ctx.roundRect(0, 0, WIDTH, HEIGHT, BORDER_RADIUS);
-            ctx.clip();
-            const bg = loadedImages.bgImage;
-            const bgAspect = bg.width / bg.height;
-            const canvasAspect = WIDTH / HEIGHT;
-            let bw, bh;
-            if (bgAspect > canvasAspect) {
-                bh = HEIGHT; bw = bh * bgAspect;
-            } else {
-                bw = WIDTH; bh = bw / bgAspect;
-            }
-            ctx.drawImage(bg, (WIDTH - bw) / 2, (HEIGHT - bh) / 2, bw, bh);
-            ctx.restore();
+            ctx.fill();
+        } else if (loadedImages.bgImage) {
+            drawBannerBackgroundImageFill(ctx, loadedImages.bgImage, WIDTH, HEIGHT, BORDER_RADIUS, s);
+        } else {
+            ctx.fillStyle = backgroundColor;
+            ctx.beginPath();
+            ctx.roundRect(0, 0, WIDTH, HEIGHT, BORDER_RADIUS);
+            ctx.fill();
         }
 
         // === 2. Рисуем правую картинку (маска / прямоугольник) ===
@@ -200,6 +188,8 @@ function renderBannerToDataUrl(block, callback) {
                     borderRadius: BORDER_RADIUS,
                     blockAngle: LEFT_BLOCK_ANGLE
                 });
+            } else if (loadedImages.leftBlockImage) {
+                drawLeftBlockWithImage(ctx, loadedImages.leftBlockImage, WIDTH, HEIGHT, BORDER_RADIUS, LEFT_BLOCK_ANGLE, s);
             } else {
                 drawLeftBlock(ctx, leftBlockColor, WIDTH, HEIGHT, BORDER_RADIUS, LEFT_BLOCK_ANGLE);
             }
@@ -224,7 +214,7 @@ function renderBannerToDataUrl(block, callback) {
         // поэтому при градиенте всегда используем белый текст.
         // При обычной заливке: mask → leftBlockColor, rounded → backgroundColor
         let textBgColor;
-        if ((mode === 'rounded' && backgroundGradient.enabled) || (mode === 'mask' && leftBlockGradient.enabled)) {
+        if ((mode === 'rounded' && (backgroundGradient.enabled || loadedImages.bgImage)) || (mode === 'mask' && (leftBlockGradient.enabled || loadedImages.leftBlockImage))) {
             textBgColor = '#000000'; // принудительно тёмный фон → белый текст
         } else {
             textBgColor = (mode === 'rounded') ? backgroundColor : leftBlockColor;
@@ -315,6 +305,43 @@ function drawLeftBlock(ctx, color, canvasWidth, canvasHeight, borderRadius, angl
     ctx.restore();
 }
 
+function drawBannerBackgroundImageFill(ctx, img, canvasWidth, canvasHeight, borderRadius, settings) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.roundRect(0, 0, canvasWidth, canvasHeight, borderRadius);
+    ctx.clip();
+
+    const userOffsetX = Number(settings.bgImageX || 0);
+    const userOffsetY = Number(settings.bgImageY || 0);
+    const userRotate = Number(settings.bgImageRotate || 0);
+    const userScale = Number(settings.bgImageScale || 100) / 100;
+    const imgAspect = img.width / img.height;
+    const boxAspect = canvasWidth / canvasHeight;
+
+    let drawW;
+    let drawH;
+    if (imgAspect > boxAspect) {
+        drawH = canvasHeight * userScale;
+        drawW = drawH * imgAspect;
+    } else {
+        drawW = canvasWidth * userScale;
+        drawH = drawW / imgAspect;
+    }
+
+    const centerX = canvasWidth / 2;
+    const centerY = canvasHeight / 2;
+    if (userRotate !== 0) {
+        ctx.translate(centerX, centerY);
+        ctx.rotate(userRotate * Math.PI / 180);
+        ctx.translate(-centerX, -centerY);
+    }
+
+    const drawX = centerX - drawW / 2 + userOffsetX;
+    const drawY = centerY - drawH / 2 + userOffsetY;
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
+    ctx.restore();
+}
+
 function drawLeftBlockWithGradient(ctx, {
     angle,
     centerX,
@@ -373,6 +400,61 @@ function drawLeftBlockWithGradient(ctx, {
         borderRadius
     );
     ctx.fill();
+
+    ctx.restore();
+}
+
+function drawLeftBlockWithImage(ctx, img, canvasWidth, canvasHeight, borderRadius, angle, settings) {
+    ctx.save();
+
+    const blockWidth = 457.43;
+    const blockHeight = 317.89;
+    const offsetX = -76.2;
+    const offsetY = -30.52;
+    const scale = canvasWidth / 600;
+    const angleRad = angle * Math.PI / 180;
+
+    const rectX = offsetX * scale;
+    const rectY = offsetY * scale;
+    const rectW = blockWidth * scale;
+    const rectH = blockHeight * scale;
+    const centerX = rectX + rectW / 2;
+    const centerY = rectY + rectH / 2;
+
+    ctx.translate(centerX, centerY);
+    ctx.rotate(angleRad);
+    ctx.translate(-centerX, -centerY);
+
+    ctx.beginPath();
+    ctx.roundRect(rectX, rectY, rectW, rectH, borderRadius);
+    ctx.clip();
+
+    const userOffsetX = Number(settings.leftBlockImageX || 0);
+    const userOffsetY = Number(settings.leftBlockImageY || 0);
+    const userRotate = Number(settings.leftBlockImageRotate || 0);
+    const userScale = Number(settings.leftBlockImageScale || 100) / 100;
+    const imgAspect = img.width / img.height;
+    const boxAspect = rectW / rectH;
+
+    let drawW;
+    let drawH;
+    if (imgAspect > boxAspect) {
+        drawH = rectH * userScale;
+        drawW = drawH * imgAspect;
+    } else {
+        drawW = rectW * userScale;
+        drawH = drawW / imgAspect;
+    }
+
+    if (userRotate !== 0) {
+        ctx.translate(centerX, centerY);
+        ctx.rotate(userRotate * Math.PI / 180);
+        ctx.translate(-centerX, -centerY);
+    }
+
+    const drawX = centerX - drawW / 2 + userOffsetX;
+    const drawY = centerY - drawH / 2 + userOffsetY;
+    ctx.drawImage(img, drawX, drawY, drawW, drawH);
 
     ctx.restore();
 }
