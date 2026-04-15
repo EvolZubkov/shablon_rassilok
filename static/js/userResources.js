@@ -242,31 +242,41 @@ const UserResources = (() => {
         row.appendChild(headerBtn);
 
         if (isEdit) {
-            const uploadLabel = document.createElement('label');
-            uploadLabel.className = 'ur-btn ur-btn-upload';
-            uploadLabel.textContent = '+ Добавить';
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
             fileInput.accept = 'image/*';
-            fileInput.style.display = 'none';
+            fileInput.style.cssText = 'position:absolute;opacity:0;width:0;height:0;pointer-events:none';
             fileInput.addEventListener('change', async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                const fn = _activeTab === 'shared' ? uploadShared : uploadPersonal;
-                const result = await fn(category, file);
-                if (result.success) {
-                    Toast.success('Файл загружен');
-                    await load();
-                    if (typeof ConfigLoader !== 'undefined') await ConfigLoader.load();
-                    _renderPanel();
-                    if (typeof renderSettings === 'function') renderSettings();
-                } else {
-                    Toast.error(result.error || 'Ошибка загрузки');
+                try {
+                    const fn = _activeTab === 'shared' ? uploadShared : uploadPersonal;
+                    const result = await fn(category, file);
+                    if (result.success) {
+                        Toast.success('Файл загружен');
+                        await load();
+                        if (typeof ConfigLoader !== 'undefined') await ConfigLoader.load();
+                        _renderPanel();
+                        if (typeof renderSettings === 'function') renderSettings();
+                    } else {
+                        Toast.error(result.error || 'Ошибка загрузки');
+                    }
+                } catch (err) {
+                    Toast.error('Ошибка загрузки: ' + (err.message || err));
+                } finally {
+                    fileInput.value = '';
                 }
-                fileInput.value = '';
             });
-            uploadLabel.appendChild(fileInput);
-            row.appendChild(uploadLabel);
+            // Use a <button> with explicit fileInput.click() instead of a <label>
+            // wrapper because Qt5 WebEngine may not activate a display:none input
+            // via label association on some Linux environments.
+            const uploadBtn = document.createElement('button');
+            uploadBtn.type = 'button';
+            uploadBtn.className = 'ur-btn ur-btn-upload';
+            uploadBtn.textContent = '+ Добавить';
+            uploadBtn.addEventListener('click', () => fileInput.click());
+            row.appendChild(uploadBtn);
+            row.appendChild(fileInput);
         }
 
         group.appendChild(row);
