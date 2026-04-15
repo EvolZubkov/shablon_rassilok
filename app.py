@@ -393,6 +393,25 @@ def api_jslog():
     return jsonify({'ok': True})
 
 
+@app.route('/api/open-url', methods=['POST'])
+def api_open_url():
+    """Open an external URL in the system browser.
+
+    QWebEngineView blocks ``window.open()`` by default because ``createWindow``
+    is not overridden.  JS code calls this endpoint instead so the system
+    browser handles the URL.
+    """
+    data = request.get_json(silent=True) or {}
+    url = str(data.get('url', '')).strip()
+    if not url.startswith(('http://', 'https://')):
+        return jsonify({'ok': False, 'error': 'Invalid URL'}), 400
+    try:
+        webbrowser.open(url)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
+    return jsonify({'ok': True})
+
+
 def heartbeat_watchdog():
     """Завершает процесс если браузер не пингует N секунд"""
     time.sleep(15)  # Даём время на запуск
@@ -3967,7 +3986,14 @@ def api_open_log():
             subprocess.Popen(['open', _ACTIVE_LOG_FILE])
             return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
 
-        # Linux: xdg-open → gio open → common text editors
+        # Linux: xdg-open → gio open → common text editors.
+        # When running as a PyInstaller bundle, LD_LIBRARY_PATH and similar
+        # variables point to bundled libraries and corrupt any child process
+        # that loads system shared objects (including xdg-open helpers).
+        # Build a clean environment without those overrides.
+        _pyinstaller_vars = {'LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONPATH', 'PYTHONHOME'}
+        clean_env = {k: v for k, v in os.environ.items() if k not in _pyinstaller_vars}
+
         candidates = [
             ['xdg-open', _ACTIVE_LOG_FILE],
             ['gio', 'open', _ACTIVE_LOG_FILE],
@@ -3980,7 +4006,7 @@ def api_open_log():
         last_exc = None
         for cmd in candidates:
             try:
-                subprocess.Popen(cmd)
+                subprocess.Popen(cmd, env=clean_env)
                 return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
             except FileNotFoundError:
                 continue
