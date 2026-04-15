@@ -195,6 +195,7 @@ function renderListSettings(container, block) {
 `;
     listStyleSelect.addEventListener('change', (e) => {
         s.listStyle = e.target.value;
+        s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
         renderListBulletsToDataUrls(block, () => {
             renderCanvas();
             renderSettings(); // Перерисовываем настройки!

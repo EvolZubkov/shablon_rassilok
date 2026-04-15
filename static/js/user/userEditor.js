@@ -1250,6 +1250,8 @@ function openListEditor(blockId) {
 
             if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
             if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
+            s.listStyle = isNumbered ? 'numbered' : 'bullets';
+            s.bulletSize = isNumbered ? 40 : 20;
         };
     });
 
@@ -1286,6 +1288,7 @@ function openListEditor(blockId) {
         // Собираем данные
         const activeType = modal.querySelector('.toggle-buttons .toggle-btn.active');
         s.listStyle = activeType ? activeType.dataset.value : 'bullets';
+        s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
         s.startNumber = parseInt(document.getElementById('list-start-number').value) || 1;
 
         // Собираем элементы
@@ -1727,34 +1730,3 @@ function updateExpertPreview(s) {
         </div>
     `;
 }
-
-window.addEventListener('DOMContentLoaded', () => {
-    const btnMeeting = document.getElementById('btn-send-meeting');
-    if (btnMeeting) {
-        btnMeeting.addEventListener('click', async () => {
-            console.log('[UI] meeting click');
-
-            // 1) Получаем HTML письма. Если у тебя есть готовая функция генерации — подставь её сюда.
-            // Самый безопасный временный вариант — взять текущий HTML из canvas:
-            const canvas = document.getElementById('user-canvas');
-            const html = canvas ? canvas.innerHTML : '';
-
-            // 2) Отправляем на backend
-            const r = await fetch('/create-meeting', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    html_content: html,
-                    subject: document.getElementById('current-template-name')?.textContent || 'Встреча'
-                })
-            });
-
-            const data = await r.json().catch(() => ({}));
-            console.log('[UI] meeting response', r.status, data);
-
-            if (!r.ok) {
-                alert('Ошибка создания встречи, см. консоль');
-            }
-        });
-    }
-});
