@@ -29,14 +29,24 @@ function renderListSettings(container, block) {
         textarea.className = 'setting-input list-item-textarea';
         textarea.dataset.blockId = block.id;
         textarea.dataset.itemIndex = index;
-        textarea.value = item;
+        // Display simple HTML as plain text so markup is not shown literally.
+        textarea.value = TextSanitizer.toPlainText(item || '');
         textarea.style.flex = '1';
         textarea.style.minHeight = '48px';
         textarea.style.resize = 'vertical';
 
         textarea.addEventListener('input', (e) => {
             const newItems = [...(s.items || [])];
-            newItems[index] = e.target.value;
+            newItems[index] = TextSanitizer.sanitize(e.target.value, true);
+            updateBlockSetting(block.id, 'items', newItems);
+        });
+
+        textarea.addEventListener('blur', (e) => {
+            let simpleHTML = TextSanitizer.sanitize(e.target.value, true);
+            simpleHTML = TextSanitizer.applyTypography(simpleHTML);
+            e.target.value = TextSanitizer.toPlainText(simpleHTML);
+            const newItems = [...(s.items || [])];
+            newItems[index] = simpleHTML;
             updateBlockSetting(block.id, 'items', newItems);
         });
 
@@ -80,7 +90,7 @@ function renderListSettings(container, block) {
 
             textarea.value = newValue;
             const newItems = [...(s.items || [])];
-            newItems[index] = newValue;
+            newItems[index] = TextSanitizer.sanitize(newValue, true);
             updateBlockSetting(block.id, 'items', newItems);
         });
 
