@@ -161,7 +161,17 @@ async function loadCardPreviews(templates) {
     // Высота карточки фиксирована в CSS = 200px
     const CARD_HEIGHT = 200;
 
-    for (const template of templates) {
+    // Phase 1: fetch all template data in parallel to avoid sequential network reads.
+    const dataList = await Promise.all(
+        templates.map(t => TemplatesAPI.load(t.id, t.type).catch(() => null))
+    );
+
+    // Phase 2: generate and render previews sequentially — AppState.blocks mutation
+    // must not overlap between iterations.
+    for (let i = 0; i < templates.length; i++) {
+        const template = templates[i];
+        const templateData = dataList[i];
+
         const card = document.querySelector(`.template-card[data-id="${template.id}"]`);
         if (!card) continue;
 
@@ -169,7 +179,6 @@ async function loadCardPreviews(templates) {
         if (!previewContainer) continue;
 
         try {
-            const templateData = await TemplatesAPI.load(template.id, template.type);
             if (!templateData || !templateData.blocks) continue;
 
             // Генерируем email HTML (временно подменяем AppState.blocks)
