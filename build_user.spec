@@ -23,7 +23,7 @@ def maybe(src, dst):
 
 # ── Static assets ─────────────────────────────────────────────────────────────
 raw_datas = [
-    maybe('icon.ico', '.'),
+    maybe('assets/icon.ico', '.'),
     maybe('static',                    'static'),
     maybe('js',                        'js'),
     maybe('templates',                 'templates'),
@@ -101,8 +101,8 @@ hiddenimports = [
 ]
 
 a = Analysis(
-    ['app_user.py'],
-    pathex=[ROOT],
+    [os.path.join(ROOT, 'src', 'app_user.py')],
+    pathex=[ROOT, os.path.join(ROOT, 'src')],
     binaries=extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -133,6 +133,6 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    icon='icon.ico' if os.path.exists('icon.ico') else None,
+    icon=os.path.join(ROOT, 'assets', 'icon.ico') if os.path.exists(os.path.join(ROOT, 'assets', 'icon.ico')) else None,
     onefile=True,
 )

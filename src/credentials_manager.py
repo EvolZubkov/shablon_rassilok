@@ -9,11 +9,14 @@ from __future__ import annotations
 
 import os
 import sys
+import re
 import json
 import hashlib
 import base64
 import socket
 from typing import Optional, Tuple, Dict
+
+_EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 from cryptography.fernet import Fernet, InvalidToken
 
 
@@ -32,15 +35,31 @@ def get_credentials_path() -> str:
 # ─── Ключ шифрования ─────────────────────────────────────────────────────────
 
 
+_PBKDF2_ITERATIONS = 100_000
+
+
 def make_key(username: str, hostname: str = None) -> bytes:
-    """
-    Детерминированный Fernet-ключ из username + hostname.
-    Не хранится нигде — воссоздаётся при каждой загрузке.
+    """Derive a deterministic Fernet key from *username* and *hostname*.
+
+    Uses PBKDF2-HMAC-SHA256 (100 000 iterations) so that offline brute-force
+    against a stolen credentials.json is computationally expensive.  The key
+    is never stored on disk — it is re-derived on every load.
+
+    :param username: Exchange account username; used as PBKDF2 password.
+    :param hostname: Machine hostname used as the PBKDF2 salt.  Defaults to
+        the local machine hostname so the credentials file is tied to the
+        machine it was created on.
+    :returns: URL-safe base64-encoded 32-byte key suitable for :class:`Fernet`.
     """
     if hostname is None:
         hostname = socket.gethostname()
-    raw = (username + hostname).encode("utf-8")
-    return base64.urlsafe_b64encode(hashlib.sha256(raw).digest())
+    key_bytes = hashlib.pbkdf2_hmac(
+        'sha256',
+        username.encode('utf-8'),
+        hostname.encode('utf-8'),
+        _PBKDF2_ITERATIONS,
+    )
+    return base64.urlsafe_b64encode(key_bytes)
 
 
 # ─── Шифрование ──────────────────────────────────────────────────────────────
@@ -68,7 +87,7 @@ def validate_credentials_data(data: dict) -> Tuple[bool, Optional[str]]:
     for field in required:
         if not str(data.get(field) or "").strip():
             return False, f"Поле {field} обязательно"
-    if "@" not in str(data.get("from_email", "")):
+    if not _EMAIL_RE.match(str(data.get("from_email", ""))):
         return False, "Некорректный email отправителя"
     return True, None
 

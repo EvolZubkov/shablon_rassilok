@@ -257,6 +257,7 @@ body {
 
 /* Template Card */
 .template-card {
+  position: relative;
   background: var(--bg-secondary, #1e293b);
   border: 1px solid var(--border-color, #334155);
   border-radius: 12px;
@@ -2580,6 +2581,52 @@ body {
   transform: scale(1.05);
 }
 
+/* Favorite star button on template card (user mode) */
+.btn-favorite {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.15s, transform 0.15s;
+  padding: 0;
+}
+.template-card:hover .btn-favorite {
+  opacity: 1;
+}
+.btn-favorite--active {
+  color: #fbbf24;
+  opacity: 1 !important;
+}
+.btn-favorite:hover {
+  background: rgba(0, 0, 0, 0.65);
+  transform: scale(1.15);
+}
+.btn-favorite svg {
+  pointer-events: none;
+}
+
+/* Favorites category tab highlight */
+.category-tab--favorites {
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+.category-tab--favorites.active {
+  background: rgba(251, 191, 36, 0.15);
+  border-color: #fbbf24;
+  color: #fbbf24;
+}
+
 /* ============================================================================
    TEMPLATE PREVIEW MODAL - Модалка просмотра шаблона
    ============================================================================ */
@@ -3739,4 +3786,70 @@ body {
 
 [data-theme='light'] .mode-toggle-btn:disabled svg {
   opacity: 0.8;
+}
+
+/* ── Email autocomplete dropdown ─────────────────────────────────────────── */
+.email-ac-dropdown {
+  position: fixed;
+  z-index: 9999;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: none;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.email-ac-item {
+  padding: 7px 12px;
+  font-size: 13px;
+  color: #cbd5e1;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s;
+}
+
+.email-ac-item:hover,
+.email-ac-item--active {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+/* ── Email comment toggle ────────────────────────────────────────────────── */
+.exc-field--comment {
+  border-top: 1px solid #1e293b;
+  padding-top: 12px;
+  margin-top: 4px;
+}
+
+.exc-comment-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.exc-comment-toggle input[type="checkbox"] {
+  width: 15px;
+  height: 15px;
+  accent-color: #f97316;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.exc-comment-toggle__label {
+  font-size: 13px;
+  color: #94a3b8;
+  transition: color 0.15s;
+}
+
+.exc-comment-toggle:has(input:checked) .exc-comment-toggle__label {
+  color: #f97316;
 }

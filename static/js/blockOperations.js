@@ -118,6 +118,7 @@ function renderExpertBlock(block) {
 function deleteBlock(blockId) {
     AppState.pushUndo();
     AppState.removeBlock(blockId);
+    cancelBannerRender(blockId);
 
     // если удалили блок, который был в мультивыборе — убираем
     if (AppState.multiSelectedBlockIds) {
@@ -144,6 +145,7 @@ function deleteColumnBlock(parentId, columnId, blockId) {
     if (!column) return;
 
     column.blocks = column.blocks.filter(b => b.id !== blockId);
+    cancelBannerRender(blockId);
     renderCanvas();
 }
 

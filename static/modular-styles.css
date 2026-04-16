@@ -752,11 +752,13 @@ textarea.list-item-textarea {
 }
 .column-block {
   cursor: move;
+  margin-bottom: 0;
 }
 
 .column-block.dragging {
   opacity: 0.5;
 }
+
 .columns-container {
   display: flex;
   gap: 12px;
@@ -776,10 +778,6 @@ textarea.list-item-textarea {
   min-height: 100px;
 }
 
-.column-block {
-  margin-bottom: 0 !important;
-}
-
 .column-drop-zone {
   min-height: 80px;
   border: 2px dashed var(--border-dashed);
@@ -795,10 +793,6 @@ textarea.list-item-textarea {
 .column-drop-zone:hover {
   border-color: var(--accent-primary);
   background: rgba(249, 115, 22, 0.05);
-}
-
-.column-block.dragging {
-  opacity: 0.5;
 }
 
 .column-block.selected {
@@ -1003,6 +997,37 @@ textarea.list-item-textarea {
   color: var(--text-primary);
 }
 
+/* Favorite star button inside template list rows (admin panel) */
+.template-item-star {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.15s, color 0.15s;
+  padding: 0;
+}
+.template-item:hover .template-item-star {
+  opacity: 1;
+}
+.template-item-star--active {
+  color: #fbbf24;
+  opacity: 1 !important;
+}
+.template-item-star:hover {
+  color: #fbbf24;
+}
+.template-item-star svg {
+  pointer-events: none;
+}
+
 /* Native modal dialog used for save/confirm forms */
 dialog.app-dialog {
   padding: 28px 32px;
@@ -1101,7 +1126,7 @@ dialog.app-dialog::backdrop {
 
 .template-preview-popup__preview .email-preview-frame {
   pointer-events: none;
-  border-radius: 0 !important;
+  border-radius: 0;
 }
 
 .template-preview-popup__preview .template-card-overlay {
@@ -1339,10 +1364,6 @@ dialog.app-dialog::backdrop {
   width: 100%;
 }
 
-/* Кнопка настроек Exchange — как btn-save-template но с иконкой шестерни */
-.btn-exchange-settings-link {
-  margin-top: 0 !important;
-}
 .btn-save-template {
   width: 100%;
   margin-top: 12px;
@@ -1370,6 +1391,12 @@ dialog.app-dialog::backdrop {
 .btn-save-template svg {
   flex-shrink: 0;
 }
+
+/* Exchange settings button reuses .btn-save-template but without top margin */
+.btn-save-template.btn-exchange-settings-link {
+  margin-top: 0;
+}
+
 .templates-category-group {
     margin-top: 4px;
 }
@@ -2243,14 +2270,6 @@ dialog.app-dialog::backdrop {
   box-shadow: 0 0 0 3px var(--input-focus-ring, rgba(124, 58, 237, 0.18));
 }
 
-
-.exc-test-result {
-  display: none;
-  padding: 10px 12px;
-  border-radius: 8px;
-  font-size: 13px;
-  line-height: 1.4;
-}
 
 .exchange-footer {
   display: flex;
@@ -3488,6 +3507,8 @@ body.admin-mode-page .settings-panel {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  display: flex;
+  flex-direction: column;
 }
 
 .accordion-trigger {
@@ -3534,11 +3555,6 @@ body.admin-mode-page .settings-panel {
   display: none;
   padding: 12px;
   border-top: 1px solid var(--border-primary);
-}
-
-.accordion-item.active .accordion-body {
-  display: flex;
-  flex-direction: column;
 }
 
 .accordion-section + .accordion-section {
