@@ -12,6 +12,7 @@ import sys
 import os
 import re
 import uuid
+import unicodedata
 import tempfile
 import mimetypes
 import webbrowser
@@ -390,6 +391,25 @@ def api_jslog():
     level = data.get('level', 'log').upper()
     msg   = data.get('msg', '')
     print(f'[JS:{level}] {msg}')
+    return jsonify({'ok': True})
+
+
+@app.route('/api/open-url', methods=['POST'])
+def api_open_url():
+    """Open an external URL in the system browser.
+
+    QWebEngineView blocks ``window.open()`` by default because ``createWindow``
+    is not overridden.  JS code calls this endpoint instead so the system
+    browser handles the URL.
+    """
+    data = request.get_json(silent=True) or {}
+    url = str(data.get('url', '')).strip()
+    if not url.startswith(('http://', 'https://')):
+        return jsonify({'ok': False, 'error': 'Invalid URL'}), 400
+    try:
+        webbrowser.open(url)
+    except Exception as exc:
+        return jsonify({'ok': False, 'error': str(exc)}), 500
     return jsonify({'ok': True})
 
 
@@ -2276,6 +2296,60 @@ USER_RESOURCE_CATEGORIES = [
 _ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}
 
 
+def _safe_filename(name: str) -> str:
+    """Sanitize *name* as a filesystem filename, preserving Unicode (Cyrillic,
+    Latin, etc.) characters.
+
+    Unlike :func:`werkzeug.utils.secure_filename`, this function does **not**
+    strip non-ASCII letters, so filenames like ``фон_баннера.png`` remain
+    intact.  It only removes characters that are genuinely unsafe on the
+    target filesystems (Linux NTFS/ext4, Windows):
+
+    * Control characters and Unicode format characters (category ``C``).
+    * Filesystem-special characters: ``/ \\ : * ? " < > |``.
+    * Leading dots (which would create hidden files on Linux).
+
+    Runs of whitespace and underscores are collapsed to a single underscore.
+    Returns ``'file'`` if nothing safe remains after stripping.
+    """
+    # Canonical Unicode composition (NFC) — normalise combining characters.
+    name = unicodedata.normalize('NFC', name)
+    # Drop control/format characters (Cc, Cf, Cs, Co, Cn categories).
+    name = ''.join(c for c in name if unicodedata.category(c)[0] != 'C')
+    # Characters forbidden in filenames on Linux and Windows.
+    name = re.sub(r'[/\\:*?"<>|]', '_', name)
+    # Collapse whitespace and underscores.
+    name = re.sub(r'[\s_]+', '_', name)
+    # Strip leading dots (hidden-file guard) and surrounding underscores.
+    name = name.lstrip('.').strip('_')
+    return name or 'file'
+
+
+def _unique_path(directory: str, filename: str) -> tuple[str, str]:
+    """Return *(path, filename)* guaranteed not to exist in *directory*.
+
+    If *directory/filename* is free, returns it as-is.  Otherwise appends
+    ``_2``, ``_3``, … to the stem until a free slot is found.
+
+    Example::
+
+        фон.png          → фон.png        (if free)
+        фон.png          → фон_2.png      (if фон.png already exists)
+        фон_2.png        → фон_3.png      (if фон_2.png also exists)
+    """
+    path = os.path.join(directory, filename)
+    if not os.path.exists(path):
+        return path, filename
+    stem, ext = os.path.splitext(filename)
+    counter = 2
+    while True:
+        candidate_name = f'{stem}_{counter}{ext}'
+        candidate_path = os.path.join(directory, candidate_name)
+        if not os.path.exists(candidate_path):
+            return candidate_path, candidate_name
+        counter += 1
+
+
 def get_user_resources_dir() -> str:
     """
     Returns the path to the personal user resources directory.
@@ -2388,8 +2462,8 @@ def user_resources_serve(category, filename):
     """Serve a single user-owned resource file."""
     if category not in USER_RESOURCE_CATEGORIES:
         abort(404)
-    safe = secure_filename(filename)
-    if not safe:
+    safe = _safe_filename(filename)
+    if not safe or safe == 'file':
         abort(404)
     cat_dir = os.path.join(get_user_resources_dir(), category)
     return send_from_directory(cat_dir, safe)
@@ -2420,10 +2494,11 @@ def user_resources_upload():
         if ext not in _ALLOWED_IMAGE_EXTENSIONS:
             return jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400
 
-        safe = secure_filename(f.filename)
+        stem = os.path.splitext(f.filename)[0]
+        safe = _safe_filename(stem) + ext
         cat_dir = os.path.join(get_user_resources_dir(), category)
         os.makedirs(cat_dir, exist_ok=True)
-        dest = os.path.join(cat_dir, safe)
+        dest, safe = _unique_path(cat_dir, safe)
         f.save(dest)
 
         return jsonify({
@@ -2452,8 +2527,8 @@ def user_resources_delete():
         if category not in USER_RESOURCE_CATEGORIES:
             return jsonify({'success': False, 'error': 'Неверная категория'}), 400
 
-        safe = secure_filename(filename)
-        if not safe:
+        safe = _safe_filename(filename)
+        if not safe or safe == 'file':
             return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
 
         path = os.path.join(get_user_resources_dir(), category, safe)
@@ -2489,8 +2564,8 @@ def user_resources_publish():
         if category not in USER_RESOURCE_CATEGORIES:
             return jsonify({'success': False, 'error': 'Неверная категория'}), 400
 
-        safe = secure_filename(filename)
-        if not safe:
+        safe = _safe_filename(filename)
+        if not safe or safe == 'file':
             return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
 
         src_path = os.path.join(get_user_resources_dir(), category, safe)
@@ -2577,10 +2652,11 @@ def shared_resources_upload():
         if ext not in _ALLOWED_IMAGE_EXTENSIONS:
             return jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400
 
-        safe = secure_filename(f.filename)
+        stem = os.path.splitext(f.filename)[0]
+        safe = _safe_filename(stem) + ext
         dest_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
         os.makedirs(dest_dir, exist_ok=True)
-        dest_path = os.path.join(dest_dir, safe)
+        dest_path, safe = _unique_path(dest_dir, safe)
         f.save(dest_path)
 
         pub_url = f'/cache/{category}/{safe}'
@@ -2616,8 +2692,8 @@ def shared_resources_delete():
         if category not in USER_RESOURCE_CATEGORIES:
             return jsonify({'success': False, 'error': 'Неверная категория'}), 400
 
-        safe = secure_filename(filename)
-        if not safe:
+        safe = _safe_filename(filename)
+        if not safe or safe == 'file':
             return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
 
         path = os.path.join(NETWORK_RESOURCES_PATH, 'static', category, safe)
@@ -3967,7 +4043,14 @@ def api_open_log():
             subprocess.Popen(['open', _ACTIVE_LOG_FILE])
             return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
 
-        # Linux: xdg-open → gio open → common text editors
+        # Linux: xdg-open → gio open → common text editors.
+        # When running as a PyInstaller bundle, LD_LIBRARY_PATH and similar
+        # variables point to bundled libraries and corrupt any child process
+        # that loads system shared objects (including xdg-open helpers).
+        # Build a clean environment without those overrides.
+        _pyinstaller_vars = {'LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONPATH', 'PYTHONHOME'}
+        clean_env = {k: v for k, v in os.environ.items() if k not in _pyinstaller_vars}
+
         candidates = [
             ['xdg-open', _ACTIVE_LOG_FILE],
             ['gio', 'open', _ACTIVE_LOG_FILE],
@@ -3980,7 +4063,7 @@ def api_open_log():
         last_exc = None
         for cmd in candidates:
             try:
-                subprocess.Popen(cmd)
+                subprocess.Popen(cmd, env=clean_env)
                 return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
             except FileNotFoundError:
                 continue

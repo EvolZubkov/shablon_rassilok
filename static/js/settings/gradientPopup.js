@@ -10,9 +10,16 @@ function openGradientPopup(block, anchorEl) {
 
     // Автоматически включаем градиент при открытии попапа
     if (!block.settings.gradientEnabled) {
-        updateBlockSetting(block.id, 'gradientEnabled', true);
         block.settings.gradientEnabled = true;
-        renderSettings(); // обновляем иконку в панели
+        if (block.type === 'banner' && BANNER_KEYS.includes('gradientEnabled')) {
+            renderBannerToDataUrl(block, (dataUrl) => {
+                block.settings.renderedBanner = dataUrl || null;
+                renderCanvas();
+                renderSettings(); // обновляем иконку в панели
+            });
+        } else {
+            renderSettings();
+        }
     }
 
     const popup = document.createElement('div');
@@ -59,11 +66,20 @@ function openGradientPopup(block, anchorEl) {
         <span>Linear</span>`;
     enableBtn.addEventListener('click', () => {
         const next = !Boolean(block.settings.gradientEnabled);
-        updateBlockSetting(block.id, 'gradientEnabled', next);
         block.settings.gradientEnabled = next;
-        enableBtn.classList.toggle('grad-popup__enable-btn--on', next);
-        refreshGradientPopupBody(popup, block);
-        renderSettings();
+        if (block.type === 'banner' && BANNER_KEYS.includes('gradientEnabled')) {
+            renderBannerToDataUrl(block, (dataUrl) => {
+                block.settings.renderedBanner = dataUrl || null;
+                renderCanvas();
+                enableBtn.classList.toggle('grad-popup__enable-btn--on', next);
+                refreshGradientPopupBody(popup, block);
+                renderSettings();
+            });
+        } else {
+            enableBtn.classList.toggle('grad-popup__enable-btn--on', next);
+            refreshGradientPopupBody(popup, block);
+            renderSettings();
+        }
     });
 
     topRow.appendChild(enableBtn);

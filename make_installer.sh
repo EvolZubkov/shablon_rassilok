@@ -44,6 +44,11 @@ HAS_ICON=0
 HAS_CFG=0
 [ -f "$CFG" ] && HAS_CFG=1
 
+# Compute SHA256 of the binary before it is deleted by this script
+echo "Вычисление SHA256 бинарника..."
+BINARY_SHA256=$(sha256sum "$BINARY" | cut -d' ' -f1)
+echo "SHA256: $BINARY_SHA256"
+
 # ── Write script header (variable expansion active — $VERSION is baked in) ────
 cat > "$OUTPUT" << SCRIPT_HEAD
 #!/usr/bin/env bash
@@ -53,6 +58,7 @@ cat > "$OUTPUT" << SCRIPT_HEAD
 set -e
 
 INSTALLER_VERSION="$VERSION"
+BINARY_SHA256="$BINARY_SHA256"
 
 INSTALL_DIR="\$HOME/Pochtelye"
 BIN="\$INSTALL_DIR/Pochtelye"
@@ -75,15 +81,36 @@ SCRIPT_HEAD
 # ── Write functions and logic (no expansion — $ is literal) ───────────────────
 cat >> "$OUTPUT" << 'SCRIPT_BODY'
 
-# Extract a named section from this script file (base64-encoded, single line)
+# Extract a named section from this script file (base64-encoded, single line).
+# Uses a streaming pipeline to avoid loading the payload into a shell variable,
+# which would fail for large binaries (hundreds of MB).
 _extract() {
   local marker="$1" dest="$2"
-  local payload
-  payload=$(awk -v marker="SECTION:${marker}" '
-    $0 == marker { getline; gsub(/\r/, "", $0); print; exit }
-  ' "$0")
-  [ -z "$payload" ] && return 1
-  printf '%s' "$payload" | base64 -d > "$dest"
+  local line_num
+  line_num=$(grep -nm1 "^SECTION:${marker}$" "$0" | cut -d: -f1)
+  [ -z "$line_num" ] && return 1
+  tail -n "+$((line_num + 1))" "$0" | head -1 | tr -d '\r' | base64 -d > "$dest"
+}
+
+# Verify that a freshly extracted binary is intact:
+#   1. ELF magic bytes must be present (0x7f 45 4c 46)
+#   2. SHA256 must match BINARY_SHA256 embedded at build time
+_verify_binary() {
+  local file="$1"
+  local magic actual
+  magic=$(od -An -N4 -tx1 "$file" 2>/dev/null | tr -d ' \n')
+  if [ "$magic" != "7f454c46" ]; then
+    echo "[ERROR] Неверная сигнатура файла (ожидается ELF, получено: $magic)"
+    return 1
+  fi
+  actual=$(sha256sum "$file" | cut -d' ' -f1)
+  if [ "$actual" != "$BINARY_SHA256" ]; then
+    echo "[ERROR] Контрольная сумма не совпадает"
+    echo "  Ожидалось: $BINARY_SHA256"
+    echo "  Получено:  $actual"
+    return 1
+  fi
+  echo "  Проверка: OK (SHA256 совпадает)"
 }
 
 # Returns 0 (true) if semver $1 is strictly greater than $2
@@ -152,6 +179,10 @@ if [ ! -f "$BIN" ]; then
     echo "[ERROR] Не удалось извлечь бинарный файл"
     exit 1
   fi
+  if ! _verify_binary "$BIN.new"; then
+    rm -f "$BIN.new"
+    exit 1
+  fi
   chmod +x "$BIN.new"
   mv "$BIN.new" "$BIN"
 
@@ -178,6 +209,10 @@ elif _version_gt "$INSTALLER_VERSION" "${INSTALLED_VERSION:-0.0.0}"; then
   echo "  Обновление бинарного файла..."
   if ! _extract BINARY "$BIN.new"; then
     echo "[ERROR] Не удалось извлечь бинарный файл"
+    exit 1
+  fi
+  if ! _verify_binary "$BIN.new"; then
+    rm -f "$BIN.new"
     exit 1
   fi
   chmod +x "$BIN.new"
