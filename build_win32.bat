@@ -108,7 +108,7 @@ if exist config.ini (
     )
 )
 
-for /f "tokens=*" %%v in ('python -c "from _version import __version__; print(__version__)"') do set "VERSION=%%v"
+for /f "tokens=*" %%v in ('python -c "import sys; sys.path.insert(0,\"src\"); from _version import __version__; print(__version__)"') do set "VERSION=%%v"
 if "%VERSION%"=="" set "VERSION=0.0.0"
 
 echo %VERSION%> "%DIST_DIR%\version.txt"

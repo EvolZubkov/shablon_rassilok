@@ -28,12 +28,12 @@ if [ ! -f "$BINARY" ]; then
   exit 1
 fi
 
-# Read version from _version.py located next to this script
-PROJECT_ROOT="$(cd "$(dirname "$0")" && pwd)"
-VERSION=$(grep -oP '(?<=__version__ = ")[^"]+' "$PROJECT_ROOT/_version.py" 2>/dev/null || true)
+# Read version from src/_version.py (script lives in scripts/, root is one level up)
+PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+VERSION=$(grep -oP '(?<=__version__ = ")[^"]+' "$PROJECT_ROOT/src/_version.py" 2>/dev/null || true)
 if [ -z "$VERSION" ]; then
   # Fallback: match single-quoted form
-  VERSION=$(grep "__version__" "$PROJECT_ROOT/_version.py" | sed "s/.*['\"]\\([^'\"]*\\)['\"].*/\\1/" 2>/dev/null || true)
+  VERSION=$(grep "__version__" "$PROJECT_ROOT/src/_version.py" | sed "s/.*['\"]\\([^'\"]*\\)['\"].*/\\1/" 2>/dev/null || true)
 fi
 VERSION="${VERSION:-0.0.0}"
 echo "Версия инсталлятора: $VERSION"
