@@ -312,6 +312,64 @@ const TextSanitizer = (() => {
         }
     }
 
+    /** Email address pattern used by the DOM linker. */
+    const _EMAIL_RE = /[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}/g;
+
+    /**
+     * Walk every DOM text node inside `root` and wrap bare email addresses in
+     * `<a href="mailto:…">` elements.
+     *
+     * Skips text already inside an `<a>` element so existing links are never
+     * double-wrapped.  All text nodes are collected before the DOM is modified
+     * to avoid live-NodeList mutation issues.
+     *
+     * @param {Element} root
+     * @param {Document} doc - owner document used to create new elements
+     */
+    function _linkEmailsInDOM(root, doc) {
+        const textNodes = [];
+        (function collect(node) {
+            for (const child of Array.from(node.childNodes)) {
+                if (child.nodeType === 3) textNodes.push(child);
+                else if (child.nodeType === 1) collect(child);
+            }
+        }(root));
+
+        for (const textNode of textNodes) {
+            // Skip text that is already inside an <a> element.
+            let el = textNode.parentElement;
+            let insideAnchor = false;
+            while (el) {
+                if (el.tagName === 'A') { insideAnchor = true; break; }
+                el = el.parentElement;
+            }
+            if (insideAnchor) continue;
+
+            const text = textNode.textContent;
+            _EMAIL_RE.lastIndex = 0;
+            if (!_EMAIL_RE.test(text)) continue;
+
+            _EMAIL_RE.lastIndex = 0;
+            const frag = doc.createDocumentFragment();
+            let last = 0;
+            let m;
+            while ((m = _EMAIL_RE.exec(text)) !== null) {
+                if (m.index > last) {
+                    frag.appendChild(doc.createTextNode(text.slice(last, m.index)));
+                }
+                const a = doc.createElement('a');
+                a.href = `mailto:${m[0]}`;
+                a.textContent = m[0];
+                frag.appendChild(a);
+                last = _EMAIL_RE.lastIndex;
+            }
+            if (last < text.length) {
+                frag.appendChild(doc.createTextNode(text.slice(last)));
+            }
+            textNode.parentNode.replaceChild(frag, textNode);
+        }
+    }
+
     /**
      * Replace straight double-quote characters (`"`) with Russian typographic
      * guillemets («»).  Operates directly on the HTML string, matching either a
@@ -351,6 +409,7 @@ const TextSanitizer = (() => {
         const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
         const root = doc.body.firstElementChild;
         _walkForTypography(root);
+        _linkEmailsInDOM(root, doc);
         return root.innerHTML;
     }
 

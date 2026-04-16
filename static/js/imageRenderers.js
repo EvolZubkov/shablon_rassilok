@@ -77,7 +77,20 @@ function getReadableTextColor(hexColor) {
 function isLightColor(hexColor) {
     return relativeLuminance(hexColor) > 0.179; // WCAG midpoint
 }
+
+/**
+ * Per-block render generation counter.
+ * Incremented each time a new render is started for a block.
+ * Stale async callbacks (from superseded renders) are silently discarded.
+ * @type {Map<string, number>}
+ */
+const _bannerRenderGen = new Map();
+
 function renderBannerToDataUrl(block, callback) {
+    // Increment generation so any in-flight render for this block is superseded.
+    const myGen = (_bannerRenderGen.get(block.id) || 0) + 1;
+    _bannerRenderGen.set(block.id, myGen);
+
     const s = block.settings || {};
     const SCALE = 2;
     const WIDTH = 600;
@@ -130,6 +143,9 @@ function renderBannerToDataUrl(block, callback) {
 
     // Загружаем все изображения
     loadAllImages(imagesToLoad, (loadedImages) => {
+        // Discard result if a newer render has been started for this block.
+        if (_bannerRenderGen.get(block.id) !== myGen) return;
+
         // Создаём canvas
         const canvas = document.createElement('canvas');
         canvas.width = WIDTH * SCALE;

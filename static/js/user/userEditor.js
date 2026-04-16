@@ -1032,7 +1032,9 @@ function saveTextChanges(element) {
             .replace(/&gt;/g, '>')
             .trim();
     } else {
-        newValue = TextSanitizer.sanitize(element.innerHTML, false);
+        newValue = TextSanitizer.applyTypography(
+            TextSanitizer.sanitize(element.innerHTML, false)
+        );
     }
 
     const oldValue = field === 'items' && itemIndex !== undefined
@@ -1045,6 +1047,13 @@ function saveTextChanges(element) {
         block.settings.items[parseInt(itemIndex)] = newValue;
     } else {
         block.settings[field] = newValue;
+    }
+
+    // Reflect typographic changes back into the contenteditable so the user
+    // sees guillemets, em dashes and non-breaking spaces immediately.
+    // Skip when the element is still focused (paste handler manages display itself).
+    if (blockType !== 'heading' && document.activeElement !== element) {
+        element.innerHTML = newValue;
     }
 
     console.log('[USER EDITOR] Saved changes to block', blockId, field, newValue.substring(0, 50));
@@ -1291,10 +1300,12 @@ function openListEditor(blockId) {
         s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
         s.startNumber = parseInt(document.getElementById('list-start-number').value) || 1;
 
-        // Собираем элементы
+        // Собираем элементы — plain text из <input>, проводим через TextSanitizer
         const editor = document.getElementById('list-items-editor');
         s.items = Array.from(editor.querySelectorAll('input'))
-            .map(inp => inp.value.trim())
+            .map(inp => TextSanitizer.applyTypography(
+                TextSanitizer.sanitize(inp.value.trim(), true)
+            ))
             .filter(text => text.length > 0);
 
         // Получаем выбранную иконку
@@ -1354,7 +1365,7 @@ function renderListItemsEditor(items) {
 
     editor.innerHTML = items.map((item, index) => `
         <div class="list-item-row" data-index="${index}">
-            <input type="text" value="${escapeHtmlAttr(item)}" placeholder="Текст пункта...">
+            <input type="text" value="${escapeHtmlAttr(TextSanitizer.toPlainText(item))}" placeholder="Текст пункта...">
             <button type="button" class="btn-delete-item" title="Удалить">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <line x1="18" y1="6" x2="6" y2="18"></line>
@@ -1664,18 +1675,26 @@ function updateExpertPreview(s) {
     const posY = s.positionY || 0;
     const bgColor = s.bgColor && s.bgColor !== 'transparent' ? s.bgColor : 'transparent';
 
-    // Размеры как в renderExpertToDataUrl
+    // Dimensions match renderExpertToDataUrl ratio: containerSize=171, photoSize=130
     const containerSize = 150;
     const photoSize = containerSize * (130 / 171);
 
-    // Позиция бейджа
+    // Badge position
     const badgeX = s.badgePositionX ?? 100;
     const badgeY = s.badgePositionY ?? 100;
     const badgeLeft = (containerSize - 40) * (badgeX / 100);
     const badgeTop = (containerSize - 40) * (badgeY / 100);
 
-    // Размер изображения внутри маски (увеличиваем чтобы покрыть ромб)
-    const imgSize = photoSize * 1.5 * scale;
+    // Image size: photoSize * scale — matches canvas (photo drawn at photoSize then scaled by scale).
+    // No extra 1.5 multiplier; that caused preview zoom ~1.5x larger than actual render.
+    const imgSize = photoSize * scale;
+
+    // Position offset in px: matches canvas offsetX = positionX/100 * photoSize * 2.
+    // Expressed as % of imgSize so the existing CSS translate(%) stays valid:
+    // desired_px / imgSize * 100 = (posX/100 * photoSize * 2) / (photoSize * scale) * 100
+    //                            = posX * 2 / scale
+    const shiftX = posX * 2 / scale;
+    const shiftY = posY * 2 / scale;
 
     container.innerHTML = `
         <div style="
@@ -1685,7 +1704,7 @@ function updateExpertPreview(s) {
             background: ${bgColor};
             border-radius: 28%;
         ">
-            <!-- Ромб с фото -->
+            <!-- Diamond with photo -->
             <div style="
                 position: absolute;
                 top: 50%;
@@ -1700,15 +1719,15 @@ function updateExpertPreview(s) {
                     position: absolute;
                     top: 50%;
                     left: 50%;
-                    transform: translate(-50%, -50%) rotate(-45deg) translate(${posX}%, ${posY}%);
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
+                    width: ${imgSize}px;
+                    height: ${imgSize}px;
+                    transform: translate(-50%, -50%) rotate(-45deg) translate(${shiftX}%, ${shiftY}%);
                 ">
-                    <img src="${s.photo || ''}" 
+                    <img src="${s.photo || ''}"
                          style="
-                             width: ${imgSize}px;
-                             height: auto;
+                             width: 100%;
+                             height: 100%;
+                             object-fit: cover;
                              max-width: none;
                          "
                          alt="Фото">
