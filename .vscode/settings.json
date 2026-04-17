@@ -11,5 +11,6 @@
   "vitest.enable": true,
   "vitest.commandLine": "npx vitest",
   "vitest.include": "tests/**/*.test.js",
-  "vitest.rootConfig": "${workspaceFolder}/vitest.config.js"
+  "vitest.rootConfig": "${workspaceFolder}/vitest.config.js",
+  "liveServer.settings.port": 5501
 }

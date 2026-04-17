@@ -15,8 +15,22 @@ const TextSanitizer = (() => {
         'a':      ['href'],
     };
 
-    // Цвет ссылок (можно переопределить)
-    const LINK_STYLE = 'color:#7700ff; text-decoration:underline;';
+    /**
+     * Shared DOMParser instance. DOMParser is stateless — each parseFromString
+     * call returns an independent document — so a single instance is safe to
+     * reuse across all calls, avoiding repeated object allocation.
+     * Falls back to null when running outside a browser (e.g. Node/Vitest).
+     * @type {DOMParser|null}
+     */
+    const _parser = typeof DOMParser !== 'undefined' ? new DOMParser() : null;
+
+    /**
+     * Email address pattern with surrounding-context guards for use in
+     * string-level `.replace()` calls (plain text → HTML and render pipeline).
+     * Distinct from {@link _EMAIL_RE} which is used for DOM-node walking.
+     * The `g` flag is safe to share: `.replace()` always resets lastIndex.
+     */
+    const _EMAIL_STR_RE = /(^|[\s>])([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})(?=[<\s,;]|$)/g;
 
     // -------------------------------------------------------
     // Внутренняя очистка DOM-дерева от запрещённых тегов/атрибутов
@@ -125,10 +139,8 @@ const TextSanitizer = (() => {
         );
 
         // Авто-ссылки email-адресов (не внутри уже существующего тега <a>)
-        text = text.replace(
-            /(^|[\s>])([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})(?=[<\s,;]|$)/g,
-            '$1<a href="mailto:$2">$2</a>'
-        );
+        _EMAIL_STR_RE.lastIndex = 0;
+        text = text.replace(_EMAIL_STR_RE, '$1<a href="mailto:$2">$2</a>');
 
         // Разбиваем на абзацы по двойному переносу
         const paragraphs = text.split(/\n{2,}/);
@@ -151,9 +163,7 @@ const TextSanitizer = (() => {
     function _cleanHTML(dirtyHTML) {
         if (!dirtyHTML) return '';
 
-        // Используем DOMParser для безопасного парсинга
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(dirtyHTML, 'text/html');
+        const doc = _parser.parseFromString(dirtyHTML, 'text/html');
 
         // Убираем Office/Google теги целиком (мета, стили, скрипты)
         const removeSelectors = [
@@ -184,10 +194,15 @@ const TextSanitizer = (() => {
     // Типографика: неразрывные пробелы после коротких слов
     // -------------------------------------------------------
 
-    function _loadHangingWords() {
+    // Russian prepositions, conjunctions and particles that must not be left
+    // hanging at the end of a line (followed by a line break before the next word).
+    // Populated synchronously in Node (tests) and asynchronously in the browser.
+    let HANGING_WORDS = new Set();
+
+    (function _initHangingWords() {
         const browserPath = '/data/textSanitizer.hangingWords.json';
 
-        // Node/Vitest path: load directly from the repo so tests remain synchronous.
+        // Node/Vitest path: load synchronously so unit tests remain blocking.
         try {
             if (typeof process !== 'undefined' && process.versions && process.versions.node) {
                 const fs = typeof process.getBuiltinModule === 'function'
@@ -198,29 +213,20 @@ const TextSanitizer = (() => {
                     : null;
                 if (fs && path) {
                     const fullPath = path.join(process.cwd(), 'static', 'data', 'textSanitizer.hangingWords.json');
-                    return JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                    HANGING_WORDS = new Set(JSON.parse(fs.readFileSync(fullPath, 'utf-8')));
+                    return;
                 }
             }
         } catch (_) {}
 
-        // Browser path: same-origin synchronous XHR during script init.
-        try {
-            if (typeof XMLHttpRequest !== 'undefined') {
-                const xhr = new XMLHttpRequest();
-                xhr.open('GET', browserPath, false);
-                xhr.send(null);
-                if (xhr.status >= 200 && xhr.status < 300 && xhr.responseText) {
-                    return JSON.parse(xhr.responseText);
-                }
-            }
-        } catch (_) {}
-
-        return [];
-    }
-
-    // Russian prepositions, conjunctions and particles that must not be left
-    // hanging at the end of a line (followed by a line break before the next word).
-    const HANGING_WORDS = new Set(_loadHangingWords());
+        // Browser path: async fetch — no synchronous XHR on the main thread.
+        if (typeof fetch !== 'undefined') {
+            fetch(browserPath)
+                .then(r => r.ok ? r.json() : [])
+                .then(words => { HANGING_WORDS = new Set(words); })
+                .catch(() => {});
+        }
+    }());
 
     // Match any alphabetic word followed by a regular space.
     // The final decision is made by `_shouldNbspWord()`:
@@ -406,7 +412,7 @@ const TextSanitizer = (() => {
     function _applyTypography(html) {
         if (!html) return html;
         html = _replaceQuotes(html);
-        const doc = new DOMParser().parseFromString(`<div>${html}</div>`, 'text/html');
+        const doc = _parser.parseFromString(`<div>${html}</div>`, 'text/html');
         const root = doc.body.firstElementChild;
         _walkForTypography(root);
         _linkEmailsInDOM(root, doc);
@@ -450,10 +456,8 @@ const TextSanitizer = (() => {
         );
 
         // Auto-link bare email addresses not already inside an <a> tag
-        html = html.replace(
-            /(^|[\s>])([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})(?=[<\s,;]|$)/g,
-            '$1<a href="mailto:$2">$2</a>'
-        );
+        _EMAIL_STR_RE.lastIndex = 0;
+        html = html.replace(_EMAIL_STR_RE, '$1<a href="mailto:$2">$2</a>');
 
         // Добавляем margin параграфам (кроме последнего)
         const paras = html.split(/(?=<p>)/i);
@@ -507,6 +511,30 @@ const TextSanitizer = (() => {
             .trim();
     }
 
-    return { sanitize, render, toPlainText, applyTypography: _applyTypography };
+    /**
+     * Escape HTML special characters so a plain-text value can be safely
+     * interpolated into an HTML template literal or injected via innerHTML.
+     *
+     * Covers the five characters that allow HTML/attribute injection:
+     * {@code &}, {@code <}, {@code >}, {@code "}, {@code '}.
+     *
+     * Use this whenever a dynamic value (template name, filename, CSV field,
+     * server message, etc.) is placed inside a template literal that is then
+     * assigned to {@code innerHTML}.
+     *
+     * @param {*} value - Value to escape; null/undefined become empty string.
+     * @returns {string} HTML-safe string.
+     */
+    function escapeHTML(value) {
+        if (value == null) return '';
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#039;');
+    }
+
+    return { sanitize, render, toPlainText, applyTypography: _applyTypography, escapeHTML };
 
 })();

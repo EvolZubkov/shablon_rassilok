@@ -1,8 +1,49 @@
-// templatesAPI.js - API для работы с шаблонами
+/**
+ * @module templatesAPI
+ * @description REST client for template CRUD operations.
+ * Maintains an in-memory cache of individual template data, keyed by
+ * {@code "id:type"}.  The cache is invalidated automatically whenever the
+ * server returns a new ETag from the list endpoint, ensuring cards and
+ * modals never display stale content.
+ */
+
+/**
+ * Identifies correctly-generated preview thumbnails.
+ * Version 1 (absent / falsy) = legacy html2canvas screenshot of the admin
+ * canvas element — includes UI chrome, must be ignored.
+ * Version 2 = iframe-rendered clean email HTML, safe to display.
+ *
+ * Bump this constant whenever the thumbnail generation method changes in a
+ * way that makes older stored images visually wrong.
+ *
+ * @constant {number}
+ */
+const TEMPLATE_PREVIEW_VERSION = 2;
 
 const TemplatesAPI = {
     // ИСПОЛЬЗУЕМ ОТНОСИТЕЛЬНЫЙ ПУТЬ - работает на любом порту!
     baseURL: '/api/templates',  // ← БЕЗ http://localhost:XXXX
+
+    /**
+     * In-memory template data cache.
+     * Maps {@code "id:type"} strings to template data objects.
+     * Cleared whenever {@link getList} receives new data from the server.
+     *
+     * @private
+     * @type {Map<string, object>}
+     */
+    _cache: new Map(),
+
+    /**
+     * Discard all cached template data.
+     * Called automatically by {@link getList} when the server ETag changes.
+     *
+     * @private
+     * @returns {void}
+     */
+    _invalidateCache() {
+        this._cache.clear();
+    },
 
     /**
      * Fetch the template list from the server.
@@ -28,6 +69,8 @@ const TemplatesAPI = {
 
             const data = await response.json();
             if (data.success) {
+                // New list data — individual template cache is stale.
+                this._invalidateCache();
                 return {
                     unchanged: false,
                     templates: data.templates,
@@ -44,8 +87,20 @@ const TemplatesAPI = {
 
     /**
      * Load a template by stable id.
+     *
+     * Results are cached in {@link _cache} after the first successful fetch.
+     * Subsequent calls with the same {@code id} and {@code type} return the
+     * cached object directly without a network round-trip.  The cache is
+     * automatically cleared when {@link getList} receives updated data from
+     * the server.
+     *
+     * @param {string} id - Template stable identifier.
+     * @param {string} [type='personal'] - Template type: {@code 'personal'} or {@code 'shared'}.
+     * @returns {Promise<object|null>} Template data, {@code {notFound: true}}, or {@code null} on error.
      */
     async load(id, type = 'personal') {
+        const key = `${id}:${type}`;
+        if (this._cache.has(key)) return this._cache.get(key);
         try {
             const response = await fetch(`${this.baseURL}/load?id=${encodeURIComponent(id)}&type=${type}`);
             if (response.status === 404) {
@@ -53,6 +108,7 @@ const TemplatesAPI = {
             }
             const data = await response.json();
             if (data.success) {
+                this._cache.set(key, data.template);
                 return data.template;
             }
             console.error('Ошибка загрузки шаблона:', data.error);
@@ -179,6 +235,8 @@ const TemplatesAPI = {
     /**
      * Update only the preview thumbnail of an existing template.
      * Does not touch blocks — safe to call in background after blocks are already saved.
+     * Passes {@link TEMPLATE_PREVIEW_VERSION} so the list endpoint can later
+     * distinguish correctly-generated thumbnails from legacy ones.
      *
      * @param {string} id
      * @param {string} type
@@ -190,7 +248,7 @@ const TemplatesAPI = {
             const response = await fetch(`${this.baseURL}/preview`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ id, type, preview }),
+                body: JSON.stringify({ id, type, preview, previewVersion: TEMPLATE_PREVIEW_VERSION }),
             });
             const data = await response.json();
             return data.success === true;

@@ -4,25 +4,21 @@
 // ─── Экранирование HTML ──────────────────────────────────────────────────────
 
 /**
- * Экранирует спецсимволы HTML.
- * Используется при вставке пользовательского текста в innerHTML / атрибуты.
+ * Escape HTML special characters in a plain-text value.
  *
- * Единственный источник правды — заменяет:
- *   emailGenerator.js:25   — function escapeHtml (regex-версия)
- *   userBannerEditor.js:567 — function escapeHtml (DOM-версия)
- *   userEditor.js:1196      — function escapeHtmlAttr (то же самое)
+ * Thin wrapper around {@link TextSanitizer.escapeHTML} — canonical
+ * implementation lives in textSanitizer.js which is loaded first.
+ * Kept here so existing callers (emailGenerator.js, userBannerEditor.js,
+ * userEditor.js) continue to work without change.
+ *
+ * @param {*} text
+ * @returns {string}
  */
 function escapeHtml(text) {
-    if (!text) return '';
-    return String(text)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
+    return TextSanitizer.escapeHTML(text);
 }
 
-// escapeHtmlAttr — псевдоним для обратной совместимости
+// escapeHtmlAttr — alias for backwards compatibility
 const escapeHtmlAttr = escapeHtml;
 
 

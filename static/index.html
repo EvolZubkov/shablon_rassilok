@@ -11,7 +11,7 @@
         var key = 'email-builder-theme';
         var saved = localStorage.getItem(key);
         var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
-        var theme = saved || (prefersDark ? 'dark' : 'dark');
+        var theme = saved || (prefersDark ? 'dark' : 'light');
         document.documentElement.setAttribute('data-theme', theme);
       } catch (_) {}
     })();
@@ -362,12 +362,13 @@
   </div>
 
   <!-- Подключение модулей в правильном порядке -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="js/vendor/html2canvas.min.js"></script>
 
   <!-- 1. Константы и настройки -->
   <script src="js/textSanitizer.js"></script>
   <script src="js/toast.js"></script>
   <script src="js/shared/utils.js"></script>
+  <script src="js/shared/favoritesStore.js"></script>
   <script src="js/definitions.js"></script>
   <script src="js/configLoader.js"></script>
 
@@ -424,40 +425,7 @@
   <!-- 9. Инициализация приложения -->
   <script src="js/main.js"></script>
   <!-- <script src="js/admin-bulk-mail.js"></script> -->
-  <script>
-    (function () {
-      if (window.lucide && typeof window.lucide.createIcons === 'function') {
-        window.lucide.createIcons();
-      }
-
-      async function initModeSwitcher() {
-        try {
-          const r = await fetch('/api/mode');
-          const data = await r.json();
-          const btn = document.getElementById('btn-switch-mode');
-          if (!btn) return;
-          if (!data.can_switch) {
-            btn.hidden = true;
-            return;
-          }
-          btn.addEventListener('click', async function () {
-            await fetch('/api/mode', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ mode: 'user' }),
-            });
-            window.location.href = '/user';
-          });
-        } catch (_) {}
-      }
-      document.addEventListener('DOMContentLoaded', initModeSwitcher);
-    })();
-
-    // Heartbeat — пингуем сервер каждые 5 секунд
-    setInterval(() => {
-      fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
-    }, 5000);
-  </script>
+  <script src="js/adminInit.js"></script>
 </body>
 
 </html>

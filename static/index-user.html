@@ -18,6 +18,15 @@
   </script>
   <link rel="stylesheet" href="theme-variables.css">
   <link rel="stylesheet" href="user-styles.css">
+
+  <!-- Preload largest scripts so the browser fetches them in parallel with HTML parsing -->
+  <link rel="preload" as="script" href="js/vendor/html2canvas.min.js">
+  <link rel="preload" as="script" href="js/imageRenderers.js">
+  <link rel="preload" as="script" href="js/user/userEditor.js">
+  <link rel="preload" as="script" href="js/user/exchangeModals.js">
+  <link rel="preload" as="script" href="js/settings/bannerSettings.js">
+  <link rel="preload" as="script" href="js/emailGenerator.js">
+  <link rel="preload" as="script" href="js/user/userApp.js">
 </head>
 
 <body>
@@ -781,12 +790,13 @@
   </div>
 
   <!-- Подключение скриптов -->
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="js/vendor/html2canvas.min.js"></script>
 
   <!-- Общие модули -->
   <script src="js/textSanitizer.js"></script>
   <script src="js/toast.js"></script>
   <script src="js/shared/utils.js"></script>
+  <script src="js/shared/favoritesStore.js"></script>
   <script src="js/definitions.js"></script>
   <script src="js/configLoader.js"></script>
   <script src="js/state.js"></script>
@@ -806,6 +816,7 @@
   <script src="js/user/userEditor.js"></script>
   <script src="js/user/userToolbar.js"></script>
   <script src="js/user/userBannerEditor.js"></script>
+  <script src="js/shared/emailHistoryStore.js"></script>
   <script src="js/user/exchangeModals.js"></script>
   <!-- <script src="js/user/bulk-mail.js"></script> -->
 
@@ -821,99 +832,7 @@
     <span>Режим конструктора</span>
   </button>
 
-  <script>
-    (function () {
-      async function initModeSwitcher() {
-        try {
-          const r = await fetch('/api/mode');
-          const data = await r.json();
-          document.documentElement.setAttribute('data-can-switch', data.can_switch ? '1' : '0');
-          const widget = document.getElementById('mode-switch-widget');
-          const slot = document.getElementById('start-mode-switch-slot');
-          if (slot) {
-            slot.appendChild(widget);
-          }
-          if (data.can_switch) {
-            widget.hidden = false;
-            widget.addEventListener('click', async function () {
-              await fetch('/api/mode', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ mode: 'admin' }),
-              });
-              window.location.href = '/';
-            });
-          }
-
-          document.querySelectorAll('.user-menu-action--admin').forEach((el) => {
-            el.hidden = !data.can_switch;
-          });
-
-          document.querySelector('[data-action="switch-mode"]')?.classList.remove('is-checked');
-        } catch (_) {}
-      }
-
-      function initUserMenu() {
-        document.querySelectorAll('.user-menu-action').forEach((btn) => {
-          btn.addEventListener('click', () => {
-            if (btn.disabled) return;
-            const action = btn.dataset.action;
-            if (action === 'create-email') {
-              document.getElementById('btn-send-outlook')?.click();
-            } else if (action === 'create-meeting') {
-              document.getElementById('btn-send-meeting')?.click();
-            } else if (action === 'save') {
-              document.getElementById('btn-save-personal')?.click();
-            } else if (action === 'settings') {
-              document.getElementById('btn-exchange-settings')?.click();
-            } else if (action === 'preview') {
-              document.getElementById('btn-preview-user')?.click();
-            } else if (action === 'toggle-theme') {
-              const themeBtn = document.getElementById('theme-toggle-btn-user-editor') || document.getElementById('theme-toggle-btn-user-start');
-              themeBtn?.click();
-            } else if (action === 'switch-mode') {
-              document.getElementById('mode-switch-widget')?.click();
-            } else if (action === 'about') {
-              alert('Почтелье');
-            } else if (action === 'open-log') {
-              fetch('/api/open-log', { method: 'POST' })
-                .then(async (r) => {
-                  if (!r.ok) throw new Error('open-log failed');
-                  const data = await r.json().catch(() => ({}));
-                  if (!data.success) throw new Error(data.error || 'open-log failed');
-                })
-                .catch(() => { window.location.href = '/protocol.log'; });
-            } else if (action === 'exit') {
-              fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
-              window.close();
-            }
-          });
-        });
-      }
-
-      function updateUserMenuState() {
-        const screen = document.documentElement.getAttribute('data-user-screen') || 'start';
-        const hasBlocks = document.documentElement.getAttribute('data-user-has-blocks') === '1';
-        document.querySelectorAll('.user-menu-action--requires-content').forEach((el) => {
-          el.disabled = screen !== 'editor' || !hasBlocks;
-        });
-      }
-      document.addEventListener('DOMContentLoaded', initModeSwitcher);
-      document.addEventListener('DOMContentLoaded', initUserMenu);
-      document.addEventListener('DOMContentLoaded', updateUserMenuState);
-      window.updateUserMenuState = updateUserMenuState;
-    })();
-
-    // Heartbeat — пингуем сервер каждые 5 секунд.
-    // Первый пинг отправляем немедленно, чтобы не попасть в окно таймаута
-    // watchdog-а пока страница ещё грузится.
-    (function heartbeat() {
-      fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
-      setInterval(() => {
-        fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
-      }, 5000);
-    })();
-  </script>
+  <script src="js/userInit.js"></script>
 </body>
 
 </html>

@@ -254,8 +254,8 @@ function setupAdminMenu() {
                                 throw new Error(data.error || 'open-log failed');
                             }
                         })
-                        .catch(() => {
-                            window.location.href = '/protocol.log';
+                        .catch((err) => {
+                            console.warn('[open-log] failed to open protocol.log:', err);
                         });
                     break;
                 case 'exit':

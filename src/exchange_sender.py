@@ -137,10 +137,6 @@ def _convert_data_images_to_cid(html_body: str):
     Outlook не показывает data: URI — нужны CID.
     Возвращает (html_with_cid, список FileAttachment).
     """
-    import re
-    import base64
-    import uuid
-
     attachments = []
     counter = [0]
 
@@ -153,8 +149,7 @@ def _convert_data_images_to_cid(html_body: str):
             raw = base64.b64decode(b64_data)
         except Exception:
             return match.group(0)
-        import mimetypes as _mt
-        ext = (_mt.guess_extension(mime_type)
+        ext = (mimetypes.guess_extension(mime_type)
                or '.png').replace('.jpe', '.jpg')
         filename = f"img_{counter[0]}{ext}"
         

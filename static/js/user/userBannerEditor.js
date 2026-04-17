@@ -326,7 +326,7 @@ function loadBannerLogos() {
     logos.forEach(logo => {
         const option = document.createElement('div');
         option.className = 'banner-logo-option' + (currentLogo === logo.src ? ' selected' : '');
-        option.innerHTML = `<img src="${logo.src}" alt="${logo.label || 'Логотип'}">`;
+        option.innerHTML = `<img src="${TextSanitizer.escapeHTML(logo.src)}" alt="${TextSanitizer.escapeHTML(logo.label || 'Логотип')}">`;
         option.addEventListener('click', () => {
             grid.querySelectorAll('.banner-logo-option').forEach(o => o.classList.remove('selected'));
             option.classList.add('selected');
@@ -383,7 +383,7 @@ function loadBannerImages() {
     images.forEach(img => {
         const option = document.createElement('div');
         option.className = 'banner-image-option' + (currentImage === img.src ? ' selected' : '');
-        option.innerHTML = `<img src="${img.src}" alt="${img.label || 'Картинка'}">`;
+        option.innerHTML = `<img src="${TextSanitizer.escapeHTML(img.src)}" alt="${TextSanitizer.escapeHTML(img.label || 'Картинка')}">`;
         option.addEventListener('click', () => {
             grid.querySelectorAll('.banner-image-option').forEach(o => o.classList.remove('selected'));
             option.classList.add('selected');

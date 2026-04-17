@@ -86,6 +86,21 @@ function isLightColor(hexColor) {
  */
 const _bannerRenderGen = new Map();
 
+/**
+ * Cancel any in-flight render for the given block and free its Map entry.
+ * Call this when a block is removed from the document so the generation
+ * counter does not accumulate indefinitely.
+ *
+ * After this call, any pending {@link renderBannerToDataUrl} callback for
+ * the block is silently discarded because its generation number no longer
+ * matches the (now-deleted) Map entry.
+ *
+ * @param {string} blockId
+ */
+function cancelBannerRender(blockId) {
+    _bannerRenderGen.delete(blockId);
+}
+
 function renderBannerToDataUrl(block, callback) {
     // Increment generation so any in-flight render for this block is superseded.
     const myGen = (_bannerRenderGen.get(block.id) || 0) + 1;
@@ -239,13 +254,29 @@ function renderBannerToDataUrl(block, callback) {
             drawBannerTextElement(ctx, el, loadedImages[`icon_${index}`], index, textBgColor);
         });
 
-        // Возвращаем результат
+        // Return result then release the pixel buffer so GC can reclaim RAM.
         const dataUrl = canvas.toDataURL('image/png');
+        canvas.width = 0;
         callback(dataUrl);
     });
 }
 
-// Загрузка всех изображений
+/** Maximum time (ms) to wait for a single image load before treating it as failed. */
+const _IMAGE_LOAD_TIMEOUT_MS = 15000;
+
+/**
+ * Load all images in parallel and invoke `callback` with a map of loaded
+ * {@link HTMLImageElement} objects keyed by {@link item.key}.
+ *
+ * Each image gets an independent timeout of {@link _IMAGE_LOAD_TIMEOUT_MS}.
+ * A `settled` flag per image prevents double-counting if both `onload` /
+ * `onerror` fire (which can happen in some Qt5 WebEngine builds).
+ * Images that time out or fail are omitted from `loadedImages`; the callback
+ * is still called once all slots have settled.
+ *
+ * @param {Array<{key: string, src: string}>} imagesToLoad
+ * @param {function(Object.<string, HTMLImageElement>): void} callback
+ */
 function loadAllImages(imagesToLoad, callback) {
     const loadedImages = {};
     let loadedCount = 0;
@@ -259,21 +290,26 @@ function loadAllImages(imagesToLoad, callback) {
     imagesToLoad.forEach(item => {
         const img = new Image();
         img.crossOrigin = 'anonymous';
+        let settled = false;
 
-        img.onload = () => {
-            loadedImages[item.key] = img;
-            loadedCount++;
-            if (loadedCount === totalCount) {
-                callback(loadedImages);
-            }
+        const settle = (key, value) => {
+            if (settled) return;
+            settled = true;
+            if (key !== null) loadedImages[key] = value;
+            if (++loadedCount === totalCount) callback(loadedImages);
         };
 
+        const timer = setTimeout(() => {
+            img.src = '';
+            console.warn(`[imageRenderers] Image load timeout: ${item.src}`);
+            settle(null, null);
+        }, _IMAGE_LOAD_TIMEOUT_MS);
+
+        img.onload = () => { clearTimeout(timer); settle(item.key, img); };
         img.onerror = () => {
-            console.error(`Failed to load image: ${item.src}`);
-            loadedCount++;
-            if (loadedCount === totalCount) {
-                callback(loadedImages);
-            }
+            clearTimeout(timer);
+            console.error(`[imageRenderers] Failed to load image: ${item.src}`);
+            settle(null, null);
         };
 
         img.src = item.src;
@@ -1105,6 +1141,7 @@ function renderButtonToDataUrl(block, callback) {
     const mctx = measureCanvas.getContext('2d');
     mctx.font = `500 ${fontSize}px RostelecomBasis-Medium, sans-serif`;
     const textWidth = mctx.measureText(text).width;
+    measureCanvas.width = 0;
 
     const rectWidth = textWidth + paddingX * 2;
     const gap = 0;
@@ -1263,6 +1300,7 @@ function renderListBulletsToDataUrls(block, callback) {
         ctx.fillText(numLabel, bulletSize / 2, bulletSize / 2 + numberFontSize * 0.1);
 
         results[index] = canvas.toDataURL('image/png');
+        canvas.width = 0;
         done();
     }
 

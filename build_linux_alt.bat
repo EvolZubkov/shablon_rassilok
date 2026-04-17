@@ -57,7 +57,7 @@ if errorlevel 1 (
 echo        OK
 
 echo [3/5] Syncing version from pyproject.toml...
-docker exec %CONTAINER_NAME% bash -c "cd /app && python3 sync_version.py"
+docker exec %CONTAINER_NAME% bash -c "cd /app && python3 scripts/sync_version.py"
 if errorlevel 1 (
     echo [ERROR] Failed to sync version
     goto error
@@ -65,7 +65,7 @@ if errorlevel 1 (
 echo        OK
 
 echo [4/6] Regenerating icon assets...
-docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/convert_icon.py --ico /app/icon.ico"
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/scripts/convert_icon.py --ico /app/assets/icon.ico"
 if errorlevel 1 (
     echo [ERROR] Failed to regenerate icon.ico
     goto error
@@ -87,13 +87,13 @@ if errorlevel 1 (
     goto error
 )
 
-docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/convert_icon.py --png /app/dist/linux/icon.png || echo '[WARN] icon conversion failed'"
+docker exec %CONTAINER_NAME% bash -c "python3 -m pip install --quiet Pillow && python3 /app/scripts/convert_icon.py --png /app/dist/linux/icon.png || echo '[WARN] icon conversion failed'"
 if exist config.ini (
     if not exist "%DIST_DIR%" mkdir "%DIST_DIR%"
     copy /y config.ini "%DIST_DIR%\config.ini" >nul
 )
 
-docker exec %CONTAINER_NAME% bash -c "sed -i 's/\r//' /app/make_installer.sh && bash /app/make_installer.sh /app/dist/linux"
+docker exec %CONTAINER_NAME% bash -c "sed -i 's/\r//' /app/scripts/make_installer.sh && bash /app/scripts/make_installer.sh /app/dist/linux"
 if errorlevel 1 (
     echo [ERROR] Failed to create installer
     goto error

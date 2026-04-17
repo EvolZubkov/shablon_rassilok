@@ -5,11 +5,21 @@
 
 from __future__ import annotations
 
+import sys
+import os
+
+# Add src/ to sys.path so that modules relocated there are importable both
+# when running from the project root and when packaged with PyInstaller
+# (in frozen mode sys.path already contains sys._MEIPASS, so the insert is
+# skipped via the guard below).
+if not getattr(sys, 'frozen', False):
+    _src_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'src')
+    if _src_dir not in sys.path:
+        sys.path.insert(0, _src_dir)
+
 from _version import __version__
 
 from flask import abort
-import sys
-import os
 import re
 import uuid
 import unicodedata
@@ -31,6 +41,7 @@ import base64
 import logging
 import logging.handlers
 import subprocess
+import contextlib
 
 # On Linux, probe IPv6 kernel support before the first QApplication is
 # created.  If AF_INET6 is unavailable (e.g. ipv6.disable=1 in the kernel
@@ -203,6 +214,28 @@ _ADMIN_VALIDATED = False
 APP_MODE = _resolve_app_mode()
 _ADMIN_VALIDATED = (APP_MODE == 'admin')
 
+# Protects concurrent reads and writes of APP_MODE so that the mode-switch
+# endpoint is safe under Flask's multi-threaded request handling.
+_APP_MODE_LOCK = threading.Lock()
+
+
+def get_app_mode() -> str:
+    """Thread-safe read of the current application mode (``'admin'`` or ``'user'``)."""
+    with _APP_MODE_LOCK:
+        return APP_MODE
+
+
+def set_app_mode(mode: str) -> str:
+    """Thread-safe write of the application mode.
+
+    :param mode: ``'admin'`` or ``'user'``.
+    :returns: The new mode value.
+    """
+    global APP_MODE
+    with _APP_MODE_LOCK:
+        APP_MODE = mode
+        return APP_MODE
+
 # Определяем базовые пути в зависимости от режима запуска
 if getattr(sys, 'frozen', False):
     # Режим .exe (PyInstaller)
@@ -267,6 +300,8 @@ for _cand in _log_candidates:
         _log_file_handler = None  # type: ignore[assignment]
 else:
     print(f'⚠️  Не удалось открыть protocol.log: {_last_log_exc}')
+
+_logger = logging.getLogger('pochtelye')
 
 
 class _TeeStream:
@@ -342,7 +377,7 @@ sys.stdout = _TeeStream(sys.stdout)
 sys.stderr = _TeeStream(sys.stderr)
 
 if _ACTIVE_LOG_FILE:
-    print(f'📝 protocol.log: {_ACTIVE_LOG_FILE}')
+    _logger.info('protocol.log: %s', _ACTIVE_LOG_FILE)
 
 # Пути к файлам версий
 CACHE_VERSION_FILE = os.path.join(CACHE_BASE, 'cache_version.txt')
@@ -377,40 +412,10 @@ _last_heartbeat = time.time()
 _heartbeat_timeout = 20  # секунд (интервал пинга 5 с + запас на джиттер и медленный старт)
 
 
-@app.route('/api/heartbeat', methods=['POST'])
-def api_heartbeat():
+def update_heartbeat() -> None:
+    """Record the current time as the last successful heartbeat."""
     global _last_heartbeat
     _last_heartbeat = time.time()
-    return jsonify({'ok': True})
-
-
-@app.route('/api/jslog', methods=['POST'])
-def api_jslog():
-    """Receives console.log messages from the embedded browser and prints them to protocol.log."""
-    data = request.get_json(silent=True) or {}
-    level = data.get('level', 'log').upper()
-    msg   = data.get('msg', '')
-    print(f'[JS:{level}] {msg}')
-    return jsonify({'ok': True})
-
-
-@app.route('/api/open-url', methods=['POST'])
-def api_open_url():
-    """Open an external URL in the system browser.
-
-    QWebEngineView blocks ``window.open()`` by default because ``createWindow``
-    is not overridden.  JS code calls this endpoint instead so the system
-    browser handles the URL.
-    """
-    data = request.get_json(silent=True) or {}
-    url = str(data.get('url', '')).strip()
-    if not url.startswith(('http://', 'https://')):
-        return jsonify({'ok': False, 'error': 'Invalid URL'}), 400
-    try:
-        webbrowser.open(url)
-    except Exception as exc:
-        return jsonify({'ok': False, 'error': str(exc)}), 500
-    return jsonify({'ok': True})
 
 
 def heartbeat_watchdog():
@@ -419,13 +424,16 @@ def heartbeat_watchdog():
     while True:
         time.sleep(3)
         if time.time() - _last_heartbeat > _heartbeat_timeout:
-            print('[WATCHDOG] No heartbeat, shutting down...')
+            _logger.warning('[WATCHDOG] No heartbeat, shutting down...')
             os._exit(0)
 
 
 
 
 app.config['MAX_CONTENT_LENGTH'] = 50 * 1024 * 1024
+app.config['CACHE_DIR'] = CACHE_DIR
+# Populated after USER_RESOURCE_CATEGORIES is defined (see below).
+# Routes access it via current_app.config['USER_RESOURCE_CATEGORIES'].
 
 # ============================================================================
 # ФУНКЦИИ УПРАВЛЕНИЯ КЕШЕМ И ВЕРСИЯМИ
@@ -440,7 +448,7 @@ def get_cache_version():
                 return f.read().strip()
         return None
     except Exception as e:
-        print(f"⚠️  Ошибка чтения версии кеша: {e}")
+        _logger.warning('Ошибка чтения версии кеша: %s', e)
         return None
 
 
@@ -455,7 +463,7 @@ def get_network_version():
             # Файл version.txt не существует на сервере
             return None
     except Exception as e:
-        print(f"⚠️  Ошибка чтения version.txt: {e}")
+        _logger.warning('Ошибка чтения version.txt: %s', e)
         return None
 
 
@@ -464,9 +472,9 @@ def set_cache_version(version):
     try:
         with open(CACHE_VERSION_FILE, 'w', encoding='utf-8') as f:
             f.write(version)
-        print(f"✓ Версия кеша обновлена: {version}")
+        _logger.info('Версия кеша обновлена: %s', version)
     except Exception as e:
-        print(f"⚠️  Ошибка записи версии: {e}")
+        _logger.warning('Ошибка записи версии: %s', e)
 
 
 def _bump_network_version() -> Optional[str]:
@@ -485,10 +493,10 @@ def _bump_network_version() -> Optional[str]:
         with open(NETWORK_VERSION_FILE, 'w', encoding='utf-8') as f:
             f.write(new_version)
         _admin_mutation_ts = time.time()
-        print(f'✓ Версия репозитория обновлена: {new_version}')
+        _logger.info('Версия репозитория обновлена: %s', new_version)
         return new_version
     except Exception as e:
-        print(f'⚠️  Ошибка записи версии репозитория: {e}')
+        _logger.warning('Ошибка записи версии репозитория: %s', e)
         return None
 
 
@@ -714,7 +722,7 @@ def show_splash(main_logic):
             if getattr(sys, 'frozen', False):
                 ico = os.path.join(sys._MEIPASS, 'icon.ico')
             else:
-                ico = os.path.join(os.path.dirname(__file__), 'icon.ico')
+                ico = os.path.join(os.path.dirname(__file__), 'assets', 'icon.ico')
             if os.path.exists(ico):
                 splash.setWindowIcon(QIcon(ico))
         except Exception:
@@ -730,7 +738,7 @@ def show_splash(main_logic):
                 try:
                     main_logic(self.done.emit, self.status_changed.emit)
                 except Exception as exc:
-                    print(f'[splash worker] {exc}')
+                    _logger.warning('[splash worker] %s', exc)
                     self.done.emit()
 
         _worker = _Worker()
@@ -742,7 +750,7 @@ def show_splash(main_logic):
         loop.exec_()
 
     except Exception as e:
-        print(f'[show_splash] {e}')
+        _logger.warning('[show_splash] %s', e)
         main_logic(lambda: None, lambda text: None)
 
 
@@ -891,7 +899,7 @@ def _search_for_resource(mode, hint, smb_path, status_cb=None):
                             status(f'Найдено: {candidate}')
                             return candidate
         except Exception as _e:
-            print(f'[search] net use: {_e}')
+            _logger.warning('[search] net use: %s', _e)
 
         # Strategy 2: drive letters of type DRIVE_REMOTE (4)
         try:
@@ -909,7 +917,7 @@ def _search_for_resource(mode, hint, smb_path, status_cb=None):
                             if root[len(drive):].count(os.sep) >= 4:
                                 dirs.clear()
         except Exception as _e:
-            print(f'[search] drive scan: {_e}')
+            _logger.warning('[search] drive scan: %s', _e)
 
     else:  # local
         status('Поиск в локальных папках...')
@@ -926,7 +934,7 @@ def _search_for_resource(mode, hint, smb_path, status_cb=None):
                         if root[len(drive):].count(os.sep) >= 5:
                             dirs.clear()
         except Exception as _e:
-            print(f'[search] local scan: {_e}')
+            _logger.warning('[search] local scan: %s', _e)
 
     status('Ресурс не найден')
     return None
@@ -957,10 +965,10 @@ def _init_new_resource_catalog(path):
         else:
             with open(dst_cfg, 'w', encoding='utf-8') as _f:
                 _f.write('{}')
-        print(f'✓ Новый каталог ресурсов создан: {path} (версия {version})')
+        _logger.info('Новый каталог ресурсов создан: %s (версия %s)', path, version)
         return True
     except Exception as _e:
-        print(f'❌ Ошибка создания каталога: {_e}')
+        _logger.error('Ошибка создания каталога: %s', _e)
         return False
 
 
@@ -1293,7 +1301,7 @@ def find_or_mount_linux_path(smb_path, hint='email-builder', status_callback=Non
 def copy_directory_with_progress(src, dst, desc="Копирование"):
     """Копирование папки с отображением прогресса"""
     if not os.path.exists(src):
-        print(f"⚠️  Папка не найдена: {src}")
+        _logger.warning('Папка не найдена: %s', src)
         return False
 
     try:
@@ -1322,7 +1330,7 @@ def copy_directory_with_progress(src, dst, desc="Копирование"):
         return True
 
     except Exception as e:
-        print(f"❌ Ошибка копирования: {e}")
+        _logger.error('Ошибка копирования: %s', e)
         return False
 
 
@@ -1340,7 +1348,7 @@ def initialize_cache():
     :returns: ``True`` on success, ``False`` if network is unreachable.
     """
     if not _cache_init_lock.acquire(blocking=True, timeout=300):
-        print('⏳ Ожидание завершения инициализации кеша...')
+        _logger.info('Ожидание завершения инициализации кеша...')
         return True
     try:
         return _initialize_cache_locked()
@@ -1460,7 +1468,9 @@ def check_for_updates():
 # ============================================================================
 
 # Interval (seconds) between background repo scans.
-_REPO_SCAN_INTERVAL: int = 60
+# Each scan now costs O(dirs + JSON files) stat-calls instead of O(all files),
+# so a shorter interval is affordable without taxing the network share.
+_REPO_SCAN_INTERVAL: int = 30
 
 _repo_snapshot_lock = threading.Lock()
 _repo_snapshot: dict = {}  # {rel_path: fingerprint}
@@ -1486,12 +1496,32 @@ def _file_fingerprint(fpath: str) -> str:
 
 
 def _build_repo_snapshot() -> dict:
-    """Scan the network repo and return ``{rel_path: fingerprint}`` for monitored files.
+    """Build a cheap change-detection snapshot of the network repository.
 
-    Covers ``static/`` (all resource assets and config.json) and
-    ``templates/shared/`` plus ``templates/categories.json``.
+    On slow SMB shares a full per-file ``stat()`` pass over thousands of
+    binary assets is prohibitively expensive (O(N) round-trips).  Instead
+    the snapshot records:
+
+    * **Directory mtime** for every directory in the monitored trees.
+      Any file addition or deletion updates the containing directory's
+      ``mtime``, so O(dirs) stat-calls are sufficient to detect structural
+      changes.
+
+    * **mtime + size** for every text/JSON file.  These are small in
+      number (config.json, template .json, categories.json) and carry the
+      semantically important data; detecting their in-place edits matters.
+
+    Binary assets (images, fonts) are monitored at the directory level
+    only.  In-place binary replacement without a rename — the one case
+    this misses — does not occur in normal admin workflows.
+
+    Compared with the previous per-file scan this reduces the number of
+    network stat-calls from O(N files) to O(K dirs + M JSON files).
+    For a typical repository with 1 000 images in 10 category folders the
+    reduction is roughly ×40 (1 000 → ~25 calls).
+
     Excludes ``version.txt`` — it is the change-signal itself and must
-    not cause a recursive version bump when the scanner updates it.
+    not trigger a recursive version bump.
 
     :returns: Mapping of relative path → fingerprint string.
     """
@@ -1499,6 +1529,8 @@ def _build_repo_snapshot() -> dict:
     base = NETWORK_RESOURCES_PATH
     if not os.path.isdir(base):
         return snapshot
+
+    _TEXT_EXT = frozenset({'.json', '.txt', '.html', '.css', '.js'})
 
     for scan_root in (
         os.path.join(base, 'static'),
@@ -1508,12 +1540,23 @@ def _build_repo_snapshot() -> dict:
             continue
         for dirpath, dirnames, filenames in os.walk(scan_root):
             dirnames.sort()
+            # Directory mtime — detects file additions and deletions.
+            try:
+                st = os.stat(dirpath)
+                rel_dir = os.path.relpath(dirpath, base) + os.sep
+                snapshot[rel_dir] = str(st.st_mtime_ns)
+            except OSError:
+                pass
+            # Per-file tracking for text/JSON files only.
             for fname in sorted(filenames):
+                if os.path.splitext(fname)[1].lower() not in _TEXT_EXT:
+                    continue
                 fpath = os.path.join(dirpath, fname)
                 fp = _file_fingerprint(fpath)
                 if fp:
                     snapshot[os.path.relpath(fpath, base)] = fp
 
+    # categories.json lives outside the two scan roots above.
     categories_path = os.path.join(base, 'templates', 'categories.json')
     if os.path.isfile(categories_path):
         fp = _file_fingerprint(categories_path)
@@ -1541,7 +1584,7 @@ def _repo_scanner_thread() -> None:
     time.sleep(30)  # startup grace period: let initialize_cache() finish first
     with _repo_snapshot_lock:
         _repo_snapshot = _build_repo_snapshot()
-        print(f'🔍 Сканер репо: начальный снимок ({len(_repo_snapshot)} файлов)')
+        _logger.info('Сканер репо: начальный снимок (%d файлов)', len(_repo_snapshot))
 
     while True:
         time.sleep(_REPO_SCAN_INTERVAL)
@@ -1556,20 +1599,20 @@ def _repo_scanner_thread() -> None:
                     if since_admin < _REPO_SCAN_INTERVAL:
                         # Changes are a follow-up from a recent admin UI mutation;
                         # silently update the snapshot without re-bumping version.
-                        print('🔍 Сканер репо: изменения от UI-операции, снимок обновлён')
+                        _logger.info('Сканер репо: изменения от UI-операции, снимок обновлён')
                     else:
                         added   = set(new_snapshot) - set(old)
                         removed = set(old) - set(new_snapshot)
                         changed = {k for k in set(new_snapshot) & set(old) if new_snapshot[k] != old[k]}
-                        print(
-                            f'🔄 Внешние изменения в репозитории: '
-                            f'+{len(added)} / -{len(removed)} / ~{len(changed)} файлов'
+                        _logger.info(
+                            'Внешние изменения в репозитории: +%d / -%d / ~%d файлов',
+                            len(added), len(removed), len(changed),
                         )
                         _bump_network_version()
                         _invalidate_template_cache()
                 _repo_snapshot = new_snapshot
         except Exception as exc:
-            print(f'⚠️  Ошибка сканирования репозитория: {exc}')
+            _logger.warning('Ошибка сканирования репозитория: %s', exc)
 
 
 def _copy_if_changed(src: str, dst: str) -> bool:
@@ -1682,11 +1725,11 @@ def _sync_cache_quiet() -> bool:
             set_cache_version(net_ver)
 
         if total:
-            print(f'✓ Фоновое обновление кеша: {total} файлов синхронизировано')
+            _logger.info('Фоновое обновление кеша: %d файлов синхронизировано', total)
         return True
 
     except Exception as exc:
-        print(f'⚠️  Ошибка фоновой синхронизации кеша: {exc}')
+        _logger.warning('Ошибка фоновой синхронизации кеша: %s', exc)
         return False
     finally:
         _cache_init_lock.release()
@@ -1710,10 +1753,18 @@ def _cache_updater_thread() -> None:
             cache_ver = get_cache_version()
             net_ver   = get_network_version()
             if net_ver and cache_ver != net_ver:
-                print(f'📥 Фоновое обновление кеша: {cache_ver} → {net_ver}')
+                _logger.info('Фоновое обновление кеша: %s -> %s', cache_ver, net_ver)
                 _sync_cache_quiet()
         except Exception as exc:
-            print(f'⚠️  Ошибка автообновления кеша: {exc}')
+            _logger.warning('Ошибка автообновления кеша: %s', exc)
+
+
+# In-memory cache for load_config().  Keyed on the mtime of cache/config.json
+# so it is invalidated the instant initialize_cache() writes a new file —
+# no polling interval, no stale reads.
+_config_cache_lock  = threading.Lock()
+_config_cache_data  = None   # last successfully parsed config dict
+_config_cache_mtime = None   # os.path.getmtime() value at the time of last read
 
 
 def load_config():
@@ -1721,35 +1772,52 @@ def load_config():
     Load config.json from the local cache (fast path) or from the network share
     as a fallback when the cache is absent.
 
-    The cache is kept up-to-date by :func:`check_for_updates` / :func:`initialize_cache`
-    on startup, so reading from the network on every API call is unnecessary and
-    causes visible latency on Linux FUSE mounts (kio-fuse / gvfs).
+    Results are kept in an in-memory mtime-keyed cache so that repeated
+    ``/api/config`` calls within the same cache generation are O(1) dict
+    copies rather than repeated file I/O.  The cache is invalidated
+    automatically whenever :func:`initialize_cache` writes a new
+    ``cache/config.json`` (mtime changes).
+
+    The cache is kept up-to-date by :func:`check_for_updates` /
+    :func:`initialize_cache` on startup, so reading from the network on
+    every API call is unnecessary and causes visible latency on Linux FUSE
+    mounts (kio-fuse / gvfs).
     """
+    global _config_cache_data, _config_cache_mtime
+
     cache_config_path   = os.path.join(CACHE_DIR, 'config.json')
     network_config_path = os.path.join(NETWORK_RESOURCES_PATH, 'static', 'config.json')
 
     # Fast path: local cache (milliseconds, no network).
     if os.path.exists(cache_config_path):
         try:
+            mtime = os.path.getmtime(cache_config_path)
+            with _config_cache_lock:
+                if _config_cache_data is not None and _config_cache_mtime == mtime:
+                    return dict(_config_cache_data)  # shallow copy — safe for read-only callers
             with open(cache_config_path, 'r', encoding='utf-8') as f:
-                return json.load(f)
+                config = json.load(f)
+            with _config_cache_lock:
+                _config_cache_data  = config
+                _config_cache_mtime = mtime
+            return dict(config)
         except Exception as e:
-            print(f"⚠️  Ошибка чтения кеша config.json: {e}")
+            _logger.warning('Ошибка чтения кеша config.json: %s', e)
 
     # Fallback: network share (only when cache is missing, e.g. first run).
     if os.path.exists(network_config_path):
         try:
             with open(network_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
-            print("✓ Config.json загружен с сервера (кеш отсутствовал)")
+            _logger.info('Config.json загружен с сервера (кеш отсутствовал)')
             os.makedirs(os.path.dirname(cache_config_path), exist_ok=True)
             with open(cache_config_path, 'w', encoding='utf-8') as f:
                 json.dump(config, f, ensure_ascii=False, indent=2)
             return config
         except Exception as e:
-            print(f"⚠️  Ошибка чтения config.json с сервера: {e}")
+            _logger.warning('Ошибка чтения config.json с сервера: %s', e)
 
-    print("❌ Не удалось загрузить config.json!")
+    _logger.error('Не удалось загрузить config.json!')
     return {"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []}
 
 # ============================================================================
@@ -1778,7 +1846,7 @@ def process_local_images_in_html(html_content, base_path=None):
                     os.path.join(base_path, file_path))
 
             if not os.path.exists(file_path):
-                print(f"⚠️  Изображение не найдено: {file_path}")
+                _logger.warning('Изображение не найдено: %s', file_path)
                 return match.group(0)
 
             with open(file_path, 'rb') as img_file:
@@ -1799,20 +1867,19 @@ def process_local_images_in_html(html_content, base_path=None):
                 mime_type = mime_types.get(ext, 'image/png')
 
             data_uri = f"data:{mime_type};base64,{img_base64}"
-            print(
-                f"✓ Изображение конвертировано: {os.path.basename(file_path)}")
+            _logger.debug('Изображение конвертировано: %s', os.path.basename(file_path))
 
             return f'<img {before_attrs}src="{data_uri}"{after_attrs}>'
 
         except Exception as e:
-            print(f"⚠️  Ошибка обработки изображения: {e}")
+            _logger.warning('Ошибка обработки изображения: %s', e)
             return match.group(0)
 
     try:
         result = img_pattern.sub(replace_image, html_content)
         return result
     except Exception as e:
-        print(f"⚠️  Ошибка обработки HTML: {e}")
+        _logger.warning('Ошибка обработки HTML: %s', e)
         return html_content
 
 
@@ -1888,7 +1955,7 @@ def prepare_html_for_email(html_content: str) -> str:
             b64 = base64.b64encode(data).decode('utf-8')
             return f'src="data:{mime_type};base64,{b64}"'
         except Exception as e:
-            print(f"⚠️  prepare_html: ошибка чтения {file_path}: {e}")
+            _logger.warning('prepare_html: ошибка чтения %s: %s', file_path, e)
             return original
 
     # 1. localhost URL → base64
@@ -1897,7 +1964,7 @@ def prepare_html_for_email(html_content: str) -> str:
         url_path = match.group(1)
         fp = resolve(url_path)
         if not fp:
-            print(f"⚠️  prepare_html: не найден: {url_path}")
+            _logger.warning('prepare_html: не найден: %s', url_path)
             return full
         return to_base64(fp, full)
 
@@ -1924,7 +1991,7 @@ def prepare_html_for_email(html_content: str) -> str:
             return full
         fp = resolve(src_val)
         if not fp:
-            print(f"⚠️  prepare_html: не найден: {src_val}")
+            _logger.warning('prepare_html: не найден: %s', src_val)
             return full
         return to_base64(fp, full)
 
@@ -1980,7 +2047,7 @@ def prepare_html_for_meeting(html_content: str) -> str:
                     f.write(raw)
                 return f'src="{base_url}/meeting-assets/{fname}"'
             except Exception as e:
-                print(f'meeting asset error: {e}')
+                _logger.warning('meeting asset error: %s', e)
                 return match.group(0)
 
         # localhost → реальный IP
@@ -2002,101 +2069,6 @@ def prepare_html_for_meeting(html_content: str) -> str:
         flags=re.IGNORECASE | re.DOTALL
     )
     return html_content
-
-
-@app.route('/meeting-assets/<path:filename>')
-def serve_meeting_asset(filename):
-    """Отдаёт временные картинки встреч (для Outlook CalendarItem)."""
-    assets_dir = os.path.join(CACHE_DIR, 'meeting-assets')
-    return send_from_directory(assets_dir, filename)
-
-
-@app.route('/')
-def index():
-    if APP_MODE == 'user':
-        from flask import redirect
-        return redirect('/user')
-    return send_from_directory(app.static_folder, 'index.html')
-
-
-@app.route('/user')
-def user_index():
-    """User-версия приложения"""
-    return send_from_directory(app.static_folder, 'index-user.html')
-
-
-@app.route('/data/<path:filename>', methods=['GET', 'HEAD'])
-def static_data_files(filename):
-    """Serve static JSON/data assets explicitly."""
-    data_dir = os.path.join(app.static_folder, 'data')
-    return send_from_directory(data_dir, filename)
-
-
-@app.route('/protocol.log', methods=['GET', 'HEAD'])
-def protocol_log_file():
-    """Serve the active protocol.log file."""
-    if not _ACTIVE_LOG_FILE or not os.path.exists(_ACTIVE_LOG_FILE):
-        return abort(404)
-    return send_file(_ACTIVE_LOG_FILE, mimetype='text/plain')
-
-
-@app.route('/<path:path>', methods=['GET', 'HEAD'])
-def static_files(path):
-    """Гибридная раздача: картинки из кеша, остальное из static"""
-
-    # Блокируем админские страницы/файлы в user-режиме
-    if APP_MODE == 'user':
-        blocked_paths = {
-            'index.html',
-        }
-        # Блокируем все JS/CSS файлы которые относятся только к админке
-        admin_js_prefixes = (
-            'js/main.js',
-            'js/settingsPanels.js',
-            'js/settingsUI.js',
-            'js/blockOperations.js',
-            'js/columnOperations.js',
-            'js/dragDrop.js',
-            'js/canvasRenderer.js',
-            'js/templatesUI.js',
-            'js/themeToggle.js',
-            'js/settings/',
-        )
-        if path in blocked_paths:
-            abort(404)
-        if any(path.startswith(p) for p in admin_js_prefixes):
-            abort(404)
-
-    # Общие ресурсы по явному URL /cache/{category}/{file}
-    if path.startswith('cache/'):
-        actual = path[len('cache/'):]
-        cache_file = os.path.join(CACHE_DIR, actual)
-        if os.path.exists(cache_file):
-            return send_from_directory(CACHE_DIR, actual)
-        network_file = os.path.join(NETWORK_RESOURCES_PATH, 'static', actual)
-        if os.path.exists(network_file):
-            return send_from_directory(os.path.join(NETWORK_RESOURCES_PATH, 'static'), actual)
-        return 'File not found', 404
-
-    # Картинки сначала ищем в кеше
-    if path.startswith(('icons/', 'expert-badges/', 'bullets/', 'button-icons/', 'images/', 'banner-logos/', 'banner-backgrounds/', 'banner-icons/', 'dividers/', 'fonts/')):
-        # Пробуем кеш
-        cache_file = os.path.join(CACHE_DIR, path)
-        if os.path.exists(cache_file):
-            return send_from_directory(CACHE_DIR, path)
-
-        # Fallback: пробуем сервер
-        network_file = os.path.join(NETWORK_RESOURCES_PATH, 'static', path)
-        if os.path.exists(network_file):
-            print(f"⚠️  Файл не в кеше, загружаем с сервера: {path}")
-            return send_from_directory(os.path.join(NETWORK_RESOURCES_PATH, 'static'), path)
-
-        # Если нигде нет
-        print(f"❌ Файл не найден: {path}")
-        return "File not found", 404
-
-    # HTML/CSS/JS из встроенной static
-    return send_from_directory(app.static_folder, path)
 
 
 def _merge_shared_resources_into_config(config: dict) -> dict:
@@ -2202,79 +2174,6 @@ def _dedup_config_resources(config: dict) -> dict:
     return config
 
 
-@app.route('/api/config', methods=['GET'])
-def get_config():
-    """API endpoint для получения конфигурации (config.json) с пользовательскими ресурсами."""
-    try:
-        config = load_config()
-        config = _merge_shared_resources_into_config(config)
-        config = _merge_user_resources_into_config(config)
-        config = _dedup_config_resources(config)
-        return jsonify({'success': True, 'config': config})
-    except Exception as e:
-        app.logger.error("get_config error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/update-check', methods=['GET'])
-def update_check():
-    """
-    Проверка наличия обновлений без блокировки.
-    Возвращает: {'update_available': bool, 'current': str, 'new': str}
-    Диалог обновления показывается в браузере, не в терминале.
-    """
-    try:
-        current = get_cache_version() or 'unknown'
-
-        if not check_network_access():
-            return jsonify({
-                'update_available': False,
-                'current': current,
-                'new': current,
-                'reason': 'no_network'
-            })
-
-        network_version = get_network_version()
-        if not network_version:
-            return jsonify({
-                'update_available': False,
-                'current': current,
-                'new': current,
-                'reason': 'no_version_file'
-            })
-
-        update_available = (current != network_version)
-        return jsonify({
-            'update_available': update_available,
-            'current': current,
-            'new': network_version
-        })
-
-    except Exception as e:
-        app.logger.error("update_check error: %s", e, exc_info=True)
-        return jsonify({'update_available': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/update-apply', methods=['POST'])
-def update_apply():
-    """
-    Применить обновление ресурсов (вызывается из браузера после подтверждения).
-    """
-    try:
-        if not check_network_access():
-            return jsonify({'success': False, 'error': 'Нет доступа к сетевой папке'}), 503
-
-        result = initialize_cache()
-        if result:
-            return jsonify({'success': True, 'version': get_cache_version()})
-        else:
-            return jsonify({'success': False, 'error': 'Обновление не удалось'}), 500
-
-    except Exception as e:
-        app.logger.error("update_apply error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
 # ============================================================================
 # USER RESOURCES API
 # ============================================================================
@@ -2291,6 +2190,8 @@ USER_RESOURCE_CATEGORIES = [
     'banner-icons',
     'images',
 ]
+# Make the list available to blueprints via current_app.config.
+app.config['USER_RESOURCE_CATEGORIES'] = USER_RESOURCE_CATEGORIES
 
 #: Allowed image file extensions for upload.
 _ALLOWED_IMAGE_EXTENSIONS = {'.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp'}
@@ -2342,12 +2243,16 @@ def _unique_path(directory: str, filename: str) -> tuple[str, str]:
         return path, filename
     stem, ext = os.path.splitext(filename)
     counter = 2
-    while True:
+    while counter <= 9999:
         candidate_name = f'{stem}_{counter}{ext}'
         candidate_path = os.path.join(directory, candidate_name)
         if not os.path.exists(candidate_path):
             return candidate_path, candidate_name
         counter += 1
+    raise OSError(
+        f'_unique_path: не удалось найти свободное имя для {filename!r} '
+        f'в {directory!r} (проверено {counter - 2} вариантов)'
+    )
 
 
 def get_user_resources_dir() -> str:
@@ -2425,363 +2330,215 @@ def _merge_user_resources_into_config(config: dict) -> dict:
     return config
 
 
-@app.route('/api/user-resources', methods=['GET'])
-def user_resources_list():
-    """
-    List all user-owned resources grouped by category.
+def _list_resources_in_dir(base_dir: str, url_fn) -> dict:
+    """Return a ``{category: [{filename, url, label}]}`` mapping for all image
+    files found under *base_dir/<category>/* sub-directories.
 
-    Response: ``{success, resources: {category: [{filename, url, label}]}}``
+    :param str base_dir: Root directory whose immediate children are category
+        folders (e.g. ``icons/``, ``bullets/``).
+    :param callable url_fn: Called as ``url_fn(category, filename)`` to build
+        the public URL for each file.
+    :returns: Mapping from category name to sorted list of resource descriptors.
+    :rtype: dict
     """
-    try:
-        base = get_user_resources_dir()
-        result = {}
-        for category in USER_RESOURCE_CATEGORIES:
-            cat_dir = os.path.join(base, category)
-            if not os.path.isdir(cat_dir):
-                result[category] = []
+    result = {}
+    for category in USER_RESOURCE_CATEGORIES:
+        cat_dir = os.path.join(base_dir, category)
+        if not os.path.isdir(cat_dir):
+            result[category] = []
+            continue
+        items = []
+        for fname in sorted(os.listdir(cat_dir)):
+            ext = os.path.splitext(fname)[1].lower()
+            if ext not in _ALLOWED_IMAGE_EXTENSIONS:
                 continue
-            items = []
-            for fname in sorted(os.listdir(cat_dir)):
-                ext = os.path.splitext(fname)[1].lower()
-                if ext not in _ALLOWED_IMAGE_EXTENSIONS:
-                    continue
-                items.append({
-                    'filename': fname,
-                    'url': _user_resource_url(category, fname),
-                    'label': os.path.splitext(fname)[0],
-                })
-            result[category] = items
-        return jsonify({'success': True, 'resources': result})
-    except Exception as e:
-        app.logger.error('user_resources_list error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+            items.append({
+                'filename': fname,
+                'url': url_fn(category, fname),
+                'label': os.path.splitext(fname)[0],
+            })
+        result[category] = items
+    return result
 
 
-@app.route('/api/user-resources/file/<category>/<filename>', methods=['GET'])
-def user_resources_serve(category, filename):
-    """Serve a single user-owned resource file."""
+def _parse_upload_request():
+    """Parse and validate a resource upload multipart form request.
+
+    Validates ``category``, file presence, non-empty filename and extension
+    against :data:`_ALLOWED_IMAGE_EXTENSIONS`.
+
+    :returns: On success ``({'category': str, 'file': FileStorage,
+        'ext': str, 'safe_name': str}, None)``.  On validation failure
+        ``(None, (response, status_code))`` — the caller should return the
+        error tuple directly to Flask.
+    :rtype: tuple
+    """
+    category = request.form.get('category', '').strip()
     if category not in USER_RESOURCE_CATEGORIES:
-        abort(404)
-    safe = _safe_filename(filename)
-    if not safe or safe == 'file':
-        abort(404)
-    cat_dir = os.path.join(get_user_resources_dir(), category)
-    return send_from_directory(cat_dir, safe)
+        return None, (jsonify({'success': False, 'error': 'Неверная категория'}), 400)
+    if 'file' not in request.files:
+        return None, (jsonify({'success': False, 'error': 'Файл не передан'}), 400)
+    f = request.files['file']
+    if not f.filename:
+        return None, (jsonify({'success': False, 'error': 'Имя файла пустое'}), 400)
+    ext = os.path.splitext(f.filename)[1].lower()
+    if ext not in _ALLOWED_IMAGE_EXTENSIONS:
+        return None, (jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400)
+    stem = os.path.splitext(f.filename)[0]
+    safe = _safe_filename(stem) + ext
+    return {'category': category, 'file': f, 'ext': ext, 'safe_name': safe}, None
 
 
-@app.route('/api/user-resources/upload', methods=['POST'])
-def user_resources_upload():
+# Maps filesystem category folder names to their key path inside config.json.
+# A tuple of length 1 means the key lives at the top level of the config dict;
+# a tuple of length 2 means the key is nested one level deep.
+# Used by both _append_to_config_json and _remove_from_config_json.
+_CAT_KEY_MAP: dict[str, tuple[str, ...]] = {
+    'icons':              ('icons', 'important'),
+    'expert-badges':      ('expertBadges',),
+    'bullets':            ('bullets',),
+    'button-icons':       ('buttonIcons',),
+    'dividers':           ('dividers',),
+    'banner-backgrounds': ('bannerBackgrounds',),
+    'banner-logos':       ('bannerLogos',),
+    'banner-icons':       ('bannerIcons',),
+    'images':             ('images',),
+}
+
+# In-process lock that serialises concurrent Flask threads before they acquire
+# the cross-process file lock below.  The two layers together cover both
+# intra-process concurrency (multiple simultaneous API requests) and
+# inter-process concurrency (two admin sessions on different machines sharing
+# the same network folder).
+_CONFIG_JSON_LOCK = threading.Lock()
+
+
+@contextlib.contextmanager
+def _exclusive_json_edit(path: str):
+    """Read-modify-write a JSON file under an exclusive cross-process file lock.
+
+    Acquires two locks in sequence:
+
+    1. A :data:`threading.Lock` (``_CONFIG_JSON_LOCK``) to serialise calls
+       within the same process.
+    2. A platform file lock on a companion ``<path>.lock`` file to prevent
+       concurrent writes from separate processes (e.g. two admin sessions on
+       different machines accessing the same network share):
+
+       * POSIX — ``fcntl.flock(LOCK_EX)`` — blocks until the lock is free.
+       * Windows — ``msvcrt.locking(LK_LOCK, 1)`` — retries up to 10 times
+         with a 1-second interval before raising ``OSError``.
+
+    On context exit the dict yielded to the caller is written back atomically
+    via ``tempfile.mkstemp`` + ``os.replace``, so a crash mid-write never
+    corrupts the live file.
+
+    :param path: Absolute path to the JSON file to edit.
+    :yields: The parsed JSON dict (mutable).  Modifications are persisted on
+        successful exit; if the ``with`` block raises, the file is not touched.
+    :raises OSError: If the file cannot be locked or atomically written.
     """
-    Upload a file to a user resource category.
+    lock_path = path + '.lock'
+    with _CONFIG_JSON_LOCK:
+        lock_fd = open(lock_path, 'a', encoding='utf-8')
+        try:
+            # Acquire cross-process lock.
+            if sys.platform == 'win32':
+                import msvcrt as _msvcrt
+                lock_fd.flush()
+                # LK_LOCK retries 10× with 1-second intervals; raises OSError on timeout.
+                _msvcrt.locking(lock_fd.fileno(), _msvcrt.LK_LOCK, 1)
+            else:
+                import fcntl as _fcntl
+                _fcntl.flock(lock_fd.fileno(), _fcntl.LOCK_EX)
 
-    Form fields: ``category`` (string), ``file`` (multipart file).
+            # Read current content.
+            try:
+                with open(path, 'r', encoding='utf-8') as fp:
+                    data = json.load(fp)
+            except Exception:
+                data = {}
 
-    Response: ``{success, filename, url}``
-    """
-    try:
-        category = request.form.get('category', '').strip()
-        if category not in USER_RESOURCE_CATEGORIES:
-            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
+            yield data
 
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'Файл не передан'}), 400
+            # Write back atomically: temp file in the same directory, then rename.
+            directory = os.path.dirname(path)
+            fd, tmp_path = tempfile.mkstemp(dir=directory, suffix='.tmp')
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    json.dump(data, f, ensure_ascii=False, indent=2)
+                os.replace(tmp_path, path)
+            except Exception:
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
 
-        f = request.files['file']
-        if not f.filename:
-            return jsonify({'success': False, 'error': 'Имя файла пустое'}), 400
-
-        ext = os.path.splitext(f.filename)[1].lower()
-        if ext not in _ALLOWED_IMAGE_EXTENSIONS:
-            return jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400
-
-        stem = os.path.splitext(f.filename)[0]
-        safe = _safe_filename(stem) + ext
-        cat_dir = os.path.join(get_user_resources_dir(), category)
-        os.makedirs(cat_dir, exist_ok=True)
-        dest, safe = _unique_path(cat_dir, safe)
-        f.save(dest)
-
-        return jsonify({
-            'success': True,
-            'filename': safe,
-            'url': _user_resource_url(category, safe),
-        })
-    except Exception as e:
-        app.logger.error('user_resources_upload error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/user-resources/delete', methods=['DELETE'])
-def user_resources_delete():
-    """
-    Delete a user-owned resource file.
-
-    Query params: ``category``, ``filename``.
-
-    Response: ``{success}``
-    """
-    try:
-        category = request.args.get('category', '').strip()
-        filename  = request.args.get('filename', '').strip()
-
-        if category not in USER_RESOURCE_CATEGORIES:
-            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
-
-        safe = _safe_filename(filename)
-        if not safe or safe == 'file':
-            return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
-
-        path = os.path.join(get_user_resources_dir(), category, safe)
-        if os.path.isfile(path):
-            os.remove(path)
-
-        return jsonify({'success': True})
-    except Exception as e:
-        app.logger.error('user_resources_delete error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/user-resources/publish', methods=['POST'])
-def user_resources_publish():
-    """
-    Publish a user-owned resource to the shared network repository (admin only).
-
-    Copies the file to ``NETWORK_RESOURCES_PATH/static/{category}/`` and
-    appends a matching entry to ``config.json`` if not already present.
-
-    JSON body: ``{category, filename}``
-
-    Response: ``{success}``
-    """
-    try:
-        if APP_MODE != 'admin':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        data     = request.get_json(force=True) or {}
-        category = data.get('category', '').strip()
-        filename  = data.get('filename', '').strip()
-
-        if category not in USER_RESOURCE_CATEGORIES:
-            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
-
-        safe = _safe_filename(filename)
-        if not safe or safe == 'file':
-            return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
-
-        src_path = os.path.join(get_user_resources_dir(), category, safe)
-        if not os.path.isfile(src_path):
-            return jsonify({'success': False, 'error': 'Файл не найден'}), 404
-
-        dest_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
-        os.makedirs(dest_dir, exist_ok=True)
-        dest_path = os.path.join(dest_dir, safe)
-        shutil.copy2(src_path, dest_path)
-
-        pub_url = f'/cache/{category}/{safe}'
-        _append_to_config_json(category, safe, pub_url)
-        _bump_network_version()
-
-        return jsonify({'success': True})
-    except Exception as e:
-        app.logger.error('user_resources_publish error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-# ============================================================================
-# SHARED RESOURCES API  (admin-only write; read is open for listing)
-# ============================================================================
-
-@app.route('/api/shared-resources', methods=['GET'])
-def shared_resources_list():
-    """
-    List all files in the shared network resource repository, grouped by category.
-
-    Response: ``{success, resources: {category: [{filename, url, label}]}}``
-    """
-    try:
-        result = {}
-        for category in USER_RESOURCE_CATEGORIES:
-            cat_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
-            if not os.path.isdir(cat_dir):
-                result[category] = []
-                continue
-            items = []
-            for fname in sorted(os.listdir(cat_dir)):
-                ext = os.path.splitext(fname)[1].lower()
-                if ext not in _ALLOWED_IMAGE_EXTENSIONS:
-                    continue
-                items.append({
-                    'filename': fname,
-                    'url': f'/cache/{category}/{fname}',
-                    'label': os.path.splitext(fname)[0],
-                })
-            result[category] = items
-        return jsonify({'success': True, 'resources': result})
-    except Exception as e:
-        app.logger.error('shared_resources_list error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/shared-resources/upload', methods=['POST'])
-def shared_resources_upload():
-    """
-    Upload a file directly to the shared network resource repository (admin only).
-
-    Also appends an entry to ``config.json`` if not already present.
-
-    Form fields: ``category`` (string), ``file`` (multipart file).
-
-    Response: ``{success, filename, url}``
-    """
-    try:
-        if APP_MODE != 'admin':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        category = request.form.get('category', '').strip()
-        if category not in USER_RESOURCE_CATEGORIES:
-            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
-
-        if 'file' not in request.files:
-            return jsonify({'success': False, 'error': 'Файл не передан'}), 400
-
-        f = request.files['file']
-        if not f.filename:
-            return jsonify({'success': False, 'error': 'Имя файла пустое'}), 400
-
-        ext = os.path.splitext(f.filename)[1].lower()
-        if ext not in _ALLOWED_IMAGE_EXTENSIONS:
-            return jsonify({'success': False, 'error': 'Недопустимый тип файла'}), 400
-
-        stem = os.path.splitext(f.filename)[0]
-        safe = _safe_filename(stem) + ext
-        dest_dir = os.path.join(NETWORK_RESOURCES_PATH, 'static', category)
-        os.makedirs(dest_dir, exist_ok=True)
-        dest_path, safe = _unique_path(dest_dir, safe)
-        f.save(dest_path)
-
-        pub_url = f'/cache/{category}/{safe}'
-
-        # Update config.json and bump repo version
-        _append_to_config_json(category, safe, pub_url)
-        _bump_network_version()
-
-        return jsonify({'success': True, 'filename': safe, 'url': pub_url})
-    except Exception as e:
-        app.logger.error('shared_resources_upload error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/shared-resources/delete', methods=['DELETE'])
-def shared_resources_delete():
-    """
-    Delete a file from the shared network resource repository (admin only).
-
-    Also removes the matching entry from ``config.json``.
-
-    Query params: ``category``, ``filename``.
-
-    Response: ``{success}``
-    """
-    try:
-        if APP_MODE != 'admin':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        category = request.args.get('category', '').strip()
-        filename  = request.args.get('filename', '').strip()
-
-        if category not in USER_RESOURCE_CATEGORIES:
-            return jsonify({'success': False, 'error': 'Неверная категория'}), 400
-
-        safe = _safe_filename(filename)
-        if not safe or safe == 'file':
-            return jsonify({'success': False, 'error': 'Неверное имя файла'}), 400
-
-        path = os.path.join(NETWORK_RESOURCES_PATH, 'static', category, safe)
-        if os.path.isfile(path):
-            os.remove(path)
-
-        # Remove from config.json and bump repo version
-        pub_url = f'/cache/{category}/{safe}'
-        _remove_from_config_json(category, pub_url)
-        _bump_network_version()
-
-        return jsonify({'success': True})
-    except Exception as e:
-        app.logger.error('shared_resources_delete error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+        finally:
+            # Release cross-process lock before closing the descriptor.
+            if sys.platform == 'win32':
+                try:
+                    import msvcrt as _msvcrt
+                    _msvcrt.locking(lock_fd.fileno(), _msvcrt.LK_UNLCK, 1)
+                except Exception:
+                    pass
+            else:
+                try:
+                    import fcntl as _fcntl
+                    _fcntl.flock(lock_fd.fileno(), _fcntl.LOCK_UN)
+                except Exception:
+                    pass
+            lock_fd.close()
 
 
 def _append_to_config_json(category: str, filename: str, pub_url: str) -> None:
-    """Add an entry to the shared ``config.json`` if not already present."""
+    """Add an entry to the shared ``config.json`` if not already present.
+
+    The read-modify-write cycle is protected by :func:`_exclusive_json_edit`
+    so concurrent calls from different processes or threads cannot produce
+    lost updates.
+    """
     config_path = os.path.join(NETWORK_RESOURCES_PATH, 'static', 'config.json')
     if not os.path.isfile(config_path):
         return
-    _cat_key_map = {
-        'icons':              ('icons', 'important'),
-        'expert-badges':      ('expertBadges',),
-        'bullets':            ('bullets',),
-        'button-icons':       ('buttonIcons',),
-        'dividers':           ('dividers',),
-        'banner-backgrounds': ('bannerBackgrounds',),
-        'banner-logos':       ('bannerLogos',),
-        'banner-icons':       ('bannerIcons',),
-        'images':             ('images',),
-    }
-    try:
-        with open(config_path, 'r', encoding='utf-8') as fp:
-            cfg = json.load(fp)
-    except Exception:
-        cfg = {}
-    keys = _cat_key_map.get(category, (category,))
-    node = cfg
-    for k in keys[:-1]:
-        node = node.setdefault(k, {})
-    leaf = keys[-1]
-    arr = node.get(leaf)
-    if not isinstance(arr, list):
-        arr = []
-    if not any(isinstance(i, dict) and i.get('src') == pub_url for i in arr):
-        arr.append({'src': pub_url, 'label': os.path.splitext(filename)[0]})
-        node[leaf] = arr
-        with open(config_path, 'w', encoding='utf-8') as fp:
-            json.dump(cfg, fp, ensure_ascii=False, indent=2)
+    keys = _CAT_KEY_MAP.get(category, (category,))
+    with _exclusive_json_edit(config_path) as cfg:
+        node = cfg
+        for k in keys[:-1]:
+            node = node.setdefault(k, {})
+        leaf = keys[-1]
+        arr = node.get(leaf)
+        if not isinstance(arr, list):
+            arr = []
+        if not any(isinstance(i, dict) and i.get('src') == pub_url for i in arr):
+            arr.append({'src': pub_url, 'label': os.path.splitext(filename)[0]})
+            node[leaf] = arr
 
 
 def _remove_from_config_json(category: str, pub_url: str) -> None:
-    """Remove the entry matching *pub_url* from the shared ``config.json``."""
+    """Remove the entry matching *pub_url* from the shared ``config.json``.
+
+    The read-modify-write cycle is protected by :func:`_exclusive_json_edit`
+    so concurrent calls from different processes or threads cannot produce
+    lost updates.
+    """
     config_path = os.path.join(NETWORK_RESOURCES_PATH, 'static', 'config.json')
     if not os.path.isfile(config_path):
         return
-    _cat_key_map = {
-        'icons':              ('icons', 'important'),
-        'expert-badges':      ('expertBadges',),
-        'bullets':            ('bullets',),
-        'button-icons':       ('buttonIcons',),
-        'dividers':           ('dividers',),
-        'banner-backgrounds': ('bannerBackgrounds',),
-        'banner-logos':       ('bannerLogos',),
-        'banner-icons':       ('bannerIcons',),
-        'images':             ('images',),
-    }
-    try:
-        with open(config_path, 'r', encoding='utf-8') as fp:
-            cfg = json.load(fp)
-    except Exception:
-        return
-    keys = _cat_key_map.get(category, (category,))
-    node = cfg
-    for k in keys[:-1]:
-        node = node.get(k, {})
-        if not isinstance(node, dict):
-            return
-    leaf = keys[-1]
-    arr = node.get(leaf)
-    if isinstance(arr, list):
-        new_arr = [i for i in arr if not (isinstance(i, dict) and i.get('src') == pub_url)]
-        if len(new_arr) != len(arr):
-            node[leaf] = new_arr
-            with open(config_path, 'w', encoding='utf-8') as fp:
-                json.dump(cfg, fp, ensure_ascii=False, indent=2)
+    keys = _CAT_KEY_MAP.get(category, (category,))
+    with _exclusive_json_edit(config_path) as cfg:
+        node = cfg
+        for k in keys[:-1]:
+            node = node.get(k, {})
+            if not isinstance(node, dict):
+                return
+        leaf = keys[-1]
+        arr = node.get(leaf)
+        if isinstance(arr, list):
+            new_arr = [i for i in arr if not (isinstance(i, dict) and i.get('src') == pub_url)]
+            if len(new_arr) != len(arr):
+                node[leaf] = new_arr
 
 
 # ============================================================================
@@ -2934,8 +2691,10 @@ def _build_index_from_dir(base_dir, template_type):
     """
     Read every ``.json`` in *base_dir* and build metadata structures.
 
-    ``blocks`` and ``preview`` fields are intentionally skipped — they are
-    large and only needed when a specific template is loaded.
+    ``blocks`` is intentionally skipped — it is large and only needed when
+    a specific template is loaded.  ``preview`` (base64 PNG data-URL) IS
+    included so the list endpoint can serve card thumbnails in a single
+    request, eliminating N per-template fetches on the user start screen.
 
     :returns: ``(meta_list, id_index, fingerprint)``
               *fingerprint* is a short MD5 hex string derived from each
@@ -2973,6 +2732,8 @@ def _build_index_from_dir(base_dir, template_type):
                     'type': template_type,
                     'category': data.get('category', ''),
                     'isPreset': is_preset,
+                    'preview': data.get('preview'),
+                    'previewVersion': data.get('previewVersion'),
                 })
                 index[tid] = fpath
             except Exception:
@@ -3013,7 +2774,7 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
                 # overwrite it with our potentially stale scan.
                 existing['_rebuilding'] = False
     except Exception as exc:
-        print(f'⚠️  Фоновый rebuild индекса [{template_type}] упал: {exc}')
+        _logger.warning('Фоновый rebuild индекса [%s] упал: %s', template_type, exc)
         with _template_cache_lock:
             entry = _template_cache.get(template_type)
             if entry:
@@ -3118,278 +2879,6 @@ def _find_template_by_id(base_dir, template_id, template_type=None):
     return None, None
 
 
-@app.route('/api/templates/list', methods=['GET'])
-def templates_list():
-    """
-    Return lightweight metadata for all templates (shared + personal).
-
-    ``blocks`` and ``preview`` are intentionally excluded — they can be large
-    (preview is a base64 image) and are only needed when loading a specific
-    template.  The in-memory index cache avoids re-reading files on every
-    panel open.
-    """
-    try:
-        shared_dir = os.path.join(get_templates_dir(), 'shared')
-        user_dir = get_personal_templates_dir()
-
-        shared_meta, _, shared_fp = _get_template_index('shared', shared_dir)
-        personal_meta, _, personal_fp = _get_template_index('personal', user_dir)
-
-        etag = f'"{shared_fp}-{personal_fp}"'
-
-        # Conditional GET — return 304 when the client already has a fresh copy
-        if request.headers.get('If-None-Match') == etag:
-            return '', 304
-
-        current_user = get_user_from_system()
-        personal_out = [dict(m, author=current_user) for m in personal_meta]
-
-        resp = jsonify({'success': True, 'templates': {
-            'shared': sorted(shared_meta, key=lambda x: x['name']),
-            'personal': sorted(personal_out, key=lambda x: x['name']),
-        }})
-        resp.headers['ETag'] = etag
-        resp.headers['Cache-Control'] = 'no-cache'
-        return resp
-
-    except Exception as e:
-        app.logger.error("templates_list error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/load', methods=['GET'])
-def templates_load():
-    """Load a template by id."""
-    try:
-        template_id = (request.args.get('id') or '').strip()
-        template_type = (request.args.get('type') or 'personal').strip().lower()
-
-        if not _validate_template_id(template_id):
-            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
-
-        if APP_MODE == 'user' and template_type == 'shared':
-            pass  # reading shared is allowed in user mode
-
-        base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
-
-        if filepath is None:
-            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        return jsonify({'success': True, 'template': template})
-
-    except Exception as e:
-        app.logger.error("templates_load error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/save', methods=['POST'])
-def templates_save():
-    """Сохранить новый шаблон"""
-    try:
-        data = request.json or {}
-        name = (data.get('name') or '').strip()
-        blocks = data.get('blocks')
-        template_type = data.get('type', 'personal')
-        template_type = str(template_type).strip().lower()
-        category = data.get('category', '')
-        preview = data.get('preview', None)
-        is_preset = bool(data.get('isPreset', False))
-
-        if APP_MODE == 'user' and template_type == 'shared':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        if not name or blocks is None:
-            return jsonify({'success': False, 'error': 'Нет данных'}), 400
-
-        current_user = get_user_from_system()
-        templates_dir = get_templates_dir()
-
-        if template_type == 'shared':
-            save_dir = os.path.join(templates_dir, 'shared')
-        else:
-            save_dir = get_personal_templates_dir()
-
-        os.makedirs(save_dir, exist_ok=True)
-
-        # Генерируем уникальное имя файла с timestamp + hash
-        timestamp = int(time.time() * 1000)
-        name_hash = hashlib.md5(name.encode('utf-8')).hexdigest()[:8]
-        filename = f'template_{timestamp}_{name_hash}.json'
-        filepath = os.path.join(save_dir, filename)
-
-        template = {
-            'id': f'tpl_{int(time.time())}',
-            'name': name,
-            'category': category,
-            'preview': preview,
-            'created': datetime.now().isoformat(),
-            'author': current_user,
-            'type': template_type,
-            'isPreset': is_preset,
-            'blocks': blocks
-        }
-
-        _write_template_atomic(filepath, template)
-
-        _invalidate_template_cache(template_type)
-        if template_type == 'shared':
-            _bump_network_version()
-        print(
-            f"✓ Шаблон сохранён: {filename} ({template_type}, isPreset={is_preset}, "
-            f"категория: {category or 'без категории'}, путь: {filepath})")
-
-        return jsonify({'success': True, 'filename': filename, 'id': template['id']})
-
-    except Exception as e:
-        app.logger.error("templates_save error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/update', methods=['PUT'])
-def templates_update():
-    """Update blocks (and optionally preview) of an existing template, located by id."""
-    try:
-        data = request.json or {}
-        template_id = (data.get('id') or '').strip()
-        template_type = str(data.get('type', 'personal')).strip().lower()
-        blocks = data.get('blocks')
-        preview = data.get('preview', None)
-
-        if not _validate_template_id(template_id) or blocks is None:
-            return jsonify({'success': False, 'error': 'Нет данных'}), 400
-
-        if APP_MODE == 'user' and template_type == 'shared':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
-        if filepath is None:
-            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        template['blocks'] = blocks
-        template['updated'] = datetime.now().isoformat()
-        if preview is not None:
-            template['preview'] = preview
-
-        _write_template_atomic(filepath, template)
-
-        _invalidate_template_cache(template_type)
-        if template_type == 'shared':
-            _bump_network_version()
-        print(f"✓ Шаблон обновлён: {os.path.basename(filepath)}")
-        return jsonify({'success': True})
-
-    except Exception as e:
-        app.logger.error("templates_update error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/preview', methods=['PATCH'])
-def templates_update_preview():
-    """Update only the preview thumbnail of an existing template (blocks unchanged)."""
-    try:
-        data = request.json or {}
-        template_id = (data.get('id') or '').strip()
-        template_type = str(data.get('type', 'personal')).strip().lower()
-        preview = data.get('preview')
-
-        if not _validate_template_id(template_id):
-            return jsonify({'success': False, 'error': 'Нет данных'}), 400
-
-        if APP_MODE == 'user' and template_type == 'shared':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
-        if filepath is None:
-            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        template['preview'] = preview
-        template['updated'] = datetime.now().isoformat()
-
-        _write_template_atomic(filepath, template)
-
-        _invalidate_template_cache(template_type)
-        if template_type == 'shared':
-            _bump_network_version()
-        return jsonify({'success': True})
-
-    except Exception as e:
-        app.logger.error("templates_update_preview error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/delete', methods=['DELETE'])
-def templates_delete():
-    """Delete a template located by id."""
-    try:
-        template_id = (request.args.get('id') or '').strip()
-        template_type = (request.args.get('type') or 'personal').strip().lower()
-
-        if not _validate_template_id(template_id):
-            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
-
-        if APP_MODE == 'user' and template_type == 'shared':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        base_dir = _template_base_dir(template_type)
-        filepath, _ = _find_template_by_id(base_dir, template_id, template_type)
-        if filepath is None:
-            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        os.remove(filepath)
-        _invalidate_template_cache(template_type)
-        if template_type == 'shared':
-            _bump_network_version()
-        print(f"✓ Шаблон удалён: {os.path.basename(filepath)}")
-        return jsonify({'success': True})
-
-    except Exception as e:
-        app.logger.error("templates_delete error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/rename', methods=['PUT'])
-def templates_rename():
-    """Rename a template in-place (updates the name field, file stays at the same path)."""
-    try:
-        data = request.json or {}
-        template_id = (data.get('id') or '').strip()
-        new_name = (data.get('newName') or '').strip()
-        template_type = str(data.get('type', 'personal')).strip().lower()
-
-        if not _validate_template_id(template_id):
-            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
-        if not new_name:
-            return jsonify({'success': False, 'error': 'Название не может быть пустым'}), 400
-        if len(new_name) > 200:
-            return jsonify({'success': False, 'error': 'Название слишком длинное (макс. 200 символов)'}), 400
-
-        if APP_MODE == 'user' and template_type == 'shared':
-            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
-
-        base_dir = _template_base_dir(template_type)
-        filepath, template = _find_template_by_id(base_dir, template_id, template_type)
-        if filepath is None:
-            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
-
-        template['name'] = new_name
-
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(template, f, ensure_ascii=False, indent=2)
-
-        _invalidate_template_cache(template_type)
-        if template_type == 'shared':
-            _bump_network_version()
-        print(f"✓ Шаблон переименован: {os.path.basename(filepath)} → «{new_name}»")
-        return jsonify({'success': True})
-
-    except Exception as e:
-        app.logger.error("templates_rename error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
 def get_categories_file():
     """Путь к файлу категорий"""
     return os.path.join(get_templates_dir(), 'categories.json')
@@ -3438,73 +2927,21 @@ def save_categories(categories: list) -> None:
     :param categories: Sorted list of category name strings to save.
     """
     categories_file = get_categories_file()
-    os.makedirs(os.path.dirname(categories_file), exist_ok=True)
-    with open(categories_file, 'w', encoding='utf-8') as f:
-        json.dump({'categories': categories}, f, ensure_ascii=False, indent=2)
+    directory = os.path.dirname(categories_file)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, suffix='.tmp')
+    try:
+        with os.fdopen(fd, 'w', encoding='utf-8') as f:
+            json.dump({'categories': categories}, f, ensure_ascii=False, indent=2)
+        os.replace(tmp_path, categories_file)
+    except Exception:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
     _invalidate_categories_cache()
 
-
-@app.route('/api/templates/categories', methods=['GET'])
-def templates_get_categories():
-    """Получить список категорий"""
-    try:
-        categories = load_categories()
-        return jsonify({'success': True, 'categories': categories})
-    except Exception as e:
-        app.logger.error("templates_get_categories error: %s",
-                         e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/categories', methods=['POST'])
-def templates_add_category():
-    """Добавить новую категорию"""
-    try:
-        data = request.json
-        name = data.get('name', '').strip()
-
-        if not name:
-            return jsonify({'success': False, 'error': 'Название категории не указано'}), 400
-
-        categories = load_categories()
-
-        if name not in categories:
-            categories.append(name)
-            categories.sort()
-            save_categories(categories)
-            _bump_network_version()
-            print(f"✓ Категория добавлена: {name}")
-
-        return jsonify({'success': True, 'categories': categories})
-
-    except Exception as e:
-        app.logger.error("templates_add_category error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/templates/categories', methods=['DELETE'])
-def templates_delete_category():
-    """Удалить категорию"""
-    try:
-        name = request.args.get('name', '').strip()
-
-        if not name:
-            return jsonify({'success': False, 'error': 'Название категории не указано'}), 400
-
-        categories = load_categories()
-
-        if name in categories:
-            categories.remove(name)
-            save_categories(categories)
-            _bump_network_version()
-            print(f"✓ Категория удалена: {name}")
-
-        return jsonify({'success': True, 'categories': categories})
-
-    except Exception as e:
-        app.logger.error(
-            "templates_delete_category error: %s", e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
 
 # ============================================================================
 # АВТОМАТИЧЕСКОЕ ОТКРЫТИЕ БРАУЗЕРА
@@ -3625,7 +3062,7 @@ def _run_webview_or_browser() -> None:
             if getattr(sys, 'frozen', False):
                 ico = os.path.join(sys._MEIPASS, 'icon.ico')
             else:
-                ico = os.path.join(os.path.dirname(__file__), 'icon.ico')
+                ico = os.path.join(os.path.dirname(__file__), 'assets', 'icon.ico')
             if os.path.exists(ico):
                 app_icon = QIcon(ico)
                 qt_app.setWindowIcon(app_icon)
@@ -3652,7 +3089,7 @@ def _run_webview_or_browser() -> None:
         # exec_() blocks until all windows are closed.
         sys.exit(qt_app.exec_())
     except Exception as e:
-        print(f'[QWebEngineView] недоступен ({e}), открываю системный браузер...')
+        _logger.warning('[QWebEngineView] недоступен (%s), открываю системный браузер...', e)
 
     # Browser fallback: open the URL and keep the process alive via the
     # heartbeat watchdog (exits when the browser tab is closed).
@@ -3731,7 +3168,7 @@ def main():
         # webview window (WebKit2GTK on Linux requires the main thread).
         threading.Thread(
             target=app.run,
-            kwargs={'host': '0.0.0.0', 'port': PORT, 'debug': False},
+            kwargs={'host': '127.0.0.1', 'port': PORT, 'debug': False},
             daemon=True,
         ).start()
 
@@ -3817,395 +3254,6 @@ except ImportError:
     EXCHANGE_AVAILABLE = False
 
 
-@app.route('/api/credentials/status', methods=['GET'])
-def api_credentials_status():
-    """Проверяет наличие сохранённых учётных данных Exchange."""
-    try:
-        path = get_credentials_path()
-        exists = credentials_exist(path)
-        if exists:
-            creds = load_credentials(path)
-            return jsonify({
-                'exists':          True,
-                'has_password':    bool(creds and creds.get('password')),
-                'username':        creds.get('username') if creds else None,
-                'server':          creds.get('server') if creds else None,
-                'from_email':      creds.get('from_email') if creds else None,
-                'default_senders': creds.get('default_senders') if creds else [],
-            })
-        return jsonify({'exists': False, 'has_password': False,
-                        'username': None, 'server': None,
-                        'from_email': None, 'default_senders': [],
-                        'default_server': _DEFAULT_EXCHANGE_SERVER or None})
-    except Exception as e:
-        app.logger.error('credentials_status error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/credentials/save', methods=['POST'])
-def api_credentials_save():
-    """Сохраняет учётные данные Exchange (пароль шифруется)."""
-    try:
-        data = request.json or {}
-        server = str(data.get('server') or '').strip()
-        username = str(data.get('username') or '').strip()
-        password = str(data.get('password') or '').strip()
-        from_email = str(data.get('from_email') or '').strip()
-        default_senders = data.get('default_senders') or []
-        path = get_credentials_path()
-
-        # Opening the settings form does not repopulate the password field.
-        # Reuse the existing secret when the username stays unchanged and the
-        # user saved other settings without entering a new password.
-        if not password and credentials_exist(path):
-            existing_creds = load_credentials(path)
-            if (existing_creds and existing_creds.get('password')
-                    and existing_creds.get('username') == username):
-                password = existing_creds['password']
-
-        ok, err = validate_credentials_data({
-            'server': server, 'username': username,
-            'password': password, 'from_email': from_email,
-        })
-        if not ok:
-            return jsonify({'success': False, 'error': err}), 400
-
-        save_credentials(path, server, username, password,
-                         from_email, default_senders)
-        return jsonify({'success': True})
-    except Exception as e:
-        app.logger.error('credentials_save error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/send/email', methods=['POST'])
-def api_send_email():
-    """Отправляет HTML-письмо через Exchange."""
-    try:
-        path = get_credentials_path()
-        if not credentials_exist(path):
-            return jsonify({'success': False, 'error': 'Учётные данные не настроены'}), 401
-
-        data = request.json or {}
-        subject = str(data.get('subject') or '').strip()
-        to = parse_recipients(data.get('to',  []))
-        cc = parse_recipients(data.get('cc',  []))
-        bcc = parse_recipients(data.get('bcc', []))
-        from_email = str(data.get('from_email') or '').strip()
-
-        if not subject:
-            return jsonify({'success': False, 'error': 'Тема обязательна'}), 400
-        if not to and not cc and not bcc:
-            return jsonify({'success': False, 'error': 'Укажите хотя бы одного получателя'}), 400
-
-        creds = load_credentials(path)
-        account = connect_exchange(
-            creds['server'], creds['username'], creds['password'],
-            from_email or creds['from_email']
-        )
-        html_body = prepare_html_for_email(data.get('html_body', ''))
-        attachments = data.get('attachments', [])
-        exchange_send_email(
-            account, subject, html_body, to, cc, bcc,
-            attachments=attachments
-        )
-        return jsonify({'success': True})
-
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 401
-    except ConnectionError as e:
-        return jsonify({'success': False, 'error': str(e)}), 503
-    except Exception as e:
-        app.logger.error('send_email error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
-@app.route('/api/send/meeting', methods=['POST'])
-def api_send_meeting():
-    """Создаёт встречу в Exchange Calendar."""
-    try:
-        path = get_credentials_path()
-        if not credentials_exist(path):
-            return jsonify({'success': False, 'error': 'Учётные данные не настроены'}), 401
-
-        data = request.json or {}
-        subject = str(data.get('subject') or '').strip()
-        to = parse_recipients(data.get('to',  []))
-        cc = parse_recipients(data.get('cc',  []))
-        bcc = parse_recipients(data.get('bcc', []))
-        from_email = str(data.get('from_email') or '').strip()
-        location = str(data.get('location') or '').strip()
-        start_raw = str(data.get('start_dt') or '').strip()
-        end_raw = str(data.get('end_dt') or '').strip()
-
-        if not subject:
-            return jsonify({'success': False, 'error': 'Тема обязательна'}), 400
-        if not to and not bcc:
-            return jsonify({'success': False, 'error': 'Укажите хотя бы одного участника'}), 400
-        if not start_raw or not end_raw:
-            return jsonify({'success': False, 'error': 'Дата и время обязательны'}), 400
-
-        try:
-            start_dt = parse_datetime(start_raw)
-            end_dt = parse_datetime(end_raw)
-        except ValueError as e:
-            return jsonify({'success': False, 'error': str(e)}), 400
-
-        if end_dt <= start_dt:
-            return jsonify({
-                'success': False,
-                'error': 'Время окончания должно быть позже начала'
-            }), 400
-
-        creds = load_credentials(path)
-        account = connect_exchange(
-            creds['server'], creds['username'], creds['password'],
-            from_email or creds['from_email']
-        )
-        html_body = prepare_html_for_email(data.get('html_body', ''))
-        attachments = data.get('attachments', [])
-        exchange_send_meeting(
-            account, subject, html_body, to, cc, bcc,
-            location, start_dt, end_dt,
-            attachments=attachments
-        )
-        return jsonify({'success': True})
-
-    except ValueError as e:
-        return jsonify({'success': False, 'error': str(e)}), 401
-    except ConnectionError as e:
-        return jsonify({'success': False, 'error': str(e)}), 503
-    except Exception as e:
-        import traceback
-        app.logger.error('send_meeting error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': f'{type(e).__name__}: {e}'}), 500
-
-
-@app.route('/api/mode', methods=['GET'])
-def api_mode_get():
-    """Returns current APP_MODE and whether mode switching is available."""
-    return jsonify({
-        'mode': APP_MODE,
-        'can_switch': _ADMIN_VALIDATED and not _INVALID_TOKEN,
-    })
-
-
-@app.route('/api/mode', methods=['POST'])
-def api_mode_set():
-    """
-    Switches APP_MODE between ``'admin'`` and ``'user'``.
-
-    Only available when the admin token was validated at startup.
-    Switching to ``'user'`` is always allowed; switching back to ``'admin'``
-    requires no extra credentials (token was already validated at startup).
-    """
-    global APP_MODE
-
-    if not _ADMIN_VALIDATED or _INVALID_TOKEN:
-        return jsonify({'success': False, 'error': 'Переключение режима недоступно'}), 403
-
-    data    = request.get_json(silent=True) or {}
-    new_mode = data.get('mode', '')
-    if new_mode not in ('admin', 'user'):
-        return jsonify({'success': False, 'error': 'Допустимые значения: admin, user'}), 400
-
-    APP_MODE = new_mode
-    print(f'[mode] switched to {APP_MODE}')
-    return jsonify({'success': True, 'mode': APP_MODE})
-
-
-@app.route('/api/license-status', methods=['GET'])
-def api_license_status():
-    """
-    Returns whether an invalid token was detected at startup.
-    Called once by the frontend on load to decide whether to show a warning.
-    """
-    return jsonify({'invalid_token': _INVALID_TOKEN})
-
-
-@app.route('/api/open-log', methods=['POST'])
-def api_open_log():
-    """Opens protocol.log in the system-default external application.
-
-    On Linux tries ``xdg-open`` first, then falls back to a list of common
-    text editors.  Returns 500 only when every candidate fails so the client
-    can fall back to serving the file in the browser.
-    """
-    if not _ACTIVE_LOG_FILE or not os.path.exists(_ACTIVE_LOG_FILE):
-        return jsonify({'success': False, 'error': 'protocol.log не найден'}), 404
-
-    try:
-        if sys.platform.startswith('win'):
-            os.startfile(_ACTIVE_LOG_FILE)
-            return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
-
-        if sys.platform == 'darwin':
-            subprocess.Popen(['open', _ACTIVE_LOG_FILE])
-            return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
-
-        # Linux: xdg-open → gio open → common text editors.
-        # When running as a PyInstaller bundle, LD_LIBRARY_PATH and similar
-        # variables point to bundled libraries and corrupt any child process
-        # that loads system shared objects (including xdg-open helpers).
-        # Build a clean environment without those overrides.
-        _pyinstaller_vars = {'LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONPATH', 'PYTHONHOME'}
-        clean_env = {k: v for k, v in os.environ.items() if k not in _pyinstaller_vars}
-
-        candidates = [
-            ['xdg-open', _ACTIVE_LOG_FILE],
-            ['gio', 'open', _ACTIVE_LOG_FILE],
-            ['gedit', _ACTIVE_LOG_FILE],
-            ['kate', _ACTIVE_LOG_FILE],
-            ['mousepad', _ACTIVE_LOG_FILE],
-            ['geany', _ACTIVE_LOG_FILE],
-            ['pluma', _ACTIVE_LOG_FILE],
-        ]
-        last_exc = None
-        for cmd in candidates:
-            try:
-                subprocess.Popen(cmd, env=clean_env)
-                return jsonify({'success': True, 'path': _ACTIVE_LOG_FILE})
-            except FileNotFoundError:
-                continue
-            except Exception as exc:
-                last_exc = exc
-                break
-
-        err = str(last_exc) if last_exc else 'Не найдено подходящего приложения для открытия файла'
-        print(f'⚠️  Не удалось открыть protocol.log внешним приложением: {err}')
-        return jsonify({'success': False, 'error': err}), 500
-
-    except Exception as exc:
-        print(f'⚠️  Не удалось открыть protocol.log внешним приложением: {exc}')
-        return jsonify({'success': False, 'error': str(exc)}), 500
-
-
-@app.route('/api/app-settings', methods=['GET'])
-def api_app_settings_get():
-    """Return application settings relevant to the current platform."""
-    meta = _get_repo_setting_meta()
-    current_path = _get_runtime_repo_path()
-    ok, reason = _validate_resource_repo(current_path)
-    return jsonify({
-        'success': True,
-        'platform': meta['platform'],
-        'platform_label': meta['platform_label'],
-        'config_path': _CONFIG_PATH,
-        'repo_key': meta['repo_key'],
-        'repo_label': meta['repo_label'],
-        'repo_path': current_path,
-        'repo_placeholder': meta['placeholder'],
-        'repo_valid': ok,
-        'repo_reason': reason,
-        'can_create_repo': APP_MODE == 'admin',
-    })
-
-
-@app.route('/api/app-settings', methods=['POST'])
-def api_app_settings_save():
-    """Persist platform-specific application settings."""
-    data = request.get_json(silent=True) or {}
-    repo_path = str(data.get('repo_path') or '').strip()
-    if not repo_path:
-        return jsonify({'success': False, 'error': 'Путь к репозиторию не указан'}), 400
-
-    ok, reason = _validate_resource_repo(repo_path)
-    if not ok:
-        return jsonify({
-            'success': False,
-            'error': reason or 'Указанный путь не является корректным репозиторием',
-            'repo_valid': False,
-            'repo_reason': reason,
-        }), 400
-
-    _apply_repo_path(repo_path, persist=True)
-    return jsonify({
-        'success': True,
-        'repo_path': repo_path,
-        'repo_valid': ok,
-        'repo_reason': reason,
-    })
-
-
-@app.route('/api/app-settings/repo/verify', methods=['POST'])
-def api_app_settings_repo_verify():
-    """Validate that a path points to a resource repository."""
-    data = request.get_json(silent=True) or {}
-    repo_path = str(data.get('repo_path') or '').strip()
-    ok, reason = _validate_resource_repo(repo_path)
-    return jsonify({'success': ok, 'valid': ok, 'reason': reason})
-
-
-@app.route('/api/app-settings/repo/search', methods=['POST'])
-def api_app_settings_repo_search():
-    """Try to find the resource repository automatically."""
-    found = _search_for_resource_any()
-    if not found:
-        return jsonify({'success': False, 'error': 'Репозиторий не найден'}), 404
-
-    ok, reason = _validate_resource_repo(found)
-    return jsonify({
-        'success': ok,
-        'repo_path': found,
-        'valid': ok,
-        'reason': reason,
-    })
-
-
-@app.route('/api/app-settings/repo/create', methods=['POST'])
-def api_app_settings_repo_create():
-    """Create a new resource repository at the given path."""
-    if APP_MODE != 'admin':
-        return jsonify({'success': False, 'error': 'Создание репозитория доступно только в admin режиме'}), 403
-
-    data = request.get_json(silent=True) or {}
-    repo_path = str(data.get('repo_path') or '').strip()
-    if not repo_path:
-        return jsonify({'success': False, 'error': 'Путь к репозиторию не указан'}), 400
-
-    if not _init_new_resource_catalog(repo_path):
-        return jsonify({'success': False, 'error': 'Не удалось создать репозиторий'}), 500
-
-    _apply_repo_path(repo_path, persist=True)
-    return jsonify({'success': True, 'repo_path': repo_path})
-
-
-@app.route('/api/app-settings/repo/refresh-cache', methods=['POST'])
-def api_app_settings_repo_refresh_cache():
-    """Force a refresh of the local cache from the resource repository."""
-    data = request.get_json(silent=True) or {}
-    repo_path = str(data.get('repo_path') or '').strip()
-    if not repo_path:
-        repo_path = _get_runtime_repo_path()
-
-    if not repo_path:
-        return jsonify({'success': False, 'error': 'Путь к репозиторию не указан'}), 400
-
-    ok, reason = _validate_resource_repo(repo_path)
-    if not ok:
-        return jsonify({
-            'success': False,
-            'error': reason or 'Указанный путь не является корректным репозиторием',
-            'repo_valid': False,
-            'repo_reason': reason,
-        }), 400
-
-    _apply_repo_path(repo_path, persist=True)
-
-    try:
-        result = initialize_cache()
-        if result:
-            return jsonify({
-                'success': True,
-                'repo_path': repo_path,
-                'version': get_cache_version(),
-            })
-        return jsonify({'success': False, 'error': 'Обновление кеша не удалось'}), 500
-    except Exception as exc:
-        app.logger.error("repo_refresh_cache error: %s", exc, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
-
-
 def _browse_folder_native(initial: str = '') -> Optional[str]:
     """Show a native OS folder-picker dialog without touching the Qt event loop.
 
@@ -4216,19 +3264,21 @@ def _browse_folder_native(initial: str = '') -> Optional[str]:
     """
     if sys.platform.startswith('win'):
         # PowerShell + WinForms FolderBrowserDialog — available on every Windows.
-        safe_initial = initial.replace("'", "''")
-        set_path = f"$d.SelectedPath = '{safe_initial}'; " if initial else ''
+        # The initial path is passed via an environment variable so it is never
+        # interpolated into the script string — prevents PowerShell injection.
         script = (
             'Add-Type -AssemblyName System.Windows.Forms; '
             '$d = New-Object System.Windows.Forms.FolderBrowserDialog; '
             '$d.Description = "Выбор папки репозитория"; '
-            + set_path +
+            'if ($env:_POCHTELYE_BROWSE_DIR) { $d.SelectedPath = $env:_POCHTELYE_BROWSE_DIR }; '
             'if ($d.ShowDialog() -eq "OK") { Write-Output $d.SelectedPath }'
         )
         try:
+            env = {**os.environ, '_POCHTELYE_BROWSE_DIR': initial}
             r = subprocess.run(
                 ['powershell', '-NoProfile', '-NonInteractive', '-Command', script],
                 capture_output=True, text=True, timeout=120,
+                env=env,
             )
             return r.stdout.strip() or None
         except Exception:
@@ -4271,55 +3321,33 @@ def _browse_folder_native(initial: str = '') -> Optional[str]:
         return None
 
 
-@app.route('/api/app-settings/repo/browse', methods=['POST'])
-def api_app_settings_repo_browse():
-    """Open a native folder-picker dialog and return the chosen path.
+# ============================================================================
+# BLUEPRINT REGISTRATION
+# Must be last — blueprints import this module, so all globals/helpers must
+# be defined before this block executes.
+#
+# Register this module under the name 'app' in sys.modules before importing
+# blueprints.  When the entry-point is run as ``py app.py``, Python loads it
+# as '__main__', leaving sys.modules['app'] empty.  Blueprint modules do
+# ``import app as _m`` at the top level; without this line Python would try
+# to load app.py a second time, hit the blueprint imports again, and raise a
+# circular-import error.
+# ============================================================================
+sys.modules.setdefault('app', sys.modules['__main__'])
 
-    Delegates to :func:`_browse_folder_native` which uses OS-level tools
-    (PowerShell on Windows, kdialog/zenity/yad on Linux) and falls back to
-    tkinter.  No Qt event-loop interaction required.
+from routes.utility import bp as utility_bp
+from routes.static_files import bp as static_files_bp
+from routes.resources import bp as resources_bp
+from routes.templates import bp as templates_bp
+from routes.exchange import bp as exchange_bp
+from routes.settings import bp as settings_bp
 
-    :returns: ``{'success': True, 'path': '...'}`` on selection or
-              ``{'success': False, 'path': null}`` when the user cancels.
-    """
-    initial = _get_runtime_repo_path() or ''
-    path = _browse_folder_native(initial)
-    if path:
-        return jsonify({'success': True, 'path': path})
-    return jsonify({'success': False, 'path': None})
-
-
-@app.route('/api/shutdown', methods=['POST'])
-def api_shutdown():
-    """Shut the application down cleanly.
-
-    When running inside a QApplication event loop, QApplication.quit() is
-    posted to the main thread via QMetaObject.invokeMethod so that Qt can
-    destroy its objects (including QWebEngineView timers) on the correct
-    thread.  This avoids the
-    "QObject::~QObject: Timers cannot be stopped from another thread" warning
-    that occurs when os._exit() is called from a background thread while Qt
-    objects are still alive.
-
-    If Qt is not available (browser-fallback mode) os._exit() is used as
-    before.
-    """
-    def _stop():
-        time.sleep(0.2)
-        try:
-            from PyQt5.QtWidgets import QApplication
-            from PyQt5.QtCore import QMetaObject, Qt
-            qt_app = QApplication.instance()
-            if qt_app is not None:
-                # Post quit() to the main (GUI) thread — safe from any thread.
-                QMetaObject.invokeMethod(qt_app, 'quit', Qt.QueuedConnection)
-                return
-        except Exception:
-            pass
-        os._exit(0)
-
-    threading.Thread(target=_stop, daemon=True).start()
-    return jsonify({'success': True})
+app.register_blueprint(utility_bp)
+app.register_blueprint(static_files_bp)
+app.register_blueprint(resources_bp)
+app.register_blueprint(templates_bp)
+app.register_blueprint(exchange_bp)
+app.register_blueprint(settings_bp)
 
 
 if __name__ == '__main__':

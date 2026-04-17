@@ -342,6 +342,7 @@ function deleteBlock(blockId) {
     if (idx !== -1) {
         pushUndoState();
         UserAppState.blocks.splice(idx, 1);
+        cancelBannerRender(blockId);
         UserAppState.isDirty = true;
         renderUserCanvas();
         return;
@@ -360,6 +361,7 @@ function deleteBlock(blockId) {
             // Удаляем дочерний блок
             pushUndoState();
             column.blocks.splice(childIdx, 1);
+            cancelBannerRender(blockId);
 
             // Если колонка опустела — удаляем её и пересчитываем ширины
             if (column.blocks.length === 0) {
@@ -982,8 +984,8 @@ function openImportantIconEditor(blockId) {
     const currentSrc = block.settings?.icon || '';
 
     grid.innerHTML = icons.map(icon => `
-    <div class="divider-item ${icon.src === currentSrc ? 'selected' : ''}" data-src="${icon.src}">
-      <img src="${icon.src}" alt="${icon.name || ''}">
+    <div class="divider-item ${icon.src === currentSrc ? 'selected' : ''}" data-src="${TextSanitizer.escapeHTML(icon.src)}">
+      <img src="${TextSanitizer.escapeHTML(icon.src)}" alt="${TextSanitizer.escapeHTML(icon.name || '')}">
     </div>
   `).join('');
 
@@ -1340,10 +1342,10 @@ function renderBulletIconsGrid(selectedId) {
     const bullets = window.BULLET_TYPES || [];
 
     grid.innerHTML = bullets.map(bullet => `
-        <div class="bullet-icon-item ${bullet.id === selectedId ? 'selected' : ''}" 
-             data-id="${bullet.id}" 
-             data-src="${bullet.src}">
-            <img src="${bullet.src}" alt="${bullet.name || ''}">
+        <div class="bullet-icon-item ${bullet.id === selectedId ? 'selected' : ''}"
+             data-id="${TextSanitizer.escapeHTML(bullet.id)}"
+             data-src="${TextSanitizer.escapeHTML(bullet.src)}">
+            <img src="${TextSanitizer.escapeHTML(bullet.src)}" alt="${TextSanitizer.escapeHTML(bullet.name || '')}">
         </div>
     `).join('');
 
@@ -1439,9 +1441,9 @@ function openDividerEditor(blockId) {
     const dividers = window.DIVIDER_IMAGES || [];
 
     grid.innerHTML = dividers.map(divider => `
-        <div class="divider-item ${divider.src === currentSrc ? 'selected' : ''}" 
-             data-src="${divider.src}">
-            <img src="${divider.src}" alt="${divider.name || 'Разделитель'}">
+        <div class="divider-item ${divider.src === currentSrc ? 'selected' : ''}"
+             data-src="${TextSanitizer.escapeHTML(divider.src)}">
+            <img src="${TextSanitizer.escapeHTML(divider.src)}" alt="${TextSanitizer.escapeHTML(divider.name || 'Разделитель')}">
         </div>
     `).join('');
 
@@ -1646,8 +1648,8 @@ function renderExpertBadges(selectedSrc) {
     `;
 
     html += badges.map(badge => `
-        <div class="badge-item ${badge.src === selectedSrc ? 'selected' : ''}" data-src="${badge.src}">
-            <img src="${badge.src}" alt="${badge.name || ''}">
+        <div class="badge-item ${badge.src === selectedSrc ? 'selected' : ''}" data-src="${TextSanitizer.escapeHTML(badge.src)}">
+            <img src="${TextSanitizer.escapeHTML(badge.src)}" alt="${TextSanitizer.escapeHTML(badge.name || '')}">
         </div>
     `).join('');
 

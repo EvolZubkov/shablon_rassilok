@@ -32,7 +32,7 @@ import re
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).parent
+ROOT = Path(__file__).resolve().parent.parent
 
 
 def _read_pyproject_version() -> str:
@@ -54,8 +54,8 @@ def _write_version_py(version: str) -> None:
         "\n"
         f'__version__ = "{version}"\n'
     )
-    (ROOT / "_version.py").write_text(content, encoding="utf-8")
-    print(f"  _version.py         -> {version}")
+    (ROOT / "src" / "_version.py").write_text(content, encoding="utf-8")
+    print(f"  src/_version.py     -> {version}")
 
 
 def _write_package_json(version: str) -> None:
