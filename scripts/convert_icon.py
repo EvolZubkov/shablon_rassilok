@@ -12,8 +12,8 @@ accepts a single source image and cannot combine frames from different
 source PNGs.
 
 Usage:
-    python convert_icon.py --ico icon.ico
-    python convert_icon.py --ico icon.ico --png dist/linux/icon.png
+    python scripts/convert_icon.py --ico assets/icon.ico
+    python scripts/convert_icon.py --ico assets/icon.ico --png dist/linux/icon.png
 
 @module convert_icon
 """
@@ -28,20 +28,21 @@ from pathlib import Path
 from PIL import Image, BmpImagePlugin  # noqa: F401 – BMP plugin must be registered
 
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
+ASSETS = ROOT / "assets"
 
 # Available artboard PNGs mapped to their native pixel dimensions (square).
 # Listed so selection logic can find the smallest >= target quickly.
 ARTBOARDS: list[tuple[int, Path]] = [
-    (16,  ROOT / "Монтажная область 116px.png"),
-    (24,  ROOT / "Монтажная область 124px.png"),
-    (32,  ROOT / "Монтажная область 132px.png"),
-    (48,  ROOT / "Монтажная область 148px.png"),
-    (64,  ROOT / "Монтажная область 164px.png"),
-    (128, ROOT / "Монтажная область 1128px.png"),
-    (256, ROOT / "Монтажная область 1256px.png"),
-    (512, ROOT / "Монтажная область 1512px.png"),
-    (500, ROOT / "Монтажная область 1.png"),
+    (16,  ASSETS / "Монтажная область 116px.png"),
+    (24,  ASSETS / "Монтажная область 124px.png"),
+    (32,  ASSETS / "Монтажная область 132px.png"),
+    (48,  ASSETS / "Монтажная область 148px.png"),
+    (64,  ASSETS / "Монтажная область 164px.png"),
+    (128, ASSETS / "Монтажная область 1128px.png"),
+    (256, ASSETS / "Монтажная область 1256px.png"),
+    (512, ASSETS / "Монтажная область 1512px.png"),
+    (500, ASSETS / "Монтажная область 1.png"),
 ]
 
 # Win32 ICO target frame sizes.

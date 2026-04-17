@@ -965,7 +965,7 @@ function ensureSharedEmailPreviewModal(options = {}) {
             <div class="modal-overlay"></div>
             <div class="modal-content modal-email-preview">
                 <div class="modal-header">
-                    <h2 id="email-preview-title">${title}</h2>
+                    <h2 id="email-preview-title">${escapeHtml(title)}</h2>
                     <div class="modal-header-actions">
                         <div id="email-preview-theme-slot"></div>
                         <button id="email-preview-close" type="button" class="modal-close" aria-label="Закрыть">&times;</button>

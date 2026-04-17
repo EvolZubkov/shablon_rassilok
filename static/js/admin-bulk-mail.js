@@ -572,14 +572,14 @@ const AdminBulkMail = (() => {
         [['abm-nav-email',r.email||'—'],['abm-preview-email',r.email||'—']].forEach(([id,v])=>{ const e=el(id); if(e) e.textContent=v; });
 
         const w = el('abm-preview-warns');
-        if (w) w.innerHTML = r.warn.map(w=>`<div class="abm-warn-item">⚠ ${w}</div>`).join('');
+        if (w) w.innerHTML = r.warn.map(w=>`<div class="abm-warn-item">⚠ ${TextSanitizer.escapeHTML(w)}</div>`).join('');
 
         const cityEmpty = r.warn.some(w=>w.includes('Город'));
         const c = el('abm-preview-content');
         if (c) c.innerHTML = `
-            <h3 style="color:#111;margin-bottom:12px;font-size:16px">Уважаемый(ая) <span class="abm-preview-ph">${r.fio}</span>!</h3>
-            <p style="margin-bottom:10px">Отдел: <span class="abm-preview-ph">${r.dept}</span> · Должность: <span class="abm-preview-ph">${r.pos}</span></p>
-            <p style="margin-bottom:10px">Дата: <span class="abm-preview-ph">${r.date}</span></p>
+            <h3 style="color:#111;margin-bottom:12px;font-size:16px">Уважаемый(ая) <span class="abm-preview-ph">${TextSanitizer.escapeHTML(r.fio)}</span>!</h3>
+            <p style="margin-bottom:10px">Отдел: <span class="abm-preview-ph">${TextSanitizer.escapeHTML(r.dept)}</span> · Должность: <span class="abm-preview-ph">${TextSanitizer.escapeHTML(r.pos)}</span></p>
+            <p style="margin-bottom:10px">Дата: <span class="abm-preview-ph">${TextSanitizer.escapeHTML(r.date)}</span></p>
             <p style="margin-bottom:10px">Место: ${cityEmpty ? '<span class="abm-preview-empty">[Город — не сопоставлено]</span>' : '<span class="abm-preview-ph">Москва</span>'}.</p>
             <hr style="border:none;border-top:1px solid #e5e7eb;margin:16px 0">
             <p style="color:#666;font-size:13px">С уважением,<br><strong>Департамент управления знаниями</strong></p>`;

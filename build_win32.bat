@@ -38,8 +38,8 @@ if not exist %SPEC_FILE% (
     pause
     exit /b 1
 )
-if not exist sync_version.py (
-    echo [ERROR] sync_version.py not found
+if not exist scripts\sync_version.py (
+    echo [ERROR] scripts\sync_version.py not found
     pause
     exit /b 1
 )
@@ -56,7 +56,7 @@ echo        OK
 
 echo.
 echo [2/4] Syncing version...
-python sync_version.py
+python scripts\sync_version.py
 if errorlevel 1 (
     echo [ERROR] Failed to sync version
     pause
@@ -72,7 +72,7 @@ if errorlevel 1 (
     pause
     exit /b 1
 )
-python convert_icon.py --ico icon.ico
+python scripts\convert_icon.py --ico assets\icon.ico
 if errorlevel 1 (
     echo [ERROR] Failed to regenerate icon.ico
     pause
@@ -108,7 +108,7 @@ if exist config.ini (
     )
 )
 
-for /f "tokens=*" %%v in ('python -c "from _version import __version__; print(__version__)"') do set "VERSION=%%v"
+for /f "tokens=*" %%v in ('python -c "import sys; sys.path.insert(0,\"src\"); from _version import __version__; print(__version__)"') do set "VERSION=%%v"
 if "%VERSION%"=="" set "VERSION=0.0.0"
 
 echo %VERSION%> "%DIST_DIR%\version.txt"

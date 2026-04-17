@@ -28,7 +28,7 @@ def maybe(src, dst):
 # The plaintext secret lives in .lic next to the .exe on admin machines only.
 raw_datas = [
     maybe('.admin_hash', '.'),
-    maybe('icon.ico', '.'),
+    maybe('assets/icon.ico', '.'),
 ]
 
 # ── Static assets ─────────────────────────────────────────────────────────────
@@ -111,7 +111,7 @@ hiddenimports = [
 
 a = Analysis(
     ['app.py'],
-    pathex=[ROOT],
+    pathex=[ROOT, os.path.join(ROOT, 'src')],
     binaries=extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,
@@ -148,6 +148,6 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    icon='icon.ico' if os.path.exists('icon.ico') else None,
+    icon=os.path.join(ROOT, 'assets', 'icon.ico') if os.path.exists(os.path.join(ROOT, 'assets', 'icon.ico')) else None,
     onefile=True,
 )

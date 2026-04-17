@@ -52,7 +52,7 @@ const ExchangeModals = (() => {
     }
 
     function _parseRecipients(raw) {
-        return raw.split(',').map(s => s.trim()).filter(Boolean);
+        return raw.split(/[,;\n]/).map(s => s.trim()).filter(Boolean);
     }
 
     function _validateEmail(s) {
@@ -228,6 +228,19 @@ const ExchangeModals = (() => {
                          style="display:none;"
                          onchange="ExchangeModals.onAttachmentsChange(this, 'email-attachments-list')">
                   <div id="email-attachments-list" class="exc-attachments-list"></div>
+                </div>
+              </div>
+
+              <div class="exc-field exc-field--comment">
+                <label class="exc-comment-toggle">
+                  <input type="checkbox" id="email-comment-toggle"
+                         onchange="ExchangeModals.toggleEmailComment(this.checked)">
+                  <span class="exc-comment-toggle__label">Добавить комментарий к письму</span>
+                </label>
+                <div id="email-comment-area" style="display:none; margin-top:8px;">
+                  <textarea id="email-comment-text" class="exc-input exc-input--textarea"
+                            rows="3"
+                            placeholder="Текст будет вставлен перед шаблоном письма…"></textarea>
                 </div>
               </div>
 
@@ -770,6 +783,10 @@ const ExchangeModals = (() => {
         _attachments.email = [];
         const list = _q('email-attachments-list');
         if (list) list.innerHTML = '';
+        // Reset comment toggle
+        const toggle = _q('email-comment-toggle');
+        if (toggle) toggle.checked = false;
+        toggleEmailComment(false);
     }
 
     // ─── Send Meeting: открыть ────────────────────────────────────────────────
@@ -864,9 +881,13 @@ const ExchangeModals = (() => {
         const badAddr = [...to, ...cc, ...bcc].find(e => !_validateEmail(e));
         if (badAddr) { Toast.warning(`Некорректный адрес: ${badAddr}`); return; }
 
+        const commentOn   = _q('email-comment-toggle')?.checked;
+        const commentText = commentOn ? (_q('email-comment-text')?.value || '') : '';
+
         _setLoading('email-send-btn', true, 'Отправить');
         try {
-            const html = await _generateHtml();
+            const rawHtml = await _generateHtml();
+            const html = _injectPreamble(rawHtml, commentText);
             const attachments = await _filesToBase64(_attachments.email);
             const r = await fetch('/api/send/email', {
                 method: 'POST',
@@ -878,6 +899,9 @@ const ExchangeModals = (() => {
             const data = await r.json();
             if (data.success) {
                 Toast.success('Письмо отправлено');
+                if (typeof EmailHistoryStore !== 'undefined') {
+                    EmailHistoryStore.addMany([...to, ...cc, ...bcc]);
+                }
                 closeEmail();
             } else if (r.status === 401) {
                 Toast.error('Ошибка авторизации. Проверьте настройки подключения.');
@@ -946,6 +970,9 @@ const ExchangeModals = (() => {
             const data = await r.json();
             if (data.success) {
                 Toast.success('Встреча создана и отправлена участникам');
+                if (typeof EmailHistoryStore !== 'undefined') {
+                    EmailHistoryStore.addMany([...to, ...bcc]);
+                }
                 closeMeeting();
             } else if (r.status === 401) {
                 Toast.error('Ошибка авторизации. Проверьте настройки подключения.');
@@ -959,6 +986,56 @@ const ExchangeModals = (() => {
         } finally {
             _setLoading('meeting-send-btn', false, 'Отправить встречу');
         }
+    }
+
+    // ─── Комментарий к письму ────────────────────────────────────────────────
+
+    function toggleEmailComment(checked) {
+        const area = _q('email-comment-area');
+        if (area) area.style.display = checked ? 'block' : 'none';
+        if (!checked) {
+            const ta = _q('email-comment-text');
+            if (ta) ta.value = '';
+        }
+    }
+
+    /**
+     * Inject a styled preamble block immediately after the {@code <body>} tag
+     * of a generated email HTML document.
+     *
+     * Uses a table-based layout so the block renders correctly in email clients.
+     * Text is HTML-escaped and newlines are converted to {@code <br>}.
+     *
+     * @param {string} html  Full email HTML string from {@link _generateHtml}.
+     * @param {string} text  Raw preamble text entered by the user.
+     * @returns {string}     Modified HTML with preamble prepended to body content.
+     */
+    function _injectPreamble(html, text) {
+        const trimmed = text.trim();
+        if (!trimmed) return html;
+
+        const escape = (typeof TextSanitizer !== 'undefined')
+            ? (s) => TextSanitizer.escapeHTML(s)
+            : (s) => s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+        const safeText = escape(trimmed).replace(/\n/g, '<br>');
+
+        const block =
+            '<table role="presentation" cellpadding="0" cellspacing="0" border="0"' +
+            ' width="100%" style="background-color:#fffbeb;border-left:4px solid #f59e0b;">' +
+            '<tr><td style="padding:14px 20px;font-family:Arial,sans-serif;font-size:14px;' +
+            'color:#78350f;line-height:1.6;">' +
+            '<strong style="display:block;margin-bottom:5px;font-size:11px;font-weight:700;' +
+            'text-transform:uppercase;letter-spacing:0.06em;color:#b45309;">' +
+            'Комментарий</strong>' +
+            safeText +
+            '</td></tr></table>';
+
+        // Find the end of the <body …> opening tag and insert the block right after it.
+        const bodyMatch = html.match(/<body[^>]*>/);
+        if (!bodyMatch) return block + html;
+        const insertAt = html.indexOf(bodyMatch[0]) + bodyMatch[0].length;
+        return html.slice(0, insertAt) + block + html.slice(insertAt);
     }
 
     // ─── Генерация HTML письма ───────────────────────────────────────────────
@@ -1002,12 +1079,19 @@ const ExchangeModals = (() => {
         if (!list) return;
         list.innerHTML = _attachments[key].map((file, i) => `
             <div class="exc-attachment-item">
-                <span class="exc-attachment-name">📄 ${file.name}</span>
+                <span class="exc-attachment-name">📄 ${TextSanitizer.escapeHTML(file.name)}</span>
                 <span class="exc-attachment-size">${_formatSize(file.size)}</span>
                 <button type="button" class="exc-attachment-remove"
-                        onclick="ExchangeModals.removeAttachment('${key}', ${i}, '${listId}')">✕</button>
+                        data-key="${TextSanitizer.escapeHTML(key)}"
+                        data-index="${i}"
+                        data-list="${TextSanitizer.escapeHTML(listId)}">✕</button>
             </div>
         `).join('');
+        list.querySelectorAll('.exc-attachment-remove').forEach(btn => {
+            btn.addEventListener('click', () => {
+                removeAttachment(btn.dataset.key, Number(btn.dataset.index), btn.dataset.list);
+            });
+        });
     }
 
     function removeAttachment(key, index, listId) {
@@ -1040,6 +1124,11 @@ const ExchangeModals = (() => {
         _renderCredentialsModal();
         _renderEmailModal();
         _renderMeetingModal();
+
+        // Attach autocomplete to all recipient fields once the modals are in the DOM.
+        if (typeof EmailAutocomplete !== 'undefined') {
+            EmailAutocomplete.attachAll();
+        }
 
         // Перехватываем кнопки — поддержка обоих вариантов ID:
         // user-версия: btn-send-outlook / btn-send-meeting
@@ -1099,6 +1188,7 @@ const ExchangeModals = (() => {
         refreshRepoCache,
         sendEmail,
         sendMeeting,
+        toggleEmailComment,
         pickAttachments,        
         onAttachmentsChange,    
         removeAttachment,

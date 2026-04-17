@@ -412,6 +412,16 @@ const TemplatesUI = {
 
         this.list.innerHTML = '';
 
+        // Favorites group — pinned at top, spans shared + personal.
+        const favorites = [
+            ...templatesToRender.shared,
+            ...templatesToRender.personal,
+        ].filter(t => FavoritesStore.isFavorite(t.id));
+        if (favorites.length > 0) {
+            const favItems = favorites.map(t => this.createTemplateItem(t));
+            this._appendFoldableCategory('Избранные', favItems);
+        }
+
         if (templatesToRender.shared.length > 0) {
             // Group by category
             const byCategory = new Map();
@@ -458,7 +468,7 @@ const TemplatesUI = {
         header.type = 'button';
         header.className = 'templates-category-header';
         header.setAttribute('aria-expanded', 'true');
-        header.innerHTML = `<span class="tcg-title">${title}</span>` +
+        header.innerHTML = `<span class="tcg-title">${TextSanitizer.escapeHTML(title)}</span>` +
             `<svg class="tcg-chevron" width="14" height="14" viewBox="0 0 24 24" ` +
             `fill="none" stroke="currentColor" stroke-width="2">` +
             `<polyline points="6 9 12 15 18 9"></polyline></svg>`;
@@ -516,6 +526,25 @@ const TemplatesUI = {
         nameSpan.textContent = template.name;
         div.appendChild(nameSpan);
 
+        // Star button — favorite toggle (non-preset templates only)
+        if (!isPresetTemplate(template)) {
+            const isFav = FavoritesStore.isFavorite(template.id);
+            const starBtn = document.createElement('button');
+            starBtn.type = 'button';
+            starBtn.className = 'template-item-star' + (isFav ? ' template-item-star--active' : '');
+            starBtn.title = isFav ? 'Убрать из избранного' : 'Добавить в избранное';
+            starBtn.innerHTML =
+                `<svg width="14" height="14" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round">` +
+                `<polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"` +
+                ` fill="${isFav ? 'currentColor' : 'none'}"/>` +
+                `</svg>`;
+            starBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this._toggleFavorite(template, starBtn);
+            });
+            div.appendChild(starBtn);
+        }
+
         // Кнопка меню ⋮
         const menuBtn = document.createElement('button');
         menuBtn.type = 'button';
@@ -561,6 +590,8 @@ const TemplatesUI = {
             addItem('Применить', false, () => this.selectTemplate(template));
             addItem('Переименовать', false, () => this.startRenaming(nameSpan, template));
             addItem('Обновить из холста', false, () => this.updateTemplateFromCanvas(template));
+            const favLabel = FavoritesStore.isFavorite(template.id) ? 'Убрать из избранного' : 'Добавить в избранное';
+            addItem(favLabel, false, () => this._toggleFavorite(template));
             if (template.type === 'personal' || (this._isAdmin && template.type === 'shared')) {
                 addItem('Удалить', true, () => this.deleteTemplate(template));
             }
@@ -584,6 +615,27 @@ const TemplatesUI = {
             }
         };
         setTimeout(() => document.addEventListener('click', closeHandler, true), 0);
+    },
+
+    /**
+     * Toggle the favorite state of a template in localStorage and refresh the
+     * template list so the Favorites group updates immediately.
+     *
+     * Favorites are stored locally via {@link FavoritesStore} — no server
+     * round-trip is needed.
+     *
+     * @param {object}          template - Template metadata object.
+     * @param {HTMLElement|null} [starBtn=null] - Star button to update in-place (optional).
+     */
+    _toggleFavorite(template, starBtn = null) {
+        const next = FavoritesStore.toggle(template.id);
+        if (starBtn) {
+            starBtn.classList.toggle('template-item-star--active', next);
+            starBtn.title = next ? 'Убрать из избранного' : 'Добавить в избранное';
+            const poly = starBtn.querySelector('polygon');
+            if (poly) poly.setAttribute('fill', next ? 'currentColor' : 'none');
+        }
+        this.renderTemplates();
     },
 
     _ensureRowPreviewPopup() {
@@ -1398,15 +1450,11 @@ function showSaveTemplateDialog() {
 
     const _updateOptionsUI = () => {
         const isPreset = saveTypeSelect.value === 'preset';
-        // When switching to preset mode, reset the toggle to OFF (personal)
-        if (isPreset && switchInput.checked) {
-            switchInput.checked = false;
-        }
         const on = switchInput.checked;
         switchRow.style.opacity = '1';
         switchRow.style.pointerEvents = '';
         currentType = on ? 'shared' : 'personal';
-        // Category only for shared non-preset items
+        // Category only for shared templates (presets have no category)
         categorySection.style.display = (!isPreset && on) ? 'block' : 'none';
         nameInput.placeholder = isPreset ? 'Название пресета' : 'Название шаблона';
         // Toggle visuals
@@ -1536,6 +1584,7 @@ function showSaveTemplateDialog() {
             nameInput.focus();
             return;
         }
+        const isPreset = saveTypeSelect.value === 'preset';
         const category = currentType === 'shared' ? categorySelect.value : '';
 
         // Snapshot blocks NOW — canvas state may change if user navigates while saving
@@ -1545,10 +1594,10 @@ function showSaveTemplateDialog() {
         closeDialog();
         const progress = Toast.loading(`Сохранение «${templateName}»\u2026`);
 
-        const savedId = await TemplatesAPI.save(templateName, blocksSnapshot, currentType, category, null);
+        const savedId = await TemplatesAPI.save(templateName, blocksSnapshot, currentType, category, null, isPreset);
         if (savedId) {
-            progress.resolve('success', `Шаблон «${templateName}» сохранён`);
-            const newItem = { id: savedId, name: templateName, type: currentType, category, isPreset: false };
+            progress.resolve('success', `${isPreset ? 'Пресет' : 'Шаблон'} «${templateName}» сохранён`);
+            const newItem = { id: savedId, name: templateName, type: currentType, category, isPreset };
             TemplatesUI.currentTemplate = newItem;
             TemplatesUI.syncSavedSnapshot(blocksSnapshot);
             window.updateCanvasContext?.();
@@ -1624,65 +1673,100 @@ async function loadCategories(selectElement) {
 }
 
 /**
- * Генерация превью шаблона (скриншот canvas)
+ * Generates a template thumbnail by rendering clean email HTML in a hidden
+ * same-origin iframe and capturing it with html2canvas.
+ *
+ * Replaces the previous implementation that ran html2canvas directly on the
+ * admin editor's #canvas element, which captured UI chrome (labels, panels,
+ * selection handles) instead of the actual email content.
+ *
+ * @returns {Promise<string|null>} Data-URL PNG (300×400) or null on failure.
  */
 async function generateTemplatePreview() {
-    try {
-        const canvas = document.getElementById('canvas');
-        if (!canvas) return null;
-        
-        // Используем html2canvas для создания скриншота
-        if (typeof html2canvas === 'undefined') {
-            console.warn('html2canvas не загружен, превью не создано');
-            return null;
-        }
-        
-        const screenshotCanvas = await html2canvas(canvas, {
-            backgroundColor: '#1e293b',
-            scale: 0.5, // Уменьшаем для экономии места
-            width: 600,
-            height: 800,
-            windowWidth: 600,
-            windowHeight: 800
-        });
-        
-        // Масштабируем до 300x400
-        const finalCanvas = document.createElement('canvas');
-        finalCanvas.width = 300;
-        finalCanvas.height = 400;
-        const ctx = finalCanvas.getContext('2d');
-        
-        // Заливаем фон
-        ctx.fillStyle = '#1e293b';
-        ctx.fillRect(0, 0, 300, 400);
-        
-        // Рисуем скриншот с сохранением пропорций
-        const srcAspect = screenshotCanvas.width / screenshotCanvas.height;
-        const dstAspect = 300 / 400;
-        
-        let drawWidth, drawHeight, drawX, drawY;
-        
-        if (srcAspect > dstAspect) {
-            // Исходник шире — обрезаем по бокам
-            drawWidth = 300;
-            drawHeight = 300 / srcAspect;
-            drawX = 0;
-            drawY = 0; // Прижимаем к верху
-        } else {
-            // Исходник выше — обрезаем снизу
-            drawHeight = 400;
-            drawWidth = 400 * srcAspect;
-            drawX = (300 - drawWidth) / 2;
-            drawY = 0;
-        }
-        
-        ctx.drawImage(screenshotCanvas, drawX, drawY, drawWidth, drawHeight);
-        
-        return finalCanvas.toDataURL('image/png', 0.8);
-        
-    } catch (e) {
-        console.error('Ошибка генерации превью:', e);
+    if (typeof html2canvas === 'undefined') {
+        console.warn('[PREVIEW] html2canvas not loaded, preview skipped');
         return null;
+    }
+
+    // Thumbnail dimensions — card is 200px tall, 300px wide.
+    const THUMB_W = 300;
+    const THUMB_H = 400;
+    // Render email at its natural width; capture the top EMAIL_RENDER_H pixels.
+    const EMAIL_W = 600;
+    const EMAIL_RENDER_H = 800;
+
+    let emailHtml;
+    try {
+        // Render with light theme so thumbnails look consistent regardless of
+        // the editor's current theme setting.
+        emailHtml = await generateEmailHTML({ previewTheme: 'light' });
+    } catch (e) {
+        console.error('[PREVIEW] generateEmailHTML failed:', e);
+        return null;
+    }
+
+    const iframe = document.createElement('iframe');
+    iframe.style.cssText = [
+        'position:fixed',
+        'top:-9999px',
+        'left:-9999px',
+        `width:${EMAIL_W}px`,
+        `height:${EMAIL_RENDER_H}px`,
+        'border:none',
+        'visibility:hidden',
+        'pointer-events:none',
+    ].join(';');
+    document.body.appendChild(iframe);
+
+    try {
+        await new Promise((resolve) => {
+            iframe.onload = resolve;
+            const doc = iframe.contentDocument || iframe.contentWindow.document;
+            doc.open();
+            doc.write(emailHtml);
+            doc.close();
+            // Fallback: resolve after 2 s if onload never fires.
+            setTimeout(resolve, 2000);
+        });
+
+        // Give images a chance to paint.
+        await new Promise((r) => setTimeout(r, 150));
+
+        const captureTarget = iframe.contentDocument.body;
+        const screenshotCanvas = await html2canvas(captureTarget, {
+            backgroundColor: '#ffffff',
+            scale: 0.5,
+            width: EMAIL_W,
+            height: EMAIL_RENDER_H,
+            windowWidth: EMAIL_W,
+            windowHeight: EMAIL_RENDER_H,
+            useCORS: true,
+            allowTaint: false,
+        });
+
+        // Scale captured canvas down to THUMB_W × THUMB_H (top-aligned crop).
+        const finalCanvas = document.createElement('canvas');
+        finalCanvas.width = THUMB_W;
+        finalCanvas.height = THUMB_H;
+        const ctx = finalCanvas.getContext('2d');
+
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, THUMB_W, THUMB_H);
+
+        const srcW = screenshotCanvas.width;
+        const srcH = screenshotCanvas.height;
+        const scale = THUMB_W / srcW;
+        const scaledH = Math.round(srcH * scale);
+
+        ctx.drawImage(screenshotCanvas, 0, 0, srcW, srcH, 0, 0, THUMB_W, scaledH);
+
+        return finalCanvas.toDataURL('image/png', 0.8);
+
+    } catch (e) {
+        console.error('[PREVIEW] Capture failed:', e);
+        return null;
+    } finally {
+        document.body.removeChild(iframe);
     }
 }
 

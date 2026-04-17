@@ -530,14 +530,14 @@ const BulkMail = (() => {
         });
 
         const warnsEl = document.getElementById('bm-preview-warns');
-        if (warnsEl) warnsEl.innerHTML = r.warn.map(w => `<div class="bm-warn-item">⚠ ${w}</div>`).join('');
+        if (warnsEl) warnsEl.innerHTML = r.warn.map(w => `<div class="bm-warn-item">⚠ ${TextSanitizer.escapeHTML(w)}</div>`).join('');
 
         const cityEmpty = r.warn.some(w => w.includes('Город'));
         const contentEl = document.getElementById('bm-preview-content');
         if (contentEl) contentEl.innerHTML = `
-            <h3 style="color:var(--text-primary);margin-bottom:12px;font-size:16px">Уважаемый(ая) <span class="bm-preview-ph">${r.fio}</span>!</h3>
-            <p style="margin-bottom:10px">Информируем вас о плановом обучении для сотрудников отдела <span class="bm-preview-ph">${r.dept}</span>.</p>
-            <p style="margin-bottom:10px">Ваша должность: <span class="bm-preview-ph">${r.pos}</span>.<br>Дата мероприятия: <span class="bm-preview-ph">${r.date}</span>.</p>
+            <h3 style="color:var(--text-primary);margin-bottom:12px;font-size:16px">Уважаемый(ая) <span class="bm-preview-ph">${TextSanitizer.escapeHTML(r.fio)}</span>!</h3>
+            <p style="margin-bottom:10px">Информируем вас о плановом обучении для сотрудников отдела <span class="bm-preview-ph">${TextSanitizer.escapeHTML(r.dept)}</span>.</p>
+            <p style="margin-bottom:10px">Ваша должность: <span class="bm-preview-ph">${TextSanitizer.escapeHTML(r.pos)}</span>.<br>Дата мероприятия: <span class="bm-preview-ph">${TextSanitizer.escapeHTML(r.date)}</span>.</p>
             <p style="margin-bottom:10px">Место проведения: ${cityEmpty ? '<span class="bm-preview-empty">[Город — не сопоставлено]</span>' : '<span class="bm-preview-ph">Москва</span>'}.</p>
             <p style="margin-bottom:10px">Просьба подтвердить участие до 20.03.2026.</p>
             <hr style="border:none;border-top:1px solid var(--border-primary);margin:16px 0">
