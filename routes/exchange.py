@@ -101,6 +101,10 @@ def api_send_email():
             return jsonify({'success': False, 'error': 'Укажите хотя бы одного получателя'}), 400
 
         creds = _m.load_credentials(path)
+        if not creds:
+            current_app.logger.error('send_email: load_credentials returned None for %s', path)
+            return jsonify({'success': False,
+                            'error': 'Не удалось загрузить учётные данные'}), 401
         account = _m.connect_exchange(
             creds['server'], creds['username'], creds['password'],
             from_email or creds['from_email']
@@ -114,12 +118,17 @@ def api_send_email():
         return jsonify({'success': True})
 
     except ValueError as e:
+        current_app.logger.warning('send_email auth/validation error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 401
     except ConnectionError as e:
+        current_app.logger.warning('send_email connection error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 503
+    except RuntimeError as e:
+        current_app.logger.error('send_email exchange error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
     except Exception as e:
-        current_app.logger.error('send_email error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+        current_app.logger.error('send_email unexpected error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': f'Внутренняя ошибка: {type(e).__name__}'}), 500
 
 
 @bp.route('/api/send/meeting', methods=['POST'])
@@ -160,6 +169,10 @@ def api_send_meeting():
             }), 400
 
         creds = _m.load_credentials(path)
+        if not creds:
+            current_app.logger.error('send_meeting: load_credentials returned None for %s', path)
+            return jsonify({'success': False,
+                            'error': 'Не удалось загрузить учётные данные'}), 401
         account = _m.connect_exchange(
             creds['server'], creds['username'], creds['password'],
             from_email or creds['from_email']
@@ -174,10 +187,14 @@ def api_send_meeting():
         return jsonify({'success': True})
 
     except ValueError as e:
+        current_app.logger.warning('send_meeting auth/validation error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 401
     except ConnectionError as e:
+        current_app.logger.warning('send_meeting connection error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 503
+    except RuntimeError as e:
+        current_app.logger.error('send_meeting exchange error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
     except Exception as e:
-        import traceback
-        current_app.logger.error('send_meeting error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': f'{type(e).__name__}: {e}'}), 500
+        current_app.logger.error('send_meeting unexpected error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': f'Внутренняя ошибка: {type(e).__name__}'}), 500
