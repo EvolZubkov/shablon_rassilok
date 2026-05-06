@@ -129,6 +129,9 @@ async function initUserApp() {
         saveBtn.style.display = UserAppState.allowSavePersonal ? 'flex' : 'none';
     }
 
+    // Предлагаем восстановить черновик, если он есть
+    await checkAndRestoreDraft();
+
     console.log('[USER APP] Ready!');
 }
 
@@ -582,6 +585,75 @@ function goBack() {
     switchScreen('start');
     updateUserEditorMeta();
 }
+
+// ─── Canvas draft (localStorage) ─────────────────────────────────────────────
+
+const _DRAFT_KEY = 'pochtelye_canvas_draft';
+
+/**
+ * Save current canvas blocks to localStorage.
+ * Called before shutdown when the user agrees to preserve state.
+ */
+function saveDraft() {
+    if (!UserAppState.blocks || UserAppState.blocks.length === 0) return;
+    try {
+        localStorage.setItem(_DRAFT_KEY, JSON.stringify(UserAppState.blocks));
+    } catch (e) {
+        console.warn('[draft] save failed:', e);
+    }
+}
+
+/** Remove the stored draft. */
+function clearDraft() {
+    localStorage.removeItem(_DRAFT_KEY);
+}
+
+/**
+ * Check for a saved draft on startup and offer to restore it.
+ * Must be called after the start screen is ready (DOM exists).
+ * Resolves when the user has made a choice and the UI is settled.
+ */
+async function checkAndRestoreDraft() {
+    let raw;
+    try {
+        raw = localStorage.getItem(_DRAFT_KEY);
+    } catch (e) {
+        return;
+    }
+    if (!raw) return;
+
+    const confirmed = confirm(
+        'Найдено сохранённое состояние холста.\nВосстановить его?'
+    );
+    if (!confirmed) {
+        clearDraft();
+        return;
+    }
+
+    let blocks;
+    try {
+        blocks = JSON.parse(raw);
+    } catch (e) {
+        console.warn('[draft] corrupted, ignoring:', e);
+        clearDraft();
+        return;
+    }
+
+    clearDraft();
+
+    UserAppState.blocks = blocks;
+    UserAppState.currentTemplate = null;
+    UserAppState.isDirty = true;
+
+    const titleEl = document.getElementById('current-template-name');
+    if (titleEl) titleEl.textContent = 'Восстановленный черновик';
+
+    updateUserEditorMeta();
+    switchScreen('editor');
+    renderUserCanvas();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 
 /**
  * Показать/скрыть загрузку

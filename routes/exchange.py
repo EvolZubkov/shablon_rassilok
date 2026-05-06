@@ -8,6 +8,7 @@ Flask blueprint: Exchange / EWS credentials and mail/meeting sending.
 Routes:
     - GET  /api/credentials/status  — check saved Exchange credentials
     - POST /api/credentials/save    — save (encrypted) Exchange credentials
+    - POST /api/credentials/test    — test Exchange connection (real EWS call)
     - POST /api/send/email          — send an HTML email via Exchange
     - POST /api/send/meeting        — create a calendar meeting via Exchange
 """
@@ -60,10 +61,13 @@ def api_credentials_save():
         # Reuse the existing secret when the username stays unchanged and the
         # user saved other settings without entering a new password.
         if not password and _m.credentials_exist(path):
-            existing_creds = _m.load_credentials(path)
-            if (existing_creds and existing_creds.get('password')
-                    and existing_creds.get('username') == username):
-                password = existing_creds['password']
+            try:
+                existing_creds = _m.load_credentials(path)
+                if (existing_creds and existing_creds.get('password')
+                        and existing_creds.get('username') == username):
+                    password = existing_creds['password']
+            except RuntimeError:
+                pass  # corrupted / foreign-machine credentials — user must re-enter password
 
         ok, err = _m.validate_credentials_data({
             'server': server, 'username': username,
@@ -78,6 +82,48 @@ def api_credentials_save():
     except Exception as e:
         current_app.logger.error('credentials_save error: %s', e, exc_info=True)
         return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
+@bp.route('/api/credentials/test', methods=['POST'])
+def api_credentials_test():
+    """Проверяет подключение к Exchange, выполняя реальный EWS-запрос."""
+    try:
+        path = _m.get_credentials_path()
+        data = request.json or {}
+        server     = str(data.get('server')     or '').strip()
+        username   = str(data.get('username')   or '').strip()
+        password   = str(data.get('password')   or '').strip()
+        from_email = str(data.get('from_email') or '').strip()
+
+        if not password and _m.credentials_exist(path):
+            try:
+                existing = _m.load_credentials(path)
+                if existing and existing.get('username') == username:
+                    password = existing['password']
+            except RuntimeError:
+                pass
+
+        if not server or not username or not password or not from_email:
+            return jsonify({'success': False, 'error': 'Заполните все поля'}), 400
+
+        account = _m.connect_exchange(server, username, password, from_email)
+        account.inbox.refresh()  # первый реальный EWS-запрос — проверяет аутентификацию
+        current_app.logger.info('credentials_test: OK server=%s username=%s', server, username)
+        return jsonify({'success': True})
+
+    except ValueError as e:
+        current_app.logger.warning('credentials_test auth error: %s', e)
+        return jsonify({'success': False, 'error': str(e)}), 401
+    except ConnectionError as e:
+        current_app.logger.warning('credentials_test connection error: %s', e)
+        return jsonify({'success': False, 'error': str(e)}), 503
+    except RuntimeError as e:
+        current_app.logger.error('credentials_test exchange error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
+    except Exception as e:
+        current_app.logger.error('credentials_test unexpected error: %s', e, exc_info=True)
+        return jsonify({'success': False,
+                        'error': f'Внутренняя ошибка: {type(e).__name__}'}), 500
 
 
 @bp.route('/api/send/email', methods=['POST'])
@@ -101,6 +147,10 @@ def api_send_email():
             return jsonify({'success': False, 'error': 'Укажите хотя бы одного получателя'}), 400
 
         creds = _m.load_credentials(path)
+        if not creds:
+            current_app.logger.error('send_email: load_credentials returned None for %s', path)
+            return jsonify({'success': False,
+                            'error': 'Не удалось загрузить учётные данные'}), 401
         account = _m.connect_exchange(
             creds['server'], creds['username'], creds['password'],
             from_email or creds['from_email']
@@ -114,12 +164,17 @@ def api_send_email():
         return jsonify({'success': True})
 
     except ValueError as e:
+        current_app.logger.warning('send_email auth/validation error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 401
     except ConnectionError as e:
+        current_app.logger.warning('send_email connection error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 503
+    except RuntimeError as e:
+        current_app.logger.error('send_email exchange error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
     except Exception as e:
-        current_app.logger.error('send_email error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+        current_app.logger.error('send_email unexpected error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': f'Внутренняя ошибка: {type(e).__name__}'}), 500
 
 
 @bp.route('/api/send/meeting', methods=['POST'])
@@ -160,6 +215,10 @@ def api_send_meeting():
             }), 400
 
         creds = _m.load_credentials(path)
+        if not creds:
+            current_app.logger.error('send_meeting: load_credentials returned None for %s', path)
+            return jsonify({'success': False,
+                            'error': 'Не удалось загрузить учётные данные'}), 401
         account = _m.connect_exchange(
             creds['server'], creds['username'], creds['password'],
             from_email or creds['from_email']
@@ -174,10 +233,14 @@ def api_send_meeting():
         return jsonify({'success': True})
 
     except ValueError as e:
+        current_app.logger.warning('send_meeting auth/validation error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 401
     except ConnectionError as e:
+        current_app.logger.warning('send_meeting connection error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 503
+    except RuntimeError as e:
+        current_app.logger.error('send_meeting exchange error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': str(e)}), 500
     except Exception as e:
-        import traceback
-        current_app.logger.error('send_meeting error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': f'{type(e).__name__}: {e}'}), 500
+        current_app.logger.error('send_meeting unexpected error: %s', e, exc_info=True)
+        return jsonify({'success': False, 'error': f'Внутренняя ошибка: {type(e).__name__}'}), 500

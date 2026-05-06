@@ -5,6 +5,7 @@ exchange_sender.py — отправка писем и встреч через MS
 """
 
 import datetime
+import logging
 import re
 import uuid
 import base64
@@ -20,6 +21,8 @@ try:
     EXCHANGELIB_AVAILABLE = True
 except ImportError:
     EXCHANGELIB_AVAILABLE = False
+
+_logger = logging.getLogger(__name__)
 
 
 # ─── Утилиты ─────────────────────────────────────────────────────────────────
@@ -74,59 +77,95 @@ def _to_attendees(emails: list) -> list:
 
 def connect_exchange(server: str, username: str, password: str,
                      from_email: str) -> 'Account':
-    """
-    Создаёт подключение к Exchange.
+    """Build an Exchange ``Account`` object (no network I/O at this stage).
 
-    Access type selection:
-    * Own mailbox (from_email matches username, with or without domain) →
-      ``DELEGATE`` against the user's own primary address.  Exchange accepts
-      DELEGATE for the mailbox owner; this is the standard mode for sending
-      from your own account.
-    * Another mailbox (shared / delegated) → ``DELEGATE`` as well, but
-      ``primary_smtp_address`` points to the target mailbox so Exchange
-      knows which folder tree to open.
-
-    The distinction that matters here is the ``primary_smtp_address`` value:
-    when it equals the authenticating user's own address everything works
-    with DELEGATE.  The previous bug was that ``from_email`` could be an
-    empty string (when the UI sent the "default" option), which caused
-    Exchange to receive an empty primary_smtp_address and reject the request.
+    ``Account(autodiscover=False)`` does **not** open a connection — the real
+    network handshake happens on the first EWS call (``msg.send()``, etc.).
+    Errors raised here are limited to bad argument types; actual auth/network
+    failures surface later and are caught in the send helpers.
 
     Raises:
-        ValueError  — неверный логин/пароль
-        ConnectionError — сервер недоступен
-        RuntimeError — любая другая ошибка Exchange
+        ValueError       — неверный логин/пароль (при первом сетевом вызове)
+        ConnectionError  — сервер недоступен
+        RuntimeError     — любая другая ошибка Exchange
     """
     if not EXCHANGELIB_AVAILABLE:
         raise RuntimeError(
             'exchangelib не установлен: pip install exchangelib')
 
     # Guard against empty from_email coming from the frontend "default" option.
-    # Fall back to the username so Exchange always gets a valid address.
     effective_from = (from_email or '').strip() or username.strip()
 
+    _logger.info('exchange connect: server=%s username=%s from=%s',
+                 server, username, effective_from)
     try:
         credentials = Credentials(username=username, password=password)
-        config = Configuration(server=server, credentials=credentials)
+
+        # Specify NTLM explicitly to bypass exchangelib's auth-type
+        # auto-detection, which fails on some corporate Exchange setups
+        # ("Failed to get auth type from service").  NTLM is the de-facto
+        # standard for on-premises Exchange; if the server rejects it the
+        # error will be a clear "Unauthorized" rather than a silent detection
+        # failure.
+        from exchangelib import NTLM
+        config = Configuration(
+            server=server,
+            credentials=credentials,
+            auth_type=NTLM,
+        )
+
         account = Account(
             primary_smtp_address=effective_from,
             config=config,
             autodiscover=False,
             access_type=DELEGATE,
         )
+        _logger.debug('Account object created (no network call yet)')
         return account
     except Exception as e:
+        _logger.error('connect_exchange failed: %s: %s', type(e).__name__, e,
+                      exc_info=True)
         _wrap_exchange_error(e)
 
 
 def _wrap_exchange_error(exc: Exception) -> None:
-    """Преобразует ошибки exchangelib в стандартные Python исключения."""
+    """Translate exchangelib / network exceptions into standard Python types.
+
+    Logs the original exception class and message so the protocol.log always
+    contains the raw error regardless of how the caller surfaces it to the UI.
+    """
     name = type(exc).__name__
-    if 'Unauthorized' in name or 'AuthenticationFailed' in name:
-        raise ValueError('Неверный логин или пароль')
-    if 'Transport' in name or 'Connection' in name:
-        raise ConnectionError('Сервер Exchange недоступен')
-    raise RuntimeError(f'Ошибка Exchange: {exc}')
+    msg  = str(exc)
+    _logger.error('Exchange error [%s]: %s', name, msg)
+
+    # Authentication / authorisation
+    if any(k in name for k in ('Unauthorized', 'AuthenticationFailed',
+                                'ErrorAccessDenied')):
+        raise ValueError('Неверный логин или пароль / нет доступа к ящику')
+
+    # Non-existent mailbox
+    if 'NonExistentMailbox' in name or 'ErrorNonExistentMailbox' in name:
+        raise ValueError('Почтовый ящик не найден на сервере Exchange')
+
+    # Network / transport
+    if any(k in name for k in ('Transport', 'Connection', 'Connect')):
+        raise ConnectionError(f'Сервер Exchange недоступен: {msg}')
+
+    # Timeout (requests.exceptions.Timeout, socket.timeout, etc.)
+    if 'Timeout' in name or 'timeout' in msg.lower():
+        raise ConnectionError(f'Превышено время ожидания ответа от Exchange: {msg}')
+
+    # SSL / TLS
+    if 'SSL' in name or 'ssl' in msg.lower() or 'certificate' in msg.lower():
+        raise ConnectionError(
+            f'Ошибка SSL/TLS при подключении к Exchange — возможно, '
+            f'сервер использует самоподписанный сертификат: {msg}')
+
+    # DNS resolution failure
+    if 'gaierror' in name or 'Name or service not known' in msg:
+        raise ConnectionError(f'Не удалось разрешить имя сервера Exchange: {msg}')
+
+    raise RuntimeError(f'Ошибка Exchange [{name}]: {msg}')
 
 
 # ─── Отправка письма ─────────────────────────────────────────────────────────
@@ -190,8 +229,11 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
     if cc:  validate_recipients(cc)
     if bcc: validate_recipients(bcc)
     attachments_raw = attachments or []
+    _logger.info('send_email: subject=%r to=%s cc=%s bcc=%s attachments=%d',
+                 subject, to, cc, bcc, len(attachments_raw))
     try:
         html_with_cid, attachments = _convert_data_images_to_cid(html_body)
+        _logger.debug('send_email: %d inline CID images converted', len(attachments))
         msg = Message(
             account=account,
             subject=subject,
@@ -213,9 +255,15 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                 )
                 msg.attach(file_att)
             except Exception as e:
-                print(f'⚠️  Вложение {file_data.get("name")}: {e}')
+                _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
+        _logger.debug('send_email: calling msg.send()')
         msg.send()
+        _logger.info('send_email: success subject=%r', subject)
+    except (ValueError, ConnectionError):
+        raise
     except Exception as e:
+        _logger.error('send_email failed at msg.send(): %s: %s',
+                      type(e).__name__, e, exc_info=True)
         _wrap_exchange_error(e)
 
 
@@ -239,9 +287,12 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
     validate_recipients(to)
     if cc:
         validate_recipients(cc)
+    if bcc:
+        validate_recipients(bcc)
 
-    user_attachments = attachments or []  # ← сохраняем до перезаписи
-
+    user_attachments = attachments or []
+    _logger.info('send_meeting: subject=%r to=%s bcc=%s start=%s end=%s attachments=%d',
+                 subject, to, bcc, start_dt, end_dt, len(user_attachments))
     try:
         import pytz
 
@@ -258,10 +309,26 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             tzinfo=tz
         )
 
-        # 1. Конвертируем data:image -> cid:
-        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)  # ← переименовано
+        # 1. Convert data:image -> cid: attachments so Outlook renders inline images.
+        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)
 
-        # 2. Создаём встречу
+        # 2. Build user-supplied FileAttachment objects before the EWS call.
+        user_file_atts = []
+        for file_data in user_attachments:
+            try:
+                raw = base64.b64decode(file_data['content'])
+                user_file_atts.append(FileAttachment(
+                    name=file_data['name'],
+                    content_type=file_data.get('mime_type', 'application/octet-stream'),
+                    content=raw,
+                ))
+            except Exception as e:
+                _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
+
+        # 3. Create and save the meeting in a single CreateItem call so that
+        #    invitations are dispatched at creation time.  Using two save() calls
+        #    (SendToNone then SendToAllAndSaveCopy) relies on UpdateItem, which
+        #    some Exchange servers silently ignore for invitation dispatch.
         required = to if to else bcc
         item = CalendarItem(
             account=account,
@@ -273,36 +340,15 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             end=end_ews,
             required_attendees=_to_attendees(required),
             optional_attendees=_to_attendees(cc) if cc else None,
+            attachments=inline_atts + user_file_atts,
         )
-
-        # 3. Save without sending so we get item.id and can attach files.
-        item.save(send_meeting_invitations='SendToNone')
-
-        # 4. Attach inline CID images (converted from data: URIs)
-        for att in inline_atts:
-            item.attach(att)
-
-        # 5. Attach user-supplied files
-        for file_data in user_attachments:
-            try:
-                raw = base64.b64decode(file_data['content'])
-                file_att = FileAttachment(
-                    name=file_data['name'],
-                    content_type=file_data.get('mime_type', 'application/octet-stream'),
-                    content=raw,
-                )
-                item.attach(file_att)
-            except Exception as e:
-                print(f'⚠️  Вложение {file_data.get("name")}: {e}')
-
-        # 6. Send invitations via the public save() API.
-        #    Calling save() a second time with SendToAllAndSaveCopy triggers
-        #    Exchange to dispatch the meeting request to all attendees.
-        #    This avoids the private _update() method whose signature varies
-        #    across exchangelib versions.
+        _logger.debug('send_meeting: dispatching invitations via CreateItem')
         item.save(send_meeting_invitations='SendToAllAndSaveCopy')
+        _logger.info('send_meeting: success subject=%r', subject)
 
     except (ValueError, ConnectionError):
         raise
     except Exception as e:
+        _logger.error('send_meeting failed: %s: %s',
+                      type(e).__name__, e, exc_info=True)
         _wrap_exchange_error(e)

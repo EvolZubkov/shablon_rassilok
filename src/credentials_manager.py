@@ -7,6 +7,7 @@ credentials_manager.py — хранение учётных данных Exchange
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import re
@@ -19,16 +20,25 @@ from typing import Optional, Tuple, Dict
 _EMAIL_RE = re.compile(r'^[^@\s]+@[^@\s]+\.[^@\s]+$')
 from cryptography.fernet import Fernet, InvalidToken
 
+_logger = logging.getLogger(__name__)
+
 
 # ─── Путь к файлу ────────────────────────────────────────────────────────────
 
 
 def get_credentials_path() -> str:
-    """Путь к credentials.json рядом с .exe или app.py."""
+    """Return absolute path to credentials.json next to the executable (frozen)
+    or the project root (dev mode).
+
+    After the module was relocated to ``src/``, ``__file__`` resolves to
+    ``src/credentials_manager.py``, so we must climb one level to reach the
+    project root where credentials.json lives in dev mode.
+    """
     if getattr(sys, "frozen", False):
         base = os.path.dirname(sys.executable)
     else:
-        base = os.path.dirname(os.path.abspath(__file__))
+        # src/credentials_manager.py → go up to project root
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     return os.path.join(base, "credentials.json")
 
 
@@ -118,20 +128,39 @@ def save_credentials(
 
 
 def load_credentials(path: str, hostname: Optional[str] = None) -> Optional[Dict]:
-    """
-    Загружает и расшифровывает credentials.json.
-    Возвращает dict с plaintext паролем или None если файла нет.
+    """Load and decrypt credentials.json.
+
+    Returns a dict with a plaintext password, or ``None`` when the file is
+    absent.  Raises :exc:`RuntimeError` (logged) when the file exists but
+    cannot be parsed or decrypted so callers can surface a meaningful error
+    instead of silently operating without credentials.
     """
     if not os.path.exists(path):
+        _logger.debug('credentials file not found: %s', path)
         return None
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
         key = make_key(data["username"], hostname)
         data["password"] = decrypt_password(data["password"], key)
+        _logger.debug('credentials loaded for user=%s server=%s',
+                      data.get('username'), data.get('server'))
         return data
-    except (InvalidToken, KeyError, json.JSONDecodeError, OSError):
-        return None
+    except InvalidToken:
+        _logger.error(
+            'credentials decryption failed for %s — file may have been '
+            'created on a different machine (hostname mismatch in PBKDF2 key). '
+            'Re-enter credentials in the settings dialog.', path)
+        raise RuntimeError(
+            'Не удалось расшифровать учётные данные. '
+            'Возможно, файл был создан на другом компьютере. '
+            'Введите данные заново в настройках.')
+    except (KeyError, json.JSONDecodeError) as e:
+        _logger.error('credentials file corrupted (%s): %s', path, e)
+        raise RuntimeError(f'Файл учётных данных повреждён: {e}')
+    except OSError as e:
+        _logger.error('cannot read credentials file %s: %s', path, e)
+        raise RuntimeError(f'Не удалось прочитать файл учётных данных: {e}')
 
 
 def credentials_exist(path: str) -> bool:
