@@ -2530,6 +2530,13 @@ dialog.app-dialog::backdrop {
   border: 1px solid var(--accent-danger);
 }
 
+.exc-test-result--info {
+  display: block;
+  background: rgba(99, 102, 241, 0.08);
+  color: var(--text-secondary, #6b7280);
+  border: 1px solid rgba(99, 102, 241, 0.3);
+}
+
 /* Футер */
 .exc-footer {
   display: flex;

@@ -76,12 +76,16 @@
                 } else if (action === 'open-log') {
                     fetch('/api/open-log', { method: 'POST' })
                         .then(async (r) => {
-                            if (!r.ok) throw new Error('open-log failed');
                             const data = await r.json().catch(() => ({}));
-                            if (!data.success) throw new Error(data.error || 'open-log failed');
+                            if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось открыть журнал');
                         })
-                        .catch((err) => { console.warn('[open-log] failed to open protocol.log:', err); });
+                        .catch((err) => { Toast.error(err.message || 'Не удалось открыть журнал'); });
                 } else if (action === 'exit') {
+                    const hasBlocks = UserAppState.blocks && UserAppState.blocks.length > 0;
+                    if (hasBlocks) {
+                        const save = confirm('Сохранить состояние холста перед выходом?');
+                        if (save) saveDraft();
+                    }
                     fetch('/api/shutdown', { method: 'POST' }).catch(() => {});
                     window.close();
                 }

@@ -443,28 +443,28 @@ const ExchangeModals = (() => {
         const password = _q('exc-password').value;
         const fromEmail = _q('exc-from-email').value.trim();
 
-        if (!server || !username || !password || !fromEmail) {
-            _showTestResult('Заполните все поля', 'error');
+        if (!server || !username || !fromEmail) {
+            _showTestResult('Заполните поля: сервер, логин, адрес отправителя', 'error');
             return;
         }
 
-        _setLoading('exc-test-btn', true, 'Проверить');
+        _setLoading('exc-test-btn', true, 'Проверяю...');
+        _showTestResult('Подключение к серверу...', 'info');
         try {
-            // Временно сохраняем → проверяем статус → откатываем если надо
-            const r = await fetch('/api/credentials/save', {
+            const r = await fetch('/api/credentials/test', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ server, username, password,
-                                       from_email: fromEmail })
+                                       from_email: fromEmail }),
             });
             const data = await r.json();
             if (data.success) {
-                _showTestResult('✅ Настройки сохранены. Подключение будет проверено при первой отправке.', 'success');
+                _showTestResult('Подключение успешно', 'success');
             } else {
-                _showTestResult('❌ ' + (data.error || 'Ошибка'), 'error');
+                _showTestResult(data.error || 'Ошибка подключения', 'error');
             }
         } catch {
-            _showTestResult('❌ Нет связи с сервером приложения', 'error');
+            _showTestResult('Нет связи с сервером приложения', 'error');
         } finally {
             _setLoading('exc-test-btn', false, 'Проверить');
         }
@@ -472,6 +472,7 @@ const ExchangeModals = (() => {
 
     function _showTestResult(text, type) {
         const el = _q('exc-test-result');
+        el.style.display = '';
         el.className = 'exc-test-result exc-test-result--' + type;
         el.textContent = text;
     }

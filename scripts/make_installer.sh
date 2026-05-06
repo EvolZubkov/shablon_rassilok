@@ -68,11 +68,20 @@ LAUNCHER="\$INSTALL_DIR/run-pochtelye.sh"
 # Locate directory of this script regardless of how it was invoked
 SCRIPT_DIR="\$(cd "\$(dirname "\$0")" && pwd)"
 
-# Resolve desktop directory (ALT Linux uses Russian name)
-DESKTOP_DIR="\$HOME/Desktop"
-for _D in "\$HOME/Рабочий стол" "\$HOME/Desktop" "\$HOME/Рабочий_стол"; do
-  if [ -d "\$_D" ]; then DESKTOP_DIR="\$_D"; break; fi
-done
+# Resolve desktop directory via XDG standard first, then fall back to known paths.
+# xdg-user-dir reads ~/.config/user-dirs.dirs which is correct for any locale.
+DESKTOP_DIR=""
+if command -v xdg-user-dir >/dev/null 2>&1; then
+  DESKTOP_DIR="\$(xdg-user-dir DESKTOP 2>/dev/null || true)"
+  # xdg-user-dir returns $HOME when the key is not configured — that is not the desktop.
+  [ "\$DESKTOP_DIR" = "\$HOME" ] && DESKTOP_DIR=""
+fi
+if [ -z "\$DESKTOP_DIR" ]; then
+  for _D in "\$HOME/Рабочий стол" "\$HOME/Desktop" "\$HOME/Рабочий_стол"; do
+    if [ -d "\$_D" ]; then DESKTOP_DIR="\$_D"; break; fi
+  done
+fi
+[ -z "\$DESKTOP_DIR" ] && DESKTOP_DIR="\$HOME/Desktop"
 mkdir -p "\$DESKTOP_DIR"
 DESKTOP_FILE="\$DESKTOP_DIR/Pochtelye.desktop"
 

@@ -22,6 +22,7 @@ Routes:
 """
 
 import os
+import shutil
 import sys
 import subprocess
 import threading
@@ -88,52 +89,75 @@ def api_open_log():
 
     try:
         if sys.platform.startswith('win'):
-            os.startfile(_m._ACTIVE_LOG_FILE)
+            try:
+                os.startfile(_m._ACTIVE_LOG_FILE)
+            except OSError:
+                # .log not associated with any app — fall back to Notepad
+                subprocess.Popen(['notepad', _m._ACTIVE_LOG_FILE])
             return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
 
         if sys.platform == 'darwin':
             subprocess.Popen(['open', _m._ACTIVE_LOG_FILE])
             return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
 
-        # Linux: xdg-open → gio open → common text editors.
-        # When running as a PyInstaller bundle, LD_LIBRARY_PATH and similar
-        # variables point to bundled libraries and corrupt any child process
-        # that loads system shared objects (including xdg-open helpers).
-        # Build a clean environment without those overrides.
+        # Linux: try specific editors, then xdg-open / gio open.
+        # PyInstaller bundles set LD_LIBRARY_PATH etc. to point at bundled
+        # libraries; child processes that load system .so files break when
+        # those vars leak in.  Strip them from the child environment.
         _pyinstaller_vars = {'LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONPATH', 'PYTHONHOME'}
         clean_env = {k: v for k, v in os.environ.items() if k not in _pyinstaller_vars}
+        clean_path = clean_env.get('PATH', '')
 
-        candidates = [
-            # Desktop-specific editors (tried before the generic xdg-open so a
-            # successful Popen actually means a visible window).
-            ['gedit',      _m._ACTIVE_LOG_FILE],  # GNOME
-            ['kate',       _m._ACTIVE_LOG_FILE],  # KDE (full)
-            ['kwrite',     _m._ACTIVE_LOG_FILE],  # KDE (lightweight)
-            ['pluma',      _m._ACTIVE_LOG_FILE],  # MATE
-            ['medit',      _m._ACTIVE_LOG_FILE],  # Alt Linux default (older)
-            ['xed',        _m._ACTIVE_LOG_FILE],  # MATE / Linux Mint
-            ['mousepad',   _m._ACTIVE_LOG_FILE],  # Xfce
-            ['featherpad', _m._ACTIVE_LOG_FILE],  # LXQt
-            ['leafpad',    _m._ACTIVE_LOG_FILE],  # LXDE
-            ['geany',      _m._ACTIVE_LOG_FILE],  # cross-DE
-            # Generic openers last: they succeed as a process but may silently
-            # fail if the desktop session has no MIME handler for .log files.
-            ['xdg-open',   _m._ACTIVE_LOG_FILE],
-            ['gio', 'open', _m._ACTIVE_LOG_FILE],
+        editors = [
+            'gedit',       # GNOME
+            'kate',        # KDE (full)
+            'kwrite',      # KDE (lightweight)
+            'pluma',       # MATE
+            'medit',       # ALT Linux / older GNOME
+            'xed',         # MATE / Linux Mint
+            'mousepad',    # Xfce
+            'featherpad',  # LXQt
+            'leafpad',     # LXDE
+            'geany',       # cross-DE
         ]
-        last_exc = None
-        for cmd in candidates:
-            try:
-                subprocess.Popen(cmd, env=clean_env)
-                return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
-            except FileNotFoundError:
-                continue
-            except Exception as exc:
-                last_exc = exc
-                break
 
-        err = str(last_exc) if last_exc else 'Не найдено подходящего приложения для открытия файла'
-        current_app.logger.warning('Не удалось открыть protocol.log внешним приложением: %s', err)
+        # Specific editors: Popen (non-blocking). shutil.which ensures the
+        # binary actually exists in the clean PATH before we try to spawn it,
+        # so we never get a false-positive FileNotFoundError bypass.
+        for editor in editors:
+            if not shutil.which(editor, path=clean_path):
+                continue
+            try:
+                subprocess.Popen([editor, _m._ACTIVE_LOG_FILE], env=clean_env)
+                return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
+            except Exception as exc:
+                current_app.logger.warning('open-log: %s failed: %s', editor, exc)
+                continue
+
+        # Generic openers: run blocking so we can check the exit code.
+        # xdg-open/gio open exit quickly (they hand off to the app and quit),
+        # but they return a non-zero code when no MIME handler is configured —
+        # which Popen would mask as success.
+        for cmd in (['xdg-open', _m._ACTIVE_LOG_FILE],
+                    ['gio', 'open', _m._ACTIVE_LOG_FILE]):
+            if not shutil.which(cmd[0], path=clean_path):
+                continue
+            try:
+                result = subprocess.run(
+                    cmd, env=clean_env, timeout=8,
+                    stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                )
+                if result.returncode == 0:
+                    return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
+                current_app.logger.warning('open-log: %s exited %d', cmd[0], result.returncode)
+            except subprocess.TimeoutExpired:
+                # Timed out means the opener is still running — that's fine.
+                return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
+            except Exception as exc:
+                current_app.logger.warning('open-log: %s error: %s', cmd[0], exc)
+
+        err = 'Не найден текстовый редактор. Путь к журналу: ' + _m._ACTIVE_LOG_FILE
+        current_app.logger.warning('open-log: %s', err)
         return jsonify({'success': False, 'error': err}), 500
 
     except Exception as exc:
