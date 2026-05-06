@@ -10,6 +10,7 @@
 # Linux   : Same — PyQt5 + PyQtWebEngine are bundled; no webkit2gtk required.
 
 import os
+import sys
 from PyInstaller.utils.hooks import collect_submodules, collect_data_files, collect_all
 
 ROOT = os.path.abspath('.')
@@ -148,6 +149,9 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
-    icon=os.path.join(ROOT, 'assets', 'icon.ico') if os.path.exists(os.path.join(ROOT, 'assets', 'icon.ico')) else None,
+    icon=(
+        os.path.join(ROOT, 'assets', 'icon.icns') if sys.platform == 'darwin'
+        else os.path.join(ROOT, 'assets', 'icon.ico')
+    ) if os.path.exists(os.path.join(ROOT, 'assets')) else None,
     onefile=True,
 )
