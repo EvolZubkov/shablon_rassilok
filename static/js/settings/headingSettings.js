@@ -3,7 +3,24 @@
 function renderHeadingSettings(container, block) {
     const s = block.settings;
 
-    container.appendChild(createSettingInput('Текст заголовка', s.text, block.id, 'text'));
+    const headingTextGroup = createSettingInput('Текст заголовка', s.text, block.id, 'text');
+    container.appendChild(headingTextGroup);
+    // Apply typography on blur — same behaviour as text block settings.
+    const headingInput = headingTextGroup.querySelector('input');
+    if (headingInput) {
+        headingInput.addEventListener('blur', () => {
+            const raw = headingInput.value;
+            if (!raw.trim()) return;
+            const html = TextSanitizer.applyTypography(TextSanitizer.escapeHTML(raw));
+            const tmp = document.createElement('span');
+            tmp.innerHTML = html;
+            const processed = tmp.textContent;
+            if (processed !== raw) {
+                headingInput.value = processed;
+                updateBlockSetting(block.id, 'text', processed);
+            }
+        });
+    }
     // Шрифт
     container.appendChild(
         createSettingSelect(

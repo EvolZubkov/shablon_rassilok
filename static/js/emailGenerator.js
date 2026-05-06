@@ -585,7 +585,7 @@ function generateHeadingHTML(s) {
     const size = s.size || 24;
     const weight = s.weight || 'bold';
     const align = s.align || 'left';
-    const text = escapeHtml(s.text || '');
+    const text = TextSanitizer.applyTypography(escapeHtml(s.text || ''));
 
     return `
         <tr>

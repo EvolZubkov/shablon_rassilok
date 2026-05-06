@@ -174,7 +174,7 @@ function renderHeadingPreview(s) {
                    font-family:${resolveTextFontFamily(s)};
                    margin: 0; 
                    padding: 8px;">
-            ${s.text || 'Заголовок'}
+            ${TextSanitizer.applyTypography(TextSanitizer.escapeHTML(s.text || 'Заголовок'))}
         </h3>
     `;
 }

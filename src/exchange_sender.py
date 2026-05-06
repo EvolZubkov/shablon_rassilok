@@ -100,7 +100,20 @@ def connect_exchange(server: str, username: str, password: str,
                  server, username, effective_from)
     try:
         credentials = Credentials(username=username, password=password)
-        config = Configuration(server=server, credentials=credentials)
+
+        # Specify NTLM explicitly to bypass exchangelib's auth-type
+        # auto-detection, which fails on some corporate Exchange setups
+        # ("Failed to get auth type from service").  NTLM is the de-facto
+        # standard for on-premises Exchange; if the server rejects it the
+        # error will be a clear "Unauthorized" rather than a silent detection
+        # failure.
+        from exchangelib import NTLM
+        config = Configuration(
+            server=server,
+            credentials=credentials,
+            auth_type=NTLM,
+        )
+
         account = Account(
             primary_smtp_address=effective_from,
             config=config,
@@ -242,7 +255,7 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                 )
                 msg.attach(file_att)
             except Exception as e:
-                print(f'⚠️  Вложение {file_data.get("name")}: {e}')
+                _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
         _logger.debug('send_email: calling msg.send()')
         msg.send()
         _logger.info('send_email: success subject=%r', subject)
@@ -274,6 +287,8 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
     validate_recipients(to)
     if cc:
         validate_recipients(cc)
+    if bcc:
+        validate_recipients(bcc)
 
     user_attachments = attachments or []
     _logger.info('send_meeting: subject=%r to=%s bcc=%s start=%s end=%s attachments=%d',
@@ -294,10 +309,26 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             tzinfo=tz
         )
 
-        # 1. Конвертируем data:image -> cid:
-        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)  # ← переименовано
+        # 1. Convert data:image -> cid: attachments so Outlook renders inline images.
+        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)
 
-        # 2. Создаём встречу
+        # 2. Build user-supplied FileAttachment objects before the EWS call.
+        user_file_atts = []
+        for file_data in user_attachments:
+            try:
+                raw = base64.b64decode(file_data['content'])
+                user_file_atts.append(FileAttachment(
+                    name=file_data['name'],
+                    content_type=file_data.get('mime_type', 'application/octet-stream'),
+                    content=raw,
+                ))
+            except Exception as e:
+                _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
+
+        # 3. Create and save the meeting in a single CreateItem call so that
+        #    invitations are dispatched at creation time.  Using two save() calls
+        #    (SendToNone then SendToAllAndSaveCopy) relies on UpdateItem, which
+        #    some Exchange servers silently ignore for invitation dispatch.
         required = to if to else bcc
         item = CalendarItem(
             account=account,
@@ -309,34 +340,9 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             end=end_ews,
             required_attendees=_to_attendees(required),
             optional_attendees=_to_attendees(cc) if cc else None,
+            attachments=inline_atts + user_file_atts,
         )
-
-        # 3. Save without sending so we get item.id and can attach files.
-        item.save(send_meeting_invitations='SendToNone')
-
-        # 4. Attach inline CID images (converted from data: URIs)
-        for att in inline_atts:
-            item.attach(att)
-
-        # 5. Attach user-supplied files
-        for file_data in user_attachments:
-            try:
-                raw = base64.b64decode(file_data['content'])
-                file_att = FileAttachment(
-                    name=file_data['name'],
-                    content_type=file_data.get('mime_type', 'application/octet-stream'),
-                    content=raw,
-                )
-                item.attach(file_att)
-            except Exception as e:
-                print(f'⚠️  Вложение {file_data.get("name")}: {e}')
-
-        # 6. Send invitations via the public save() API.
-        #    Calling save() a second time with SendToAllAndSaveCopy triggers
-        #    Exchange to dispatch the meeting request to all attendees.
-        #    This avoids the private _update() method whose signature varies
-        #    across exchangelib versions.
-        _logger.debug('send_meeting: dispatching invitations')
+        _logger.debug('send_meeting: dispatching invitations via CreateItem')
         item.save(send_meeting_invitations='SendToAllAndSaveCopy')
         _logger.info('send_meeting: success subject=%r', subject)
 

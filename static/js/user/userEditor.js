@@ -1054,7 +1054,10 @@ function saveTextChanges(element) {
     // Reflect typographic changes back into the contenteditable so the user
     // sees guillemets, em dashes and non-breaking spaces immediately.
     // Skip when the element is still focused (paste handler manages display itself).
-    if (blockType !== 'heading' && document.activeElement !== element) {
+    // Skip in link mode: rewriting innerHTML destroys the DOM nodes that
+    // savedSelection points to, so applyLink() can no longer restore the range.
+    const inLinkMode = typeof toolbarMode !== 'undefined' && toolbarMode === 'link';
+    if (blockType !== 'heading' && document.activeElement !== element && !inLinkMode) {
         element.innerHTML = newValue;
     }
 
