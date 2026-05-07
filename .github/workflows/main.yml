@@ -28,6 +28,17 @@ jobs:
       - name: Convert icon to .icns
         run: python scripts/convert_icon.py --icns assets/icon.icns
 
+      - name: Write admin hash
+        env:
+          ADMIN_HASH: ${{ secrets.ADMIN_HASH }}
+        run: |
+          if [ -n "$ADMIN_HASH" ]; then
+            echo "$ADMIN_HASH" > .admin_hash
+            echo "[OK] .admin_hash written"
+          else
+            echo "[WARN] ADMIN_HASH secret not set, building user-only"
+          fi
+          
       - name: Build app
         run: |
           pyinstaller build.spec \
