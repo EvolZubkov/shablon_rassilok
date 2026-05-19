@@ -118,8 +118,15 @@ def api_send_email():
     except ConnectionError as e:
         return jsonify({'success': False, 'error': str(e)}), 503
     except Exception as e:
+        name = type(e).__name__
+        if 'Unauthorized' in name or 'Unauthorized' in str(e):
+            return jsonify({
+                'success': False,
+                'error': 'Ошибка авторизации Exchange. Проверьте учётные данные в настройках.'
+            }), 401
         current_app.logger.error('send_email error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+        return jsonify({'success': False,
+                        'error': f'Внутренняя ошибка: {type(e).__name__}: {e}'}), 500
 
 
 @bp.route('/api/send/meeting', methods=['POST'])
@@ -178,6 +185,12 @@ def api_send_meeting():
     except ConnectionError as e:
         return jsonify({'success': False, 'error': str(e)}), 503
     except Exception as e:
-        import traceback
-        current_app.logger.error('send_meeting error: %s', e, exc_info=True)
-        return jsonify({'success': False, 'error': f'{type(e).__name__}: {e}'}), 500
+        name = type(e).__name__
+        if 'Unauthorized' in name or 'Unauthorized' in str(e):
+            return jsonify({
+                'success': False,
+                'error': 'Ошибка авторизации Exchange. Проверьте учётные данные в настройках.'
+            }), 401
+        current_app.logger.error('send_email error: %s', e, exc_info=True)
+        return jsonify({'success': False,
+                        'error': f'Внутренняя ошибка: {type(e).__name__}: {e}'}), 500

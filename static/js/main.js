@@ -7,7 +7,7 @@ function jslog(level, msg) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ level, msg: text }),
-    }).catch(() => {});
+    }).catch(() => { });
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -42,7 +42,7 @@ function init() {
     setupDownloadButton();
     setupCanvas();
     setupAdminUndo();
-    
+
     // Инициализация библиотеки шаблонов
     if (typeof TemplatesUI !== 'undefined') {
         TemplatesUI.init();
@@ -69,7 +69,7 @@ function setupAdminShell() {
 
 function setupBlockButtons() {
     const blockButtons = document.querySelectorAll('.block-btn');
-    
+
     blockButtons.forEach(btn => {
         btn.addEventListener('click', () => {
             const blockType = btn.dataset.blockType;
@@ -80,7 +80,7 @@ function setupBlockButtons() {
 
 function setupDownloadButton() {
     // Кнопки письма и встречи обрабатываются в outlookIntegration.js → ExchangeModals
-    
+
     // Добавляем обработчик для кнопки скачивания (если есть)
     const btnDownload = document.getElementById('btn-download');
     if (btnDownload) {
@@ -246,16 +246,28 @@ function setupAdminMenu() {
                 case 'open-log':
                     fetch('/api/open-log', { method: 'POST' })
                         .then(async (r) => {
-                            if (!r.ok) {
-                                throw new Error('open-log failed');
+                            const contentType = r.headers.get('content-type') || '';
+                            if (contentType.includes('text/plain')) {
+                                // Linux — скачиваем файл
+                                const blob = await r.blob();
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url;
+                                a.download = 'protocol.log';
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                                URL.revokeObjectURL(url);
+                                return;
                             }
+                            // Windows/Mac — открыли внешним приложением
                             const data = await r.json().catch(() => ({}));
                             if (!data.success) {
-                                throw new Error(data.error || 'open-log failed');
+                                console.warn('[open-log]', data.error);
                             }
                         })
                         .catch((err) => {
-                            console.warn('[open-log] failed to open protocol.log:', err);
+                            console.warn('[open-log] failed:', err);
                         });
                     break;
                 case 'exit':
@@ -487,16 +499,16 @@ async function setupInlinePresetLibrary() {
 // Функция скачивания HTML
 async function downloadEmail() {
     console.log('[*] Генерация HTML для скачивания...');
-    
+
     const html = await generateEmailHTML();
     const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = 'email.html';
     a.click();
-    
+
     URL.revokeObjectURL(url);
     console.log('✓ HTML файл скачан');
 }
