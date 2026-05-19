@@ -120,13 +120,16 @@ def connect_exchange(server: str, username: str, password: str,
 
 
 def _wrap_exchange_error(exc: Exception) -> None:
-    """Преобразует ошибки exchangelib в стандартные Python исключения."""
     name = type(exc).__name__
-    if 'Unauthorized' in name or 'AuthenticationFailed' in name:
-        raise ValueError('Неверный логин или пароль')
-    if 'Transport' in name or 'Connection' in name:
+    msg = str(exc)
+    
+    if 'Unauthorized' in name or 'AuthenticationFailed' in name or 'Unauthorized' in msg:
+        raise ValueError('Неверный логин или пароль Exchange. Попробуйте через несколько минут.')
+    if 'Transport' in name or 'Connection' in name or 'Timeout' in name:
         raise ConnectionError('Сервер Exchange недоступен')
-    raise RuntimeError(f'Ошибка Exchange: {exc}')
+    if 'Throttl' in msg or 'throttl' in msg:
+        raise ConnectionError('Exchange: слишком много запросов, подождите минуту')
+    raise RuntimeError(f'Ошибка Exchange ({type(exc).__name__}): {exc}')
 
 
 # ─── Отправка письма ─────────────────────────────────────────────────────────

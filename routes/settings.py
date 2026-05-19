@@ -77,12 +77,6 @@ def api_license_status():
 
 @bp.route('/api/open-log', methods=['POST'])
 def api_open_log():
-    """Opens protocol.log in the system-default external application.
-
-    On Linux tries ``xdg-open`` first, then falls back to a list of common
-    text editors.  Returns 500 only when every candidate fails so the client
-    can fall back to serving the file in the browser.
-    """
     if not _m._ACTIVE_LOG_FILE or not os.path.exists(_m._ACTIVE_LOG_FILE):
         return jsonify({'success': False, 'error': 'protocol.log не найден'}), 404
 
@@ -95,49 +89,17 @@ def api_open_log():
             subprocess.Popen(['open', _m._ACTIVE_LOG_FILE])
             return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
 
-        # Linux: xdg-open → gio open → common text editors.
-        # When running as a PyInstaller bundle, LD_LIBRARY_PATH and similar
-        # variables point to bundled libraries and corrupt any child process
-        # that loads system shared objects (including xdg-open helpers).
-        # Build a clean environment without those overrides.
-        _pyinstaller_vars = {'LD_LIBRARY_PATH', 'LD_PRELOAD', 'PYTHONPATH', 'PYTHONHOME'}
-        clean_env = {k: v for k, v in os.environ.items() if k not in _pyinstaller_vars}
-
-        candidates = [
-            # Desktop-specific editors (tried before the generic xdg-open so a
-            # successful Popen actually means a visible window).
-            ['gedit',      _m._ACTIVE_LOG_FILE],  # GNOME
-            ['kate',       _m._ACTIVE_LOG_FILE],  # KDE (full)
-            ['kwrite',     _m._ACTIVE_LOG_FILE],  # KDE (lightweight)
-            ['pluma',      _m._ACTIVE_LOG_FILE],  # MATE
-            ['medit',      _m._ACTIVE_LOG_FILE],  # Alt Linux default (older)
-            ['xed',        _m._ACTIVE_LOG_FILE],  # MATE / Linux Mint
-            ['mousepad',   _m._ACTIVE_LOG_FILE],  # Xfce
-            ['featherpad', _m._ACTIVE_LOG_FILE],  # LXQt
-            ['leafpad',    _m._ACTIVE_LOG_FILE],  # LXDE
-            ['geany',      _m._ACTIVE_LOG_FILE],  # cross-DE
-            # Generic openers last: they succeed as a process but may silently
-            # fail if the desktop session has no MIME handler for .log files.
-            ['xdg-open',   _m._ACTIVE_LOG_FILE],
-            ['gio', 'open', _m._ACTIVE_LOG_FILE],
-        ]
-        last_exc = None
-        for cmd in candidates:
-            try:
-                subprocess.Popen(cmd, env=clean_env)
-                return jsonify({'success': True, 'path': _m._ACTIVE_LOG_FILE})
-            except FileNotFoundError:
-                continue
-            except Exception as exc:
-                last_exc = exc
-                break
-
-        err = str(last_exc) if last_exc else 'Не найдено подходящего приложения для открытия файла'
-        current_app.logger.warning('Не удалось открыть protocol.log внешним приложением: %s', err)
-        return jsonify({'success': False, 'error': err}), 500
+        # Linux — отдаём файл для скачивания через браузер
+        from flask import send_file
+        return send_file(
+            _m._ACTIVE_LOG_FILE,
+            as_attachment=True,
+            download_name='protocol.log',
+            mimetype='text/plain; charset=utf-8'
+        )
 
     except Exception as exc:
-        current_app.logger.warning('Не удалось открыть protocol.log внешним приложением: %s', exc)
+        current_app.logger.warning('open-log error: %s', exc)
         return jsonify({'success': False, 'error': str(exc)}), 500
 
 
