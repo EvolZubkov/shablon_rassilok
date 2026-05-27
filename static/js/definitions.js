@@ -107,7 +107,8 @@ const BLOCK_TYPE_NAMES = {
     important: 'Важно',
     divider: 'Разделитель',
     image: 'Картинка',
-    spacer: 'Отступ'
+    spacer: 'Отступ',
+    canvas: 'Свободный блок'
 };
 
 // === НАСТРОЙКИ ПО УМОЛЧАНИЮ ===
@@ -302,6 +303,14 @@ const DEFAULT_SETTINGS = {
 
     spacer: {
         height: 32
+    },
+
+    canvas: {
+        height: 250,
+        bgEnabled: true,
+        bgColor: '#1D2533',
+        freeElements: [],
+        renderedCanvas: null,
     }
 };
 

@@ -84,6 +84,15 @@ function addBlock(type, parentId = null, position = null) {
     if (type === 'expert') {
         requestAnimationFrame(() => renderExpertBlock(newBlock));
     }
+
+    if (type === 'canvas') {
+        if (typeof renderCanvasBlockToDataUrl === 'function') {
+            renderCanvasBlockToDataUrl(newBlock, (dataUrl) => {
+                newBlock.settings.renderedCanvas = dataUrl || null;
+                renderCanvas();
+            });
+        }
+    }
 }
 
 function renderExpertBlock(block) {
@@ -300,6 +309,18 @@ function updateBlockSetting(blockId, key, value) {
         if (key !== 'textElements') {
             renderBannerToDataUrl(block, (dataUrl) => {
                 block.settings.renderedBanner = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        return;
+    }
+
+    // ► Специальная обработка для свободного блока
+    if (block.type === 'canvas') {
+        renderCanvas();
+        if (typeof renderCanvasBlockToDataUrl === 'function') {
+            renderCanvasBlockToDataUrl(block, (dataUrl) => {
+                block.settings.renderedCanvas = dataUrl || null;
                 renderCanvas();
             });
         }

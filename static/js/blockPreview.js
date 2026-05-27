@@ -36,19 +36,22 @@ function resolveTextFontFamily(s) {
 function renderBlockPreviewReal(block) {
     const s = block.settings;
 
+    let html;
     switch (block.type) {
-        case 'banner':    return renderBannerPreview(s);
-        case 'text':      return renderTextPreview(s);
-        case 'heading':   return renderHeadingPreview(s);
-        case 'button':    return renderButtonPreview(s);
-        case 'list':      return renderListPreview(s);
-        case 'expert':    return renderExpertPreview(s);
-        case 'important': return renderImportantPreview(s);
-        case 'divider':   return renderDividerPreview(s);
-        case 'image':     return renderImagePreview(s);
-        case 'spacer':    return renderSpacerPreview(s);
-        default:          return '<p>Неизвестный блок</p>';
+        case 'banner':    html = renderBannerPreview(s);    break;
+        case 'text':      html = renderTextPreview(s);      break;
+        case 'heading':   html = renderHeadingPreview(s);   break;
+        case 'button':    html = renderButtonPreview(s);    break;
+        case 'list':      html = renderListPreview(s);      break;
+        case 'expert':    html = renderExpertPreview(s);    break;
+        case 'important': html = renderImportantPreview(s); break;
+        case 'divider':   html = renderDividerPreview(s);   break;
+        case 'image':     html = renderImagePreview(s);     break;
+        case 'spacer':    html = renderSpacerPreview(s);    break;
+        case 'canvas':    html = renderCanvasBlockPreview(block); break;
+        default:          html = '<p>Неизвестный блок</p>';
     }
+    return CapabilityRegistry.applyWrappers(html, block, 'preview');
 }
 
 // ↓ ИЗМЕНЕНА — теперь использует TextSanitizer.render()
@@ -376,4 +379,110 @@ function renderImagePreview(s) {
 
 function renderSpacerPreview(s) {
     return `<div style="height: ${s.height}px; background: repeating-linear-gradient(90deg, #374151 0, #374151 1px, transparent 1px, transparent 10px); opacity: 0.3;"></div>`;
+}
+
+// ── Canvas clip-path shapes (from prototype) ─────────────────────────
+const CANVAS_CLIPS = {
+    'none':    '',
+    'circle':  'circle(50% at 50% 50%)',
+    'tri':     'polygon(50% 0%,0% 100%,100% 100%)',
+    'trid':    'polygon(0% 0%,100% 0%,50% 100%)',
+    'diamond': 'polygon(50% 0%,100% 50%,50% 100%,0% 50%)',
+    'hex':     'polygon(25% 0%,75% 0%,100% 50%,75% 100%,25% 100%,0% 50%)',
+    'angled':  'polygon(14% 0%,100% 0%,100% 100%,0% 100%)',
+    'angledR': 'polygon(0% 0%,86% 0%,100% 100%,0% 100%)',
+};
+
+
+// Resolve clipPath: support new `clipPath` field + backward-compat old shapeType/maskType
+function _resolveClipPath(e, forImage) {
+    if (e.clipPath !== undefined) return e.clipPath;
+    // Backward-compat shapeType
+    if (e.shapeType) {
+        if (e.shapeType === 'oval')     return 'circle';
+        if (e.shapeType === 'triangle') return 'tri';
+        return 'none'; // rect, strip → none (strip uses borderRadius:100px via borderRadius field)
+    }
+    // Backward-compat maskType
+    if (e.maskType) {
+        if (e.maskType === 'circle') return 'circle';
+        return 'none';
+    }
+    return 'none';
+}
+
+function _resolveBorderRadius(e) {
+    // For old 'strip' shape type — emulate with large radius
+    if (!e.clipPath && e.shapeType === 'strip') return 100;
+    return e.borderRadius || 0;
+}
+
+function renderCanvasBlockPreview(block) {
+    const s = block.settings;
+    const h = s.height || 250;
+    const bgEnabled = s.bgEnabled !== false;
+    const bg = s.bgColor || '#1D2533';
+    const outerBg = bgEnabled ? bg : 'transparent';
+    const blockId = block.id;
+    const elements = Array.isArray(s.freeElements) ? s.freeElements : [];
+    const selId = (typeof _canvasSelId !== 'undefined') ? _canvasSelId : null;
+
+    const overlays = elements.map(e => {
+        if (e.visible === false) return '';
+
+        const isSel = e.id === selId;
+        const rot = e.rotation || 0;
+        const transformCSS = rot !== 0 ? `transform:rotate(${rot}deg);transform-origin:center center;` : '';
+        const base = `position:absolute;left:${e.x||0}px;top:${e.y||0}px;width:${e.w||100}px;${e.h != null ? `height:${e.h}px;` : ''}opacity:${e.opacity ?? 1};box-sizing:border-box;cursor:move;${isSel ? 'outline:2px solid #a855f7;outline-offset:1px;' : ''}`;
+        const dnd = `data-canvas-elem-id="${e.id}" onmousedown="startCanvasElemDrag(event,${blockId},${e.id})"`;
+
+        if (e.type === 'text' || e.type === 'heading') {
+            const safe = (e.text || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+            const align = e.textAlign || 'left';
+            const lh    = e.lineHeight || 1.3;
+            return `<div ${dnd} style="${base}color:${e.color||'#fff'};font-size:${e.fontSize||16}px;font-weight:${e.fontWeight||400};line-height:${lh};text-align:${align};white-space:pre-wrap;${transformCSS}">${safe}</div>`;
+        }
+
+        if (e.type === 'shape') {
+            const cp    = _resolveClipPath(e);
+            const br    = _resolveBorderRadius(e);
+            const cpCSS = cp && cp !== 'none' ? `clip-path:${CANVAS_CLIPS[cp] || ''};` : `border-radius:${br}px;`;
+            return `<div ${dnd} style="${base}background:${e.bgColor||'#a855f7'};${cpCSS}${transformCSS}"></div>`;
+        }
+
+        if (e.type === 'line') {
+            const ls  = e.lineStyle || 'solid';
+            const col = e.color || '#ffffff';
+            const lineCSS = (ls === 'dashed' || ls === 'dotted')
+                ? `background:transparent;border-top:${e.h||2}px ${ls} ${col};`
+                : `background:${col};`;
+            return `<div ${dnd} style="${base}${lineCSS}${transformCSS}"></div>`;
+        }
+
+        if (e.type === 'image') {
+            const cp    = _resolveClipPath(e, true);
+            const br    = e.borderRadius || 0;
+            const cpCSS = cp && cp !== 'none' ? `clip-path:${CANVAS_CLIPS[cp] || ''};` : `border-radius:${br}px;`;
+            if (e.src) {
+                // background-image вместо <img object-fit> — html2canvas не поддерживает object-fit
+                const fit = e.objectFit || 'cover';
+                const bgSize = fit === 'fill' ? '100% 100%' : fit === 'contain' ? 'contain' : 'cover';
+                return `<div ${dnd} style="${base}${cpCSS}background-image:url('${e.src}');background-size:${bgSize};background-repeat:no-repeat;background-position:center;${transformCSS}"></div>`;
+            }
+            return `<div ${dnd} style="${base}${cpCSS}background:#2a2a40;display:flex;align-items:center;justify-content:center;font-size:20px;${transformCSS}">🖼</div>`;
+        }
+        return '';
+    }).join('');
+
+    const placeholder = !elements.length
+        ? `<div style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.2);font-size:12px;pointer-events:none;">Добавьте элементы в настройках</div>`
+        : '';
+
+    // Outer div fills block width. Inner .canvas-block-inner is exactly 600px (coordinate space).
+    // Inner div also gets background so html2canvas captures it correctly.
+    return `<div style="width:100%;background:${outerBg};overflow:hidden;" ondragstart="event.preventDefault();">
+        <div class="canvas-block-inner" style="position:relative;width:600px;height:${h}px;margin:0 auto;background:${outerBg};box-shadow:inset 0 0 0 1px rgba(255,255,255,0.12);">
+            ${placeholder}${overlays}
+        </div>
+    </div>`;
 }

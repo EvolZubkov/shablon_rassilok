@@ -1,0 +1,15 @@
+{
+  "name": "По умолчанию",
+  "blocks": {
+    "banner":    { "enabled": true,  "capabilities": ["background"] },
+    "text":      { "enabled": true,  "capabilities": ["background"] },
+    "heading":   { "enabled": true,  "capabilities": [] },
+    "button":    { "enabled": true,  "capabilities": [] },
+    "list":      { "enabled": true,  "capabilities": [] },
+    "expert":    { "enabled": false,  "capabilities": [] },
+    "important": { "enabled": true,  "capabilities": [] },
+    "divider":   { "enabled": true,  "capabilities": [] },
+    "image":     { "enabled": true,  "capabilities": [] },
+    "spacer":    { "enabled": true,  "capabilities": [] }
+  }
+}

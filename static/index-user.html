@@ -761,6 +761,22 @@
 
   </div>
 
+  <!-- Редактор свободного блока -->
+  <div id="canvas-editor-modal" class="modal" style="display:none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small" style="max-height:85vh;display:flex;flex-direction:column;">
+      <div class="modal-header">
+        <h2>Свободный блок</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="canvas-editor-body" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
+      </div>
+      <div class="modal-footer">
+        <button id="btn-apply-canvas" class="btn-primary">Применить</button>
+      </div>
+    </div>
+  </div>
+
   <div id="banner-color-modal" class="modal banner-color-modal" style="display:none;">
     <div class="modal-overlay"></div>
     <div class="modal-content banner-color-modal__content">
@@ -800,6 +816,11 @@
   <script src="js/definitions.js"></script>
   <script src="js/configLoader.js"></script>
   <script src="js/state.js"></script>
+  <script src="js/capabilityRegistry.js"></script>
+  <script src="js/capabilities/background.js"></script>
+  <script src="js/capabilities/border.js"></script>
+  <script src="js/capabilities/clickable.js"></script>
+  <script src="js/capabilities/free.js"></script>
   <script src="js/blockDefaults.js"></script>
   <script src="js/templatesAPI.js"></script>
   <script src="js/imageRenderers.js"></script>
@@ -808,6 +829,7 @@
   <script src="js/outlookIntegration.js"></script>
   <script src="js/buttonAutoStyle.js"></script>
   <script src="js/settings/bannerSettings.js"></script>
+  <script src="js/settings/canvasBlockSettings.js"></script>
   <script src="js/colorPicker.js"></script>
 
   <!-- User-специфичные модули -->
@@ -818,7 +840,7 @@
   <script src="js/user/userBannerEditor.js"></script>
   <script src="js/shared/emailHistoryStore.js"></script>
   <script src="js/user/exchangeModals.js"></script>
-  <!-- <script src="js/user/bulk-mail.js"></script> -->
+  <script src="js/user/bulk-mail.js"></script>
 
   <!-- Переключатель режима: фиксированная позиция, виден только при can_switch -->
   <button id="mode-switch-widget" class="mode-toggle-btn" type="button" hidden title="Режим конструктора">

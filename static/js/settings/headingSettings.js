@@ -2,6 +2,8 @@
 
 function renderHeadingSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('heading') : [];
 
     const headingTextGroup = createSettingInput('Текст заголовка', s.text, block.id, 'text');
     container.appendChild(headingTextGroup);
@@ -21,30 +23,38 @@ function renderHeadingSettings(container, block) {
             }
         });
     }
-    // Шрифт
-    container.appendChild(
-        createSettingSelect(
-            'Шрифт',
-            s.fontFamily || 'default',
-            block.id,
-            'fontFamily',
-            SELECT_OPTIONS.textFontFamily
-        )
-    );
-
-    // Свой шрифт (CSS-имя) — показываем только если выбран "custom"
-    if ((s.fontFamily || 'default') === 'custom') {
+    if (!hiddenSettings.includes('fontFamily')) {
         container.appendChild(
-            createSettingInput(
-                'CSS-имя шрифта (как в CSS)',
-                s.customFontFamily || '',
+            createSettingSelect(
+                'Шрифт',
+                s.fontFamily || 'default',
                 block.id,
-                'customFontFamily'
+                'fontFamily',
+                SELECT_OPTIONS.textFontFamily
             )
         );
+        if ((s.fontFamily || 'default') === 'custom') {
+            container.appendChild(
+                createSettingInput(
+                    'CSS-имя шрифта (как в CSS)',
+                    s.customFontFamily || '',
+                    block.id,
+                    'customFontFamily'
+                )
+            );
+        }
     }
-    container.appendChild(createSettingFontSize('Размер', s.size, block.id, 'size', [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48]));
-    container.appendChild(createSettingRange('Толщина', s.weight, block.id, 'weight', 300, 900, 100));
-    container.appendChild(createSettingSelect('Выравнивание', s.align || 'left', block.id, 'align', SELECT_OPTIONS.align));
+    if (!hiddenSettings.includes('size')) {
+        container.appendChild(createSettingFontSize('Размер', s.size, block.id, 'size', [10, 12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48]));
+    }
+    if (!hiddenSettings.includes('weight')) {
+        container.appendChild(createSettingRange('Толщина', s.weight, block.id, 'weight', 300, 900, 100));
+    }
+    if (!hiddenSettings.includes('align')) {
+        container.appendChild(createSettingSelect('Выравнивание', s.align || 'left', block.id, 'align', SELECT_OPTIONS.align));
+    }
+    if (!hiddenSettings.includes('color')) {
+        container.appendChild(createSettingInput('Цвет текста', s.color || '#f9fafb', block.id, 'color', 'color'));
+    }
 }
 

@@ -2,6 +2,8 @@
 
 function renderImageSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('image') : [];
 
     const uploadGroup = document.createElement('div');
     uploadGroup.className = 'setting-group';
@@ -23,7 +25,9 @@ function renderImageSettings(container, block) {
 
     container.appendChild(createSettingInput('Альтернативный текст', s.alt, block.id, 'alt'));
     container.appendChild(createSettingInput('Ширина (%, px или auto)', s.width, block.id, 'width'));
-    container.appendChild(createSettingSelect('Выравнивание', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
+    if (!hiddenSettings.includes('align')) {
+        container.appendChild(createSettingSelect('Выравнивание', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
+    }
 
     // Скругление углов
     const radiusGroup = document.createElement('div');
@@ -119,7 +123,9 @@ function renderImageSettings(container, block) {
         radiusGroup.appendChild(allInput);
     }
 
-    container.appendChild(radiusGroup);
+    if (!hiddenSettings.includes('borderRadiusAll')) {
+        container.appendChild(radiusGroup);
+    }
 
     // Соотношение сторон
     const aspectRatioOptions = [
@@ -129,6 +135,8 @@ function renderImageSettings(container, block) {
         { value: '3:2', label: '3:2 (фото)' },
         { value: '1:1', label: '1:1 (квадрат)' }
     ];
-    container.appendChild(createSettingSelect('Соотношение сторон', s.aspectRatio || 'original', block.id, 'aspectRatio', aspectRatioOptions));
+    if (!hiddenSettings.includes('aspectRatio')) {
+        container.appendChild(createSettingSelect('Соотношение сторон', s.aspectRatio || 'original', block.id, 'aspectRatio', aspectRatioOptions));
+    }
     container.appendChild(createSettingInput('Ссылка на картинке', s.url || '', block.id, 'url'));
 }

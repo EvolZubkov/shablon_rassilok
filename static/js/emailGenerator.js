@@ -500,30 +500,22 @@ function generateBlockHTML(block) {
     const s = block.settings;
     if (!s) return '';
 
+    let html;
     switch (block.type) {
-        case 'banner':
-            return generateBannerHTML(s);
-        case 'text':
-            return generateTextHTML(s);
-        case 'heading':
-            return generateHeadingHTML(s);
-        case 'button':
-            return generateButtonHTML(s);
-        case 'list':
-            return generateListHTML(s);
-        case 'expert':
-            return generateExpertHTML(s);
-        case 'important':
-            return generateImportantHTML(s);
-        case 'divider':
-            return generateDividerHTML(s);
-        case 'image':
-            return generateImageHTML(s);
-        case 'spacer':
-            return generateSpacerHTML(s);
-        default:
-            return '';
+        case 'banner':    html = generateBannerHTML(s);    break;
+        case 'text':      html = generateTextHTML(s);      break;
+        case 'heading':   html = generateHeadingHTML(s);   break;
+        case 'button':    html = generateButtonHTML(s);    break;
+        case 'list':      html = generateListHTML(s);      break;
+        case 'expert':    html = generateExpertHTML(s);    break;
+        case 'important': html = generateImportantHTML(s); break;
+        case 'divider':   html = generateDividerHTML(s);   break;
+        case 'image':     html = generateImageHTML(s);     break;
+        case 'spacer':    html = generateSpacerHTML(s);    break;
+        case 'canvas':    html = generateCanvasBlockHTML(s); break;
+        default:          html = '';
     }
+    return CapabilityRegistry.applyWrappers(html, block, 'email');
 }
 
 // ===== ГЕНЕРАТОРЫ БЛОКОВ =====
@@ -890,6 +882,29 @@ function generateSpacerHTML(s) {
             <td style="padding:0; height:${height}px;"></td>
         </tr>
     `;
+}
+
+/**
+ * Генерирует HTML свободного блока (PNG из canvas)
+ */
+function generateCanvasBlockHTML(s) {
+    if (!s) return '';
+    if (s.renderedCanvas) {
+        return `
+        <tr>
+            <td style="padding:0;font-size:0;line-height:0;">
+                <img src="${s.renderedCanvas}" width="600" style="display:block;max-width:100%;height:auto;border:0;" alt="">
+            </td>
+        </tr>`;
+    }
+    // Заглушка если ещё не отрендерен
+    const h = s.height || 250;
+    const bgEnabled = s.bgEnabled !== false;
+    const bgStyle = bgEnabled ? `background-color:${s.bgColor || '#1D2533'};` : '';
+    return `
+        <tr>
+            <td style="padding:0;height:${h}px;${bgStyle}"></td>
+        </tr>`;
 }
 
 /**

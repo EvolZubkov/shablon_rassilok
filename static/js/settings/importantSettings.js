@@ -55,36 +55,44 @@ function renderImportantSettings(container, block) {
         });
     }
 
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('important') : [];
+
     // Цвета
-    container.appendChild(createSettingInput('Цвет текста', s.textColor, block.id, 'textColor', 'color'));
-    container.appendChild(createSettingInput('Цвет важно', s.borderColor || '#a855f7', block.id, 'borderColor', 'color'));
-
-    // Шрифт
-    container.appendChild(
-        createSettingSelect(
-            'Шрифт',
-            s.fontFamily || 'default',
-            block.id,
-            'fontFamily',
-            SELECT_OPTIONS.textFontFamily
-        )
-    );
-
-    // Свой шрифт (CSS-имя) — показываем только если выбран "custom"
-    if ((s.fontFamily || 'default') === 'custom') {
-        container.appendChild(
-            createSettingInput(
-                'CSS-имя шрифта (как в CSS)',
-                s.customFontFamily || '',
-                block.id,
-                'customFontFamily'
-            )
-        );
+    if (!hiddenSettings.includes('textColor')) {
+        container.appendChild(createSettingInput('Цвет текста', s.textColor, block.id, 'textColor', 'color'));
+    }
+    if (!hiddenSettings.includes('borderColor')) {
+        container.appendChild(createSettingInput('Цвет важно', s.borderColor || '#a855f7', block.id, 'borderColor', 'color'));
     }
 
-    // Размер шрифта и межстрочный интервал
-    container.appendChild(createSettingFontSize('Размер текста', s.fontSize ?? 13, block.id, 'fontSize', [10, 11, 12, 13, 14, 15, 16, 18, 20]));
-    container.appendChild(createSettingRange('Межстрочный интервал', s.lineHeight ?? 1, block.id, 'lineHeight', 1.0, 2.5, 0.1, ''));
+    if (!hiddenSettings.includes('fontFamily')) {
+        container.appendChild(
+            createSettingSelect(
+                'Шрифт',
+                s.fontFamily || 'default',
+                block.id,
+                'fontFamily',
+                SELECT_OPTIONS.textFontFamily
+            )
+        );
+        if ((s.fontFamily || 'default') === 'custom') {
+            container.appendChild(
+                createSettingInput(
+                    'CSS-имя шрифта (как в CSS)',
+                    s.customFontFamily || '',
+                    block.id,
+                    'customFontFamily'
+                )
+            );
+        }
+    }
+    if (!hiddenSettings.includes('fontSize')) {
+        container.appendChild(createSettingFontSize('Размер текста', s.fontSize ?? 13, block.id, 'fontSize', [10, 11, 12, 13, 14, 15, 16, 18, 20]));
+    }
+    if (!hiddenSettings.includes('lineHeight')) {
+        container.appendChild(createSettingRange('Межстрочный интервал', s.lineHeight ?? 1, block.id, 'lineHeight', 1.0, 2.5, 0.1, ''));
+    }
 
     // Внутренний отступ
     // container.appendChild(createSettingRange('Внутренний отступ', s.padding ?? 16, block.id, 'padding', 8, 32, 1, 'px'));

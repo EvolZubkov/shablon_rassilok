@@ -1,0 +1,20 @@
+{
+  "name": "Аудитория B",
+  "blocks": {
+    "banner":    {
+      "enabled": true,
+      "capabilities": [],
+      "defaults": { "bannerRadius": 0, "rightImageMode": "rounded", "rightRoundedRadius": 0 },
+      "hidden": ["rightImageMode"]
+    },
+    "text":      { "enabled": true,  "capabilities": [] },
+    "heading":   { "enabled": true,  "capabilities": [] },
+    "button":    { "enabled": true,  "capabilities": [] },
+    "list":      { "enabled": true,  "capabilities": [] },
+    "expert":    { "enabled": false },
+    "important": { "enabled": true,  "capabilities": [] },
+    "divider":   { "enabled": false },
+    "image":     { "enabled": true,  "capabilities": [] },
+    "spacer":    { "enabled": true,  "capabilities": [] }
+  }
+}

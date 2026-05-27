@@ -743,6 +743,11 @@ function initEditorHandlers() {
 async function showUserPreview() {
     if (typeof window.openSharedEmailPreviewModal !== 'function') return;
 
+    // Дожидаемся рендера canvas-блоков перед генерацией HTML
+    if (typeof _ensureCanvasBlocksRendered === 'function') {
+        await _ensureCanvasBlocksRendered(UserAppState.blocks);
+    }
+
     // Временно устанавливаем блоки в AppState для генерации HTML
     const originalBlocks = AppState.blocks;
     AppState.blocks = UserAppState.blocks;

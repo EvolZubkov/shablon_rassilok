@@ -2,6 +2,8 @@
 
 function renderTextSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('text') : [];
 
     // Конвертируем s.content (simple HTML) → plain text для textarea
     const plainTextValue = TextSanitizer.toPlainText(s.content || '');
@@ -131,38 +133,47 @@ function renderTextSettings(container, block) {
 
     container.appendChild(formatGroup);
 
-    // Шрифт
-    container.appendChild(
-        createSettingSelect(
-            'Шрифт',
-            s.fontFamily || 'default',
-            block.id,
-            'fontFamily',
-            SELECT_OPTIONS.textFontFamily
-        )
-    );
-
-    if ((s.fontFamily || 'default') === 'custom') {
+    if (!hiddenSettings.includes('fontFamily')) {
         container.appendChild(
-            createSettingInput(
-                'CSS-имя шрифта (как в CSS)',
-                s.customFontFamily || '',
+            createSettingSelect(
+                'Шрифт',
+                s.fontFamily || 'default',
                 block.id,
-                'customFontFamily'
+                'fontFamily',
+                SELECT_OPTIONS.textFontFamily
             )
         );
+        if ((s.fontFamily || 'default') === 'custom') {
+            container.appendChild(
+                createSettingInput(
+                    'CSS-имя шрифта (как в CSS)',
+                    s.customFontFamily || '',
+                    block.id,
+                    'customFontFamily'
+                )
+            );
+        }
     }
 
-    container.appendChild(
-        createSettingFontSize('Размер шрифта', s.fontSize, block.id, 'fontSize',
-            [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24])
-    );
-    container.appendChild(
-        createSettingRange('Межстрочный интервал', s.lineHeight, block.id, 'lineHeight', 1, 2.5, 0.1)
-    );
-    container.appendChild(
-        createSettingSelect('Выравнивание', s.align, block.id, 'align', SELECT_OPTIONS.align)
-    );
+    if (!hiddenSettings.includes('fontSize')) {
+        container.appendChild(
+            createSettingFontSize('Размер шрифта', s.fontSize, block.id, 'fontSize',
+                [10, 11, 12, 13, 14, 15, 16, 18, 20, 22, 24])
+        );
+    }
+    if (!hiddenSettings.includes('lineHeight')) {
+        container.appendChild(
+            createSettingRange('Межстрочный интервал', s.lineHeight, block.id, 'lineHeight', 1, 2.5, 0.1)
+        );
+    }
+    if (!hiddenSettings.includes('align')) {
+        container.appendChild(
+            createSettingSelect('Выравнивание', s.align, block.id, 'align', SELECT_OPTIONS.align)
+        );
+    }
+    if (!hiddenSettings.includes('color')) {
+        container.appendChild(createSettingInput('Цвет текста', s.color || '#e5e7eb', block.id, 'color', 'color'));
+    }
 
     container.appendChild(createTextLinkToolbar(block));
 }

@@ -103,16 +103,16 @@ def make_template(base_dir, filename, name='Тест', is_preset=False):
 # =============================================================================
 
 class TestLoadConfigIni:
-    """_load_config() reads config.ini and returns (network_path, port, config_path, linux_hint, smb_path, linux_resolved)"""
+    """_load_config() reads config.ini and returns (network_path, port, config_path, linux_hint, smb_path, linux_resolved, exchange_server)"""
 
     def test_returns_tuple_of_four(self):
-        """Should return a 6-element tuple"""
+        """Should return a 7-element tuple"""
         result = email_app._load_config()
         assert isinstance(result, tuple)
-        assert len(result) == 6
+        assert len(result) == 7
 
     def test_port_is_int(self):
-        path, port, config_path, linux_hint, smb_path, linux_resolved = email_app._load_config()
+        path, port, config_path, linux_hint, smb_path, linux_resolved, exchange_server = email_app._load_config()
         assert isinstance(port, int)
 
     def test_mode_is_lowercase_str(self):
@@ -121,7 +121,7 @@ class TestLoadConfigIni:
         assert mode == mode.lower()
 
     def test_network_path_is_str(self):
-        path, port, config_path, linux_hint, smb_path, linux_resolved = email_app._load_config()
+        path, port, config_path, linux_hint, smb_path, linux_resolved, exchange_server = email_app._load_config()
         assert isinstance(path, str)
         assert len(path) > 0
 
@@ -208,7 +208,8 @@ class TestLoadConfigJson:
         assert len(result.get('bullets', [])) == 1
         assert result['bullets'][0]['id'] == 'circle'
 
-    def test_network_takes_priority_over_cache(self):
+    def test_cache_takes_priority_over_network(self):
+        # load_config() читает кеш первым (быстрый путь без сетевого I/O)
         net_static = os.path.join(FAKE_NETWORK, 'static')
         os.makedirs(net_static, exist_ok=True)
         net_cfg = {'version': 'net-1.0', 'banners': ['net-banner']}
@@ -220,7 +221,7 @@ class TestLoadConfigJson:
             json.dump({'version': 'cache-1.0'}, f)
 
         result = email_app.load_config()
-        assert result.get('version') == 'net-1.0'
+        assert result.get('version') == 'cache-1.0'
 
     def test_falls_back_to_cache_when_network_unavailable(self):
         cache_path = os.path.join(FAKE_CACHE, 'config.json')

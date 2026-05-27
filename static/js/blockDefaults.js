@@ -3,8 +3,25 @@
 function getDefaultSettings(type) {
     const settings = DEFAULT_SETTINGS[type];
     if (!settings) return {};
-    // Deep copy prevents shared mutable state (arrays/objects) between block instances
-    return JSON.parse(JSON.stringify(settings));
+    const base = JSON.parse(JSON.stringify(settings));
+
+    if (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded &&
+        typeof CapabilityRegistry !== 'undefined') {
+        // Capability defaults
+        ProfileLoader.getCapabilities(type).forEach(capId => {
+            const cap = CapabilityRegistry.get(capId);
+            if (cap && cap.defaultSettings) {
+                Object.assign(base, cap.defaultSettings);
+            }
+        });
+        // Profile-level block defaults (override anything above)
+        const profileDefaults = ProfileLoader.getBlockDefaults(type);
+        if (profileDefaults) {
+            Object.assign(base, profileDefaults);
+        }
+    }
+
+    return base;
 }
 
 function getBlockTypeName(type) {

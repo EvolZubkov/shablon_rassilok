@@ -21,6 +21,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
+        await ProfileLoader.load();
+        jslog('log', '[INIT] Profile loaded OK');
+    } catch (e) {
+        jslog('error', '[INIT] ProfileLoader.load() threw: ' + e);
+    }
+
+    try {
         init();
     } catch (e) {
         jslog('error', '[INIT] init() threw: ' + e);
@@ -69,10 +76,19 @@ function setupAdminShell() {
 
 function setupBlockButtons() {
     const blockButtons = document.querySelectorAll('.block-btn');
-    
+
     blockButtons.forEach(btn => {
+        const blockType = btn.dataset.blockType;
+
+        // Скрываем блоки, отключённые в текущем профиле
+        if (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded) {
+            if (!ProfileLoader.isBlockEnabled(blockType)) {
+                btn.style.display = 'none';
+                return;
+            }
+        }
+
         btn.addEventListener('click', () => {
-            const blockType = btn.dataset.blockType;
             addBlock(blockType);
         });
     });
