@@ -1382,6 +1382,20 @@ def _initialize_cache_locked():
         shutil.copy2(network_config, cache_config)
         print("✓ Config.json скопирован")
 
+    # 1a. Копируем профили аудиторий
+    network_profiles = os.path.join(NETWORK_RESOURCES_PATH, 'profiles')
+    cache_profiles   = os.path.join(CACHE_DIR, 'profiles')
+    if os.path.exists(network_profiles):
+        print("\n📥 Загрузка profiles/...")
+        os.makedirs(cache_profiles, exist_ok=True)
+        for fname in os.listdir(network_profiles):
+            if fname.endswith('.json'):
+                shutil.copy2(
+                    os.path.join(network_profiles, fname),
+                    os.path.join(cache_profiles, fname),
+                )
+        print("✓ Профили скопированы")
+
     # 2. Копируем только папки с картинками
     folders_to_cache = ['icons', 'expert-badges', 'bullets', 'button-icons',
                         'images', 'dividers', 'banner-backgrounds', 'banner-logos', 'banner-icons', 'fonts']
@@ -3341,6 +3355,8 @@ from routes.resources import bp as resources_bp
 from routes.templates import bp as templates_bp
 from routes.exchange import bp as exchange_bp
 from routes.settings import bp as settings_bp
+from routes.profile import bp as profile_bp
+from routes.profiles_admin import bp as profiles_admin_bp
 
 app.register_blueprint(utility_bp)
 app.register_blueprint(static_files_bp)
@@ -3348,6 +3364,8 @@ app.register_blueprint(resources_bp)
 app.register_blueprint(templates_bp)
 app.register_blueprint(exchange_bp)
 app.register_blueprint(settings_bp)
+app.register_blueprint(profile_bp)
+app.register_blueprint(profiles_admin_bp)
 
 
 if __name__ == '__main__':

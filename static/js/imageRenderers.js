@@ -113,7 +113,7 @@ function renderBannerToDataUrl(block, callback) {
     const HEIGHT = Number(s.bannerHeight || BASE_HEIGHT);
 
     // Фиксированные параметры из Figma
-    const BORDER_RADIUS = 32;
+    const BORDER_RADIUS = s.bannerRadius ?? 32;
     const LEFT_BLOCK_ANGLE = 13; // градусов
 
     // Цвета
@@ -1901,4 +1901,223 @@ function normalizeRenderHex(value) {
         return `#${raw.toUpperCase()}`;
     }
     return '#7700FF';
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// renderFreeBlockToDataUrl — рендер свободного блока через Canvas 2D API
+// Работает без DOM, как баннер: загружает картинки → рисует → toDataURL
+// ─────────────────────────────────────────────────────────────────────────────
+
+function _freeBlockClipPath(ctx, e, x, y, w, h) {
+    const cp = e.clipPath !== undefined ? e.clipPath
+             : e.shapeType === 'oval'     ? 'circle'
+             : e.shapeType === 'triangle' ? 'tri'
+             : e.maskType  === 'circle'   ? 'circle'
+             : 'none';
+    const br = (!e.clipPath && e.shapeType === 'strip') ? 100 : (e.borderRadius || 0);
+
+    ctx.beginPath();
+    if (cp === 'circle') {
+        const r = Math.min(w, h) / 2;
+        ctx.arc(x + w / 2, y + h / 2, r, 0, Math.PI * 2);
+    } else if (cp === 'tri') {
+        ctx.moveTo(x + w * 0.5, y);
+        ctx.lineTo(x, y + h);
+        ctx.lineTo(x + w, y + h);
+        ctx.closePath();
+    } else if (cp === 'trid') {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + w, y);
+        ctx.lineTo(x + w * 0.5, y + h);
+        ctx.closePath();
+    } else if (cp === 'diamond') {
+        ctx.moveTo(x + w * 0.5, y);
+        ctx.lineTo(x + w, y + h * 0.5);
+        ctx.lineTo(x + w * 0.5, y + h);
+        ctx.lineTo(x, y + h * 0.5);
+        ctx.closePath();
+    } else if (cp === 'hex') {
+        ctx.moveTo(x + w * 0.25, y);
+        ctx.lineTo(x + w * 0.75, y);
+        ctx.lineTo(x + w, y + h * 0.5);
+        ctx.lineTo(x + w * 0.75, y + h);
+        ctx.lineTo(x + w * 0.25, y + h);
+        ctx.lineTo(x, y + h * 0.5);
+        ctx.closePath();
+    } else if (cp === 'angled') {
+        ctx.moveTo(x + w * 0.14, y);
+        ctx.lineTo(x + w, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.closePath();
+    } else if (cp === 'angledR') {
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + w * 0.86, y);
+        ctx.lineTo(x + w, y + h);
+        ctx.lineTo(x, y + h);
+        ctx.closePath();
+    } else {
+        // none — прямоугольник с optional borderRadius
+        const r = Math.min(br, w / 2, h / 2);
+        if (r > 0) {
+            ctx.roundRect(x, y, w, h, r);
+        } else {
+            ctx.rect(x, y, w, h);
+        }
+    }
+}
+
+function _freeBlockDrawImage(ctx, img, x, y, w, h, fit) {
+    const ia = img.width / img.height;
+    const ba = w / h;
+    let dw, dh, dx, dy;
+    if (fit === 'fill') {
+        dw = w; dh = h; dx = x; dy = y;
+    } else if (fit === 'contain') {
+        if (ia > ba) { dw = w; dh = w / ia; }
+        else         { dh = h; dw = h * ia; }
+        dx = x + (w - dw) / 2;
+        dy = y + (h - dh) / 2;
+    } else { // cover
+        if (ia > ba) { dh = h; dw = h * ia; }
+        else         { dw = w; dh = w / ia; }
+        dx = x + (w - dw) / 2;
+        dy = y + (h - dh) / 2;
+    }
+    ctx.drawImage(img, dx, dy, dw, dh);
+}
+
+function _freeBlockWrapLines(ctx, text, maxWidth) {
+    const lines = [];
+    text.split('\n').forEach(paragraph => {
+        if (!paragraph) { lines.push(''); return; }
+        const words = paragraph.split(' ');
+        let line = '';
+        for (const word of words) {
+            const test = line ? line + ' ' + word : word;
+            if (ctx.measureText(test).width <= maxWidth || !line) {
+                line = test;
+            } else {
+                lines.push(line);
+                line = word;
+            }
+        }
+        if (line) lines.push(line);
+    });
+    return lines;
+}
+
+function renderFreeBlockToDataUrl(block, callback) {
+    const s = block.settings || {};
+    const SCALE = 2;
+    const W = 600;
+    const H = s.height || 250;
+    const bgEnabled = s.bgEnabled !== false;
+    const bgColor = s.bgColor || '#1D2533';
+    const elements = Array.isArray(s.freeElements) ? s.freeElements : [];
+
+    // Собираем все картинки для предзагрузки
+    const imagesToLoad = [];
+    elements.forEach((e, i) => {
+        if ((e.type === 'image') && e.src) {
+            imagesToLoad.push({ key: String(i), src: e.src });
+        }
+    });
+
+    loadAllImages(imagesToLoad, (loadedImages) => {
+        const canvas = document.createElement('canvas');
+        canvas.width  = W * SCALE;
+        canvas.height = H * SCALE;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(SCALE, SCALE);
+
+        // Фон
+        if (bgEnabled) {
+            ctx.fillStyle = bgColor;
+            ctx.fillRect(0, 0, W, H);
+        }
+
+        elements.forEach((e, i) => {
+            if (e.visible === false) return;
+
+            const x   = e.x || 0;
+            const y   = e.y || 0;
+            const w   = e.w || 100;
+            const h   = e.h != null ? e.h : 60;
+            const rot = e.rotation || 0;
+            const op  = e.opacity != null ? e.opacity : 1;
+
+            ctx.save();
+            ctx.globalAlpha = op;
+
+            if (rot !== 0) {
+                const cx = x + w / 2;
+                const cy = y + h / 2;
+                ctx.translate(cx, cy);
+                ctx.rotate(rot * Math.PI / 180);
+                ctx.translate(-cx, -cy);
+            }
+
+            if (e.type === 'text' || e.type === 'heading') {
+                const fontSize   = e.fontSize   || 16;
+                const fontWeight = e.fontWeight  || 400;
+                const color      = e.color       || '#ffffff';
+                const align      = e.textAlign   || 'left';
+                const lh         = e.lineHeight  || 1.3;
+                const text       = e.text || '';
+
+                ctx.font         = `${fontWeight} ${fontSize}px Arial, sans-serif`;
+                ctx.fillStyle    = color;
+                ctx.textBaseline = 'top';
+                ctx.textAlign    = align;
+
+                const textX = align === 'center' ? x + w / 2
+                            : align === 'right'  ? x + w
+                            : x;
+
+                const lineH = fontSize * lh;
+                _freeBlockWrapLines(ctx, text, w).forEach((line, li) => {
+                    ctx.fillText(line, textX, y + li * lineH);
+                });
+
+            } else if (e.type === 'shape') {
+                ctx.fillStyle = e.bgColor || '#a855f7';
+                _freeBlockClipPath(ctx, e, x, y, w, h);
+                ctx.fill();
+
+            } else if (e.type === 'image') {
+                const img = loadedImages[String(i)];
+                ctx.save();
+                _freeBlockClipPath(ctx, e, x, y, w, h);
+                ctx.clip();
+                if (img) {
+                    _freeBlockDrawImage(ctx, img, x, y, w, h, e.objectFit || 'cover');
+                } else {
+                    ctx.fillStyle = '#2a2a40';
+                    ctx.fillRect(x, y, w, h);
+                }
+                ctx.restore();
+
+            } else if (e.type === 'line') {
+                const lineH     = e.h || 2;
+                const lineStyle = e.lineStyle || 'solid';
+                ctx.strokeStyle = e.color || '#ffffff';
+                ctx.lineWidth   = lineH;
+                ctx.setLineDash(lineStyle === 'dashed' ? [8, 8]
+                              : lineStyle === 'dotted' ? [2, 6]
+                              : []);
+                ctx.beginPath();
+                ctx.moveTo(x,     y + lineH / 2);
+                ctx.lineTo(x + w, y + lineH / 2);
+                ctx.stroke();
+                ctx.setLineDash([]);
+            }
+
+            ctx.restore();
+        });
+
+        const dataUrl = canvas.toDataURL('image/png');
+        canvas.width = 0;
+        callback(dataUrl);
+    });
 }

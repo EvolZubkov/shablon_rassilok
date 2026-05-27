@@ -229,6 +229,57 @@ function renderUserCanvas() {
     // Инициализируем inline-редактирование
     initInlineEditing();
     window.updateUserEditorMeta?.();
+
+    // Рендерим canvas-блоки у которых есть элементы но нет PNG
+    _renderPendingCanvasBlocks(UserAppState.blocks);
+}
+
+const _canvasRenderTriedIds = new Set();
+let _canvasRenderInProgress = null; // shared Promise while rendering is active
+
+function _collectPendingCanvasBlocks(blocks) {
+    const pending = [];
+    const collect = (list) => {
+        (list || []).forEach(b => {
+            if (b.type === 'canvas' && !b.settings.renderedCanvas && (b.settings.freeElements || []).length > 0 && !_canvasRenderTriedIds.has(b.id)) pending.push(b);
+            if (b.columns) b.columns.forEach(col => collect(col.blocks));
+        });
+    };
+    collect(blocks);
+    return pending;
+}
+
+function _doCanvasRenderQueue(pending) {
+    _canvasRenderInProgress = new Promise(resolve => {
+        let i = 0;
+        const next = () => {
+            if (i >= pending.length) { _canvasRenderInProgress = null; resolve(); return; }
+            const b = pending[i++];
+            _canvasRenderTriedIds.add(b.id);
+            renderCanvasBlockToDataUrl(b, dataUrl => {
+                if (dataUrl) b.settings.renderedCanvas = dataUrl;
+                next();
+            });
+        };
+        next();
+    });
+    return _canvasRenderInProgress;
+}
+
+function _renderPendingCanvasBlocks(blocks) {
+    if (typeof renderCanvasBlockToDataUrl !== 'function') return;
+    if (_canvasRenderInProgress) return; // already rendering
+    const pending = _collectPendingCanvasBlocks(blocks);
+    if (!pending.length) return;
+    _doCanvasRenderQueue(pending).then(() => renderUserCanvas());
+}
+
+function _ensureCanvasBlocksRendered(blocks) {
+    if (_canvasRenderInProgress) return _canvasRenderInProgress;
+    if (typeof renderCanvasBlockToDataUrl !== 'function') return Promise.resolve();
+    const pending = _collectPendingCanvasBlocks(blocks);
+    if (!pending.length) return Promise.resolve();
+    return _doCanvasRenderQueue(pending);
 }
 
 /**
@@ -412,6 +463,8 @@ function renderUserSingleBlock(block) {
             return renderUserImage(block);
         case 'spacer':
             return renderUserSpacer(block);
+        case 'canvas':
+            return renderUserCanvasBlock(block);
         default:
             return '<p style="padding: 20px; color: #999;">Неизвестный блок</p>';
     }
@@ -740,6 +793,16 @@ function renderUserSpacer(block) {
     return `<div style="height:${height}px;"></div>`;
 }
 
+function renderUserCanvasBlock(block) {
+    const s = block.settings || {};
+    const inner = s.renderedCanvas
+        ? `<img src="${s.renderedCanvas}" style="display:block;width:100%;height:auto;border:0;" alt="">`
+        : (typeof renderCanvasBlockPreview === 'function'
+            ? renderCanvasBlockPreview(block)
+            : `<div style="height:${s.height||250}px;background:${s.bgEnabled!==false?s.bgColor||'#1D2533':'transparent'};"></div>`);
+    return `<div class="editable-canvas" data-block-id="${block.id}" style="cursor:pointer;position:relative;">${inner}</div>`;
+}
+
 /**
  * Форматирование текста для редактирования (конвертация markdown в HTML)
  */
@@ -968,6 +1031,13 @@ function initInlineEditing() {
             if (e.target.closest('.editable-text')) return;
             const blockId = parseInt(el.dataset.blockId);
             openImportantIconEditor(blockId);
+        });
+    });
+
+    canvas.querySelectorAll('.editable-canvas').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const blockId = parseInt(el.dataset.blockId);
+            openCanvasEditor(blockId);
         });
     });
 }
@@ -1753,4 +1823,268 @@ function updateExpertPreview(s) {
             ` : ''}
         </div>
     `;
+}
+
+// ── Редактор свободного блока (user-версия) ───────────────────────────────
+
+function openCanvasEditor(blockId) {
+    const block = findBlockById(UserAppState.blocks, blockId);
+    if (!block) return;
+    const s = block.settings || {};
+    const elements = Array.isArray(s.freeElements) ? s.freeElements : [];
+
+    const modal = document.getElementById('canvas-editor-modal');
+    const body  = document.getElementById('canvas-editor-body');
+    if (!modal || !body) return;
+    modal.dataset.blockId = String(blockId);
+
+    // Рабочая копия — применяется только по кнопке «Применить»
+    const draft = {
+        bgEnabled: s.bgEnabled !== false,
+        bgColor:   s.bgColor || '#1D2533',
+        elements:  JSON.parse(JSON.stringify(elements))
+    };
+
+    function rebuild() {
+        body.innerHTML = '';
+
+        // ── Фон ─────────────────────────────────────────────────────────
+        const bgSection = document.createElement('div');
+        bgSection.className = 'form-group';
+        bgSection.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+        const bgRow = document.createElement('div');
+        bgRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+        const bgLbl = document.createElement('span');
+        bgLbl.textContent = 'Фон';
+        bgLbl.style.cssText = 'font-size:13px;font-weight:500;flex:1;';
+
+        const bgToggle = document.createElement('button');
+        bgToggle.type = 'button';
+        bgToggle.textContent = draft.bgEnabled ? 'Вкл' : 'Выкл';
+        bgToggle.style.cssText = `padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${draft.bgEnabled?'var(--accent-primary)':'var(--border-secondary)'};background:${draft.bgEnabled?'rgba(168,85,247,0.15)':'transparent'};color:var(--text-secondary);`;
+        bgToggle.addEventListener('click', () => { draft.bgEnabled = !draft.bgEnabled; rebuild(); });
+
+        bgRow.appendChild(bgLbl);
+        bgRow.appendChild(bgToggle);
+
+        if (draft.bgEnabled) {
+            const colorBtn = document.createElement('button');
+            colorBtn.type = 'button';
+            colorBtn.style.cssText = `width:32px;height:32px;border-radius:6px;border:2px solid var(--border-secondary);background:${draft.bgColor};cursor:pointer;flex-shrink:0;`;
+            colorBtn.addEventListener('click', () => pickColor({
+                title: 'Цвет фона',
+                currentColor: draft.bgColor,
+                allowTransparent: false,
+                onApply: c => { draft.bgColor = c; colorBtn.style.background = c; }
+            }));
+            bgRow.appendChild(colorBtn);
+        }
+        bgSection.appendChild(bgRow);
+        body.appendChild(bgSection);
+
+        if (!elements.length) return;
+
+        // ── Разделитель ──────────────────────────────────────────────────
+        const sep = document.createElement('div');
+        sep.style.cssText = 'height:1px;background:var(--border-primary);margin:2px 0;';
+        body.appendChild(sep);
+
+        // ── Элементы ─────────────────────────────────────────────────────
+        const TYPE_NAMES = { text: 'Текст', shape: 'Фигура', line: 'Линия', image: 'Картинка' };
+
+        draft.elements.forEach((el, idx) => {
+            if (el.visible === false) return;
+
+            const section = document.createElement('div');
+            section.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;';
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;';
+            title.textContent = TYPE_NAMES[el.type] || el.type;
+            section.appendChild(title);
+
+            const mkRow = (labelText, inputEl) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                const lbl = document.createElement('span');
+                lbl.textContent = labelText;
+                lbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                row.appendChild(lbl);
+                row.appendChild(inputEl);
+                return row;
+            };
+
+            const mkNum = (val, min, max, onChange) => {
+                const inp = document.createElement('input');
+                inp.type = 'number'; inp.value = Math.round(val ?? 0);
+                inp.min = min; inp.max = max;
+                inp.style.cssText = 'flex:1;padding:5px 7px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-input);color:var(--text-secondary);font-size:12px;';
+                inp.addEventListener('change', () => onChange(parseFloat(inp.value)||0));
+                return inp;
+            };
+
+            const mkColorBtn = (val, onChange) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.style.cssText = `width:36px;height:28px;border-radius:4px;border:1px solid var(--border-secondary);background:${val||'#ffffff'};cursor:pointer;flex-shrink:0;`;
+                btn.addEventListener('click', () => pickColor({
+                    title: 'Цвет',
+                    currentColor: val || '#ffffff',
+                    allowTransparent: false,
+                    onApply: c => { btn.style.background = c; onChange(c); }
+                }));
+                return btn;
+            };
+
+            // ── TEXT ────────────────────────────────────────────────────
+            if (el.type === 'text' || el.type === 'heading') {
+                const preview = (el.text || '').slice(0, 30) + ((el.text||'').length > 30 ? '…' : '');
+                title.textContent = (TYPE_NAMES.text) + (preview ? `: "${preview}"` : '');
+
+                const ta = document.createElement('textarea');
+                ta.value = el.text || ''; ta.rows = 2;
+                ta.style.cssText = 'width:100%;padding:6px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-input);color:var(--text-secondary);font-size:12px;resize:vertical;box-sizing:border-box;';
+                ta.addEventListener('input', () => { el.text = ta.value; });
+                section.appendChild(ta);
+
+                const colorRow = mkRow('Цвет', mkColorBtn(el.color || '#ffffff', c => { el.color = c; }));
+                section.appendChild(colorRow);
+            }
+
+            // ── SHAPE ───────────────────────────────────────────────────
+            if (el.type === 'shape') {
+                section.appendChild(mkRow('Цвет', mkColorBtn(el.bgColor || '#a855f7', c => { el.bgColor = c; })));
+
+                const xyRow = document.createElement('div');
+                xyRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+                xyRow.appendChild(mkRow('X', mkNum(el.x, -600, 1200, v => { el.x = v; })));
+                xyRow.appendChild(mkRow('Y', mkNum(el.y, -600, 1200, v => { el.y = v; })));
+                section.appendChild(xyRow);
+
+                const whRow = document.createElement('div');
+                whRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+                whRow.appendChild(mkRow('W', mkNum(el.w, 1, 600, v => { el.w = v; })));
+                whRow.appendChild(mkRow('H', mkNum(el.h, 1, 600, v => { el.h = v; })));
+                section.appendChild(whRow);
+
+                const rotRow = document.createElement('div');
+                rotRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                const rotLbl = document.createElement('span');
+                rotLbl.textContent = 'Поворот';
+                rotLbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                const rotRange = document.createElement('input');
+                rotRange.type = 'range'; rotRange.min = -180; rotRange.max = 180; rotRange.value = el.rotation || 0;
+                rotRange.style.cssText = 'flex:1;accent-color:var(--accent-primary);';
+                const rotVal = document.createElement('span');
+                rotVal.textContent = (el.rotation||0) + '°';
+                rotVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:30px;text-align:right;';
+                rotRange.addEventListener('input', () => { el.rotation = Number(rotRange.value); rotVal.textContent = el.rotation + '°'; });
+                rotRow.appendChild(rotLbl); rotRow.appendChild(rotRange); rotRow.appendChild(rotVal);
+                section.appendChild(rotRow);
+
+                if ((el.clipPath || 'none') === 'none') {
+                    const brRow = document.createElement('div');
+                    brRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                    const brLbl = document.createElement('span');
+                    brLbl.textContent = 'Скругл.';
+                    brLbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                    const brRange = document.createElement('input');
+                    brRange.type = 'range'; brRange.min = 0; brRange.max = 100; brRange.value = el.borderRadius || 0;
+                    brRange.style.cssText = 'flex:1;accent-color:var(--accent-primary);';
+                    const brVal = document.createElement('span');
+                    brVal.textContent = (el.borderRadius||0) + 'px';
+                    brVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:30px;text-align:right;';
+                    brRange.addEventListener('input', () => { el.borderRadius = Number(brRange.value); brVal.textContent = el.borderRadius + 'px'; });
+                    brRow.appendChild(brLbl); brRow.appendChild(brRange); brRow.appendChild(brVal);
+                    section.appendChild(brRow);
+                }
+            }
+
+            // ── LINE ────────────────────────────────────────────────────
+            if (el.type === 'line') {
+                section.appendChild(mkRow('Цвет', mkColorBtn(el.color || '#e5e7eb', c => { el.color = c; })));
+
+                const posRow = document.createElement('div');
+                posRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+                posRow.appendChild(mkRow('X', mkNum(el.x, 0, 600, v => { el.x = v; })));
+                posRow.appendChild(mkRow('Y', mkNum(el.y, 0, 600, v => { el.y = v; })));
+                section.appendChild(posRow);
+
+                section.appendChild(mkRow('Ширина', mkNum(el.w, 1, 600, v => { el.w = v; })));
+                section.appendChild(mkRow('Толщина', mkNum(el.h || 2, 1, 20, v => { el.h = v; })));
+
+                const rotRow2 = document.createElement('div');
+                rotRow2.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                const rLbl = document.createElement('span');
+                rLbl.textContent = 'Поворот';
+                rLbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                const rRange = document.createElement('input');
+                rRange.type = 'range'; rRange.min = -180; rRange.max = 180; rRange.value = el.rotation || 0;
+                rRange.style.cssText = 'flex:1;accent-color:var(--accent-primary);';
+                const rVal = document.createElement('span');
+                rVal.textContent = (el.rotation||0) + '°';
+                rVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:30px;text-align:right;';
+                rRange.addEventListener('input', () => { el.rotation = Number(rRange.value); rVal.textContent = el.rotation + '°'; });
+                rotRow2.appendChild(rLbl); rotRow2.appendChild(rRange); rotRow2.appendChild(rVal);
+                section.appendChild(rotRow2);
+            }
+
+            // ── IMAGE ───────────────────────────────────────────────────
+            if (el.type === 'image') {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.style.display = 'none';
+                fileInput.addEventListener('change', ev => {
+                    const file = ev.target.files?.[0]; if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = le => {
+                        el.src = le.target.result;
+                        if (thumb) { thumb.src = el.src; thumb.style.display = 'block'; }
+                    };
+                    reader.readAsDataURL(file); ev.target.value = '';
+                });
+
+                const fileBtn = document.createElement('button');
+                fileBtn.type = 'button'; fileBtn.textContent = '📁 Заменить картинку';
+                fileBtn.style.cssText = 'width:100%;padding:7px 10px;background:var(--bg-hover);border:1px solid var(--border-secondary);border-radius:6px;color:var(--text-secondary);cursor:pointer;font-size:12px;';
+                fileBtn.addEventListener('click', () => fileInput.click());
+                section.appendChild(fileBtn);
+                section.appendChild(fileInput);
+
+                let thumb = null;
+                if (el.src) {
+                    thumb = document.createElement('img');
+                    thumb.src = el.src;
+                    thumb.style.cssText = 'width:100%;max-height:80px;object-fit:contain;border-radius:6px;border:1px solid var(--border-secondary);background:#1a1a2e;display:block;';
+                    section.appendChild(thumb);
+                }
+            }
+
+            body.appendChild(section);
+        });
+    }
+
+    rebuild();
+
+    // ── Apply ─────────────────────────────────────────────────────────
+    document.getElementById('btn-apply-canvas').onclick = () => {
+        pushUndoState();
+        const b = findBlockById(UserAppState.blocks, blockId);
+        if (!b) { modal.style.display = 'none'; return; }
+        b.settings.bgEnabled = draft.bgEnabled;
+        b.settings.bgColor   = draft.bgColor;
+        draft.elements.forEach(de => {
+            const orig = (b.settings.freeElements || []).find(e => e.id === de.id);
+            if (orig) Object.assign(orig, de);
+        });
+        b.settings.renderedCanvas = null; // сбрасываем PNG — перерисуем
+        _canvasRenderTriedIds.delete(b.id); // разрешаем повторный рендер
+        renderUserCanvas();
+        modal.style.display = 'none';
+    };
+
+    modal.style.display = 'flex';
+    modal.querySelectorAll('.modal-close, .modal-overlay').forEach(el => {
+        el.onclick = () => (modal.style.display = 'none');
+    });
 }

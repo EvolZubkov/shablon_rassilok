@@ -1045,6 +1045,10 @@ const ExchangeModals = (() => {
         if (typeof generateEmailHTML === 'undefined') return '';
         // В user-версии блоки хранятся в UserAppState, в admin — в AppState напрямую
         if (typeof UserAppState !== 'undefined' && UserAppState.blocks) {
+            // Дожидаемся рендера canvas-блоков перед генерацией HTML
+            if (typeof _ensureCanvasBlocksRendered === 'function') {
+                await _ensureCanvasBlocksRendered(UserAppState.blocks);
+            }
             const originalBlocks = AppState.blocks;
             AppState.blocks = UserAppState.blocks;
             try {

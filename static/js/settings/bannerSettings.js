@@ -2,39 +2,85 @@
 
 function renderBannerSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('banner')
+        : [];
 
     // === ОСНОВНЫЕ НАСТРОЙКИ ===
     const mainSection = document.createElement('div');
     mainSection.className = 'settings-section';
 
-    mainSection.appendChild(
-        createBannerHeightToggle('Высота баннера', s.bannerHeight || 250, block.id, 'bannerHeight')
-    );
+    if (!hiddenSettings.includes('bannerHeight')) {
+        mainSection.appendChild(
+            createBannerHeightToggle('Высота баннера', s.bannerHeight || 250, block.id, 'bannerHeight')
+        );
+    }
 
-    mainSection.appendChild(
-        createRightImageModeToggle(
-            'Формат правой картинки',
-            s.rightImageMode || 'mask',
-            block.id
-        )
-    );
+    if (!hiddenSettings.includes('rightImageMode')) {
+        mainSection.appendChild(
+            createRightImageModeToggle(
+                'Формат правой картинки',
+                s.rightImageMode || 'mask',
+                block.id
+            )
+        );
+    }
 
-    const mainTitle = document.createElement('h3');
-    mainTitle.textContent = 'Основные';
-    mainTitle.style.cssText = 'color: var(--text-primary); font-size: 14px; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 1px solid var(--border-primary);';
-    mainSection.appendChild(mainTitle);
+    if (!hiddenSettings.includes('colors')) {
+        const mainTitle = document.createElement('h3');
+        mainTitle.textContent = 'Основные';
+        mainTitle.style.cssText = 'color: var(--text-primary); font-size: 14px; margin: 0 0 12px 0; padding-bottom: 8px; border-bottom: 1px solid var(--border-primary);';
+        mainSection.appendChild(mainTitle);
 
-    const mode = s.rightImageMode || 'mask';
-    const paintOrder = mode === 'mask'
-        ? ['leftBlock', 'background']
-        : ['background', 'leftBlock'];
+        const mode = s.rightImageMode || 'mask';
+        const paintOrder = mode === 'mask'
+            ? ['leftBlock', 'background']
+            : ['background'];
 
-    paintOrder.forEach((target) => {
-        const label = target === 'background' ? 'Подложка' : 'Левый блок';
-        mainSection.appendChild(createBannerPaintControl(block, target, label, mode));
-    });
+        paintOrder.forEach((target) => {
+            const label = target === 'background' ? 'Подложка' : 'Левый блок';
+            mainSection.appendChild(createBannerPaintControl(block, target, label, mode));
+        });
 
-    container.appendChild(mainSection);
+        // Скругление углов баннера
+        const radiusRow = document.createElement('div');
+        radiusRow.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid var(--border-primary);margin-top:8px';
+
+        const radiusLbl = document.createElement('span');
+        radiusLbl.style.cssText = 'font-size:12px;color:var(--text-secondary);white-space:nowrap';
+        radiusLbl.textContent = 'Скругление углов';
+
+        const radiusRange = document.createElement('input');
+        radiusRange.type = 'range';
+        radiusRange.min = 0;
+        radiusRange.max = 48;
+        radiusRange.step = 1;
+        radiusRange.value = s.bannerRadius ?? 32;
+        radiusRange.style.cssText = 'flex:1;accent-color:#a855f7';
+
+        const radiusVal = document.createElement('span');
+        radiusVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:36px;text-align:right';
+        radiusVal.textContent = (s.bannerRadius ?? 32) + 'px';
+
+        radiusRange.addEventListener('input', () => {
+            const n = Number(radiusRange.value);
+            radiusVal.textContent = n + 'px';
+            const b = AppState.findBlockById(block.id);
+            if (!b) return;
+            b.settings.bannerRadius = n;
+            renderBannerToDataUrl(b, (dataUrl) => {
+                b.settings.renderedBanner = dataUrl || null;
+                renderCanvas();
+            });
+        });
+
+        radiusRow.appendChild(radiusLbl);
+        radiusRow.appendChild(radiusRange);
+        radiusRow.appendChild(radiusVal);
+        mainSection.appendChild(radiusRow);
+
+        container.appendChild(mainSection);
+    }
 
     // === ПРАВАЯ КАРТИНКА ===
     const rightImageSection = document.createElement('div');
@@ -127,7 +173,9 @@ function renderBannerSettings(container, block) {
         rightImageSection.appendChild(createSettingRange('Масштаб', s.rightImageScale || 100, block.id, 'rightImageScale', 50, 150, 1, '%'));
     }
 
-    container.appendChild(rightImageSection);
+    if (!hiddenSettings.includes('rightImage')) {
+        container.appendChild(rightImageSection);
+    }
 
     // === ЛОГОТИП ===
     const logoSection = document.createElement('div');
@@ -175,7 +223,9 @@ function renderBannerSettings(container, block) {
     logoSection.appendChild(logoPositionInput);
     logoSection.appendChild(createSettingRange('Масштаб', s.logoScale || 100, block.id, 'logoScale', 50, 150, 1, '%'));
 
-    container.appendChild(logoSection);
+    if (!hiddenSettings.includes('logo')) {
+        container.appendChild(logoSection);
+    }
 
     // === ТЕКСТОВЫЕ ЭЛЕМЕНТЫ ===
     const textSection = document.createElement('div');
@@ -222,7 +272,9 @@ function renderBannerSettings(container, block) {
     });
 
     textSection.appendChild(addButton);
-    container.appendChild(textSection);
+    if (!hiddenSettings.includes('textElements')) {
+        container.appendChild(textSection);
+    }
 }
 
 const BANNER_BASE_PALETTE = [
