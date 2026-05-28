@@ -66,6 +66,7 @@ RUN apt-get update -y && \
         patchelf \
         curl \
         git \
+        libkrb5-devel \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -87,6 +88,17 @@ WORKDIR /app
 # Install it separately at build time only when needed (icon conversion step).
 COPY requirements.txt .
 RUN grep -iv pillow requirements.txt | python3 -m pip install --no-cache-dir -r /dev/stdin
+
+# ── Kerberos / GSSAPI (Linux only) ───────────────────────────────────────────
+# gssapi       : Python binding to libgssapi_krb5.so — needed for GSSAPI auth
+#                in exchangelib. Requires libkrb5-devel installed above.
+# requests-kerberos : HTTP Kerberos auth transport for requests / exchangelib.
+#
+# These are NOT in requirements.txt because they require MIT Kerberos headers
+# at build time (libkrb5-devel) and are only applicable on Linux.
+# The resulting .so is bundled into the PyInstaller binary by build_user.spec;
+# on the user's machine libgssapi_krb5.so is already present (domain-joined host).
+RUN python3 -m pip install --no-cache-dir gssapi requests-kerberos
 
 # build_linux_alt.bat mounts the project root at /app and runs pyinstaller.
 CMD ["bash"]

@@ -92,22 +92,32 @@ const ExchangeModals = (() => {
               </div>
 
               <div id="settings-pane-exchange" class="exchange-settings-pane is-active">
+                <input type="hidden" id="exc-auth-type" value="ntlm">
+
                 <div class="exc-field">
                   <label class="exc-label">Сервер Exchange</label>
                   <input id="exc-server" type="text" class="exc-input"
                          placeholder="mail.company.ru" autocomplete="off">
                 </div>
 
-                <div class="exc-field">
-                  <label class="exc-label">Логин</label>
-                  <input id="exc-username" type="text" class="exc-input"
-                         placeholder="domain\\user_name" autocomplete="username">
+                <div id="exc-kerberos-badge" class="exc-kerberos-badge" style="display:none;">
+                  <span>🔒 Kerberos-тикет обнаружен — логин и пароль не требуются</span>
+                  <button type="button" class="exc-link-btn"
+                          onclick="ExchangeModals._showNtlmFields()">Использовать NTLM</button>
                 </div>
 
-                <div class="exc-field">
-                  <label class="exc-label">Пароль</label>
-                  <input id="exc-password" type="password" class="exc-input"
-                         placeholder="••••••••" autocomplete="current-password">
+                <div id="exc-ntlm-fields">
+                  <div class="exc-field">
+                    <label class="exc-label">Логин</label>
+                    <input id="exc-username" type="text" class="exc-input"
+                           placeholder="domain\\user_name" autocomplete="username">
+                  </div>
+
+                  <div class="exc-field">
+                    <label class="exc-label">Пароль</label>
+                    <input id="exc-password" type="password" class="exc-input"
+                           placeholder="••••••••" autocomplete="current-password">
+                  </div>
                 </div>
 
                 <div class="exc-field">
@@ -364,15 +374,34 @@ const ExchangeModals = (() => {
         }
     }
 
+    function _applyAuthTypeUI(isKerberos) {
+        const ntlmFields = _q('exc-ntlm-fields');
+        const badge = _q('exc-kerberos-badge');
+        const authInput = _q('exc-auth-type');
+        if (ntlmFields) ntlmFields.style.display = isKerberos ? 'none' : '';
+        if (badge)      badge.style.display      = isKerberos ? ''     : 'none';
+        if (authInput)  authInput.value           = isKerberos ? 'kerberos' : 'ntlm';
+    }
+
+    function _showNtlmFields() {
+        _applyAuthTypeUI(false);
+        _updateSettingsDirtyState();
+    }
+
     async function openCredentials() {
         _open('exchange-credentials-modal');
         _setActiveSettingsTab('exchange');
-        const status = await _loadCredentialsStatus(true);
-        try {
-            await _loadAppSettings(true);
-        } catch (error) {
-            _showRepoResult(error.message || 'Не удалось загрузить настройки репозитория', 'error');
-        }
+
+        const [status, authDetect] = await Promise.all([
+            _loadCredentialsStatus(true),
+            fetch('/api/credentials/detect-auth')
+                .then(r => r.json())
+                .catch(() => ({ kerberos: false })),
+            _loadAppSettings(true).catch(error => {
+                _showRepoResult(error.message || 'Не удалось загрузить настройки репозитория', 'error');
+            }),
+        ]);
+
         if (status.exists) {
             if (status.server)     _q('exc-server').value     = status.server;
             if (status.username)   _q('exc-username').value   = status.username;
@@ -390,6 +419,12 @@ const ExchangeModals = (() => {
                 ? 'Оставьте пустым, чтобы не менять'
                 : '••••••••';
         }
+
+        // Auto-detect: if Kerberos ticket found OR saved auth_type is kerberos → switch UI
+        const savedIsKerberos = (status.auth_type || 'ntlm') === 'kerberos';
+        const kerberosAvailable = authDetect && authDetect.kerberos === true;
+        _applyAuthTypeUI(kerberosAvailable || savedIsKerberos);
+
         _q('exc-test-result').style.display = 'none';
 
         // Track changes to toggle Save ↔ Close button label.
@@ -403,11 +438,13 @@ const ExchangeModals = (() => {
 
     function _getExchangeFormData() {
         const sendersRaw = _q('exc-senders').value.trim();
+        const authTypeEl = _q('exc-auth-type');
         return {
             server: _q('exc-server').value.trim(),
             username: _q('exc-username').value.trim(),
             password: _q('exc-password').value,
             fromEmail: _q('exc-from-email').value.trim(),
+            authType: authTypeEl ? authTypeEl.value : 'ntlm',
             defaultSenders: sendersRaw
                 ? sendersRaw.split(',').map(s => s.trim()).filter(Boolean)
                 : [],
@@ -423,6 +460,7 @@ const ExchangeModals = (() => {
         if ((status.server || '') !== data.server) return true;
         if ((status.username || '') !== data.username) return true;
         if ((status.from_email || '') !== data.fromEmail) return true;
+        if ((status.auth_type || 'ntlm') !== (data.authType || 'ntlm')) return true;
         if (currentSenders.length !== nextSenders.length) return true;
         return currentSenders.some((value, index) => value !== nextSenders[index]);
     }
@@ -442,9 +480,15 @@ const ExchangeModals = (() => {
         const username = _q('exc-username').value.trim();
         const password = _q('exc-password').value;
         const fromEmail = _q('exc-from-email').value.trim();
+        const authTypeEl = _q('exc-auth-type');
+        const authType = authTypeEl ? authTypeEl.value : 'ntlm';
 
-        if (!server || !username || !fromEmail) {
-            _showTestResult('Заполните поля: сервер, логин, адрес отправителя', 'error');
+        if (!server || !fromEmail) {
+            _showTestResult('Заполните поля: сервер, адрес отправителя', 'error');
+            return;
+        }
+        if (authType !== 'kerberos' && !username) {
+            _showTestResult('Заполните поле: логин', 'error');
             return;
         }
 
@@ -455,7 +499,7 @@ const ExchangeModals = (() => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ server, username, password,
-                                       from_email: fromEmail }),
+                                       from_email: fromEmail, auth_type: authType }),
             });
             const data = await r.json();
             if (data.success) {
@@ -689,10 +733,11 @@ const ExchangeModals = (() => {
             username,
             password,
             fromEmail,
+            authType,
             defaultSenders,
         } = _getExchangeFormData();
 
-        const isDirty = _isExchangeFormDirty({ server, username, password, fromEmail, defaultSenders });
+        const isDirty = _isExchangeFormDirty({ server, username, password, fromEmail, authType, defaultSenders });
 
         if (!isDirty) {
             return true;
@@ -710,7 +755,8 @@ const ExchangeModals = (() => {
                 body: JSON.stringify({
                     server, username, password,
                     from_email: fromEmail,
-                    default_senders: defaultSenders
+                    default_senders: defaultSenders,
+                    auth_type: authType,
                 })
             });
             const data = await r.json();
@@ -1186,6 +1232,7 @@ const ExchangeModals = (() => {
         saveCredentials,
         saveSettings,
         testConnection,
+        _showNtlmFields,
         verifyRepoPath,
         searchRepo,
         createRepo,
@@ -1194,8 +1241,8 @@ const ExchangeModals = (() => {
         sendEmail,
         sendMeeting,
         toggleEmailComment,
-        pickAttachments,        
-        onAttachmentsChange,    
+        pickAttachments,
+        onAttachmentsChange,
         removeAttachment,
     };
 

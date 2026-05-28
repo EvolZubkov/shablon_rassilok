@@ -164,8 +164,8 @@ const ProfilesAdmin = (() => {
         const overlay = document.createElement('div');
         overlay.id = 'profiles-admin-overlay';
         overlay.style.cssText = `
-            position:fixed;inset:0;z-index:9000;
-            background:rgba(0,0,0,.6);backdrop-filter:blur(3px);
+            position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
+            background:rgba(0,0,0,.6);
             display:none;align-items:center;justify-content:center;
         `;
 
@@ -709,5 +709,11 @@ const ProfilesAdmin = (() => {
 // ── Инициализация кнопки ─────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', () => {
     const btn = document.getElementById('btn-profiles-admin');
-    if (btn) btn.addEventListener('click', () => ProfilesAdmin.open());
+    if (btn) btn.addEventListener('click', () => {
+        try {
+            ProfilesAdmin.open();
+        } catch (e) {
+            if (typeof jslog === 'function') jslog('error', '[ProfilesAdmin] open() threw: ' + e);
+        }
+    });
 });
