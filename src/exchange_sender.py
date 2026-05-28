@@ -76,13 +76,15 @@ def _to_attendees(emails: list) -> list:
 # ─── Подключение ─────────────────────────────────────────────────────────────
 
 def connect_exchange(server: str, username: str, password: str,
-                     from_email: str) -> 'Account':
+                     from_email: str, auth_type: str = 'ntlm') -> 'Account':
     """Build an Exchange ``Account`` object (no network I/O at this stage).
 
     ``Account(autodiscover=False)`` does **not** open a connection — the real
     network handshake happens on the first EWS call (``msg.send()``, etc.).
-    Errors raised here are limited to bad argument types; actual auth/network
-    failures surface later and are caught in the send helpers.
+
+    Args:
+        auth_type: 'ntlm' (default) or 'kerberos' (uses system GSSAPI ticket,
+                   no password required — needs requests-kerberos installed).
 
     Raises:
         ValueError       — неверный логин/пароль (при первом сетевом вызове)
@@ -94,25 +96,39 @@ def connect_exchange(server: str, username: str, password: str,
             'exchangelib не установлен: pip install exchangelib')
 
     # Guard against empty from_email coming from the frontend "default" option.
-    effective_from = (from_email or '').strip() or username.strip()
+    effective_from = (from_email or '').strip() or (username or '').strip()
 
-    _logger.info('exchange connect: server=%s username=%s from=%s',
-                 server, username, effective_from)
+    _logger.info('exchange connect: server=%s username=%s from=%s auth_type=%s',
+                 server, username, effective_from, auth_type)
     try:
-        credentials = Credentials(username=username, password=password)
-
-        # Specify NTLM explicitly to bypass exchangelib's auth-type
-        # auto-detection, which fails on some corporate Exchange setups
-        # ("Failed to get auth type from service").  NTLM is the de-facto
-        # standard for on-premises Exchange; if the server rejects it the
-        # error will be a clear "Unauthorized" rather than a silent detection
-        # failure.
-        from exchangelib import NTLM
-        config = Configuration(
-            server=server,
-            credentials=credentials,
-            auth_type=NTLM,
-        )
+        if auth_type == 'kerberos':
+            try:
+                from exchangelib.credentials import GSSAPICredentials
+                from exchangelib import GSSAPI
+            except ImportError:
+                raise RuntimeError(
+                    'Для Kerberos-аутентификации требуется: '
+                    'pip install requests-kerberos')
+            credentials = GSSAPICredentials(
+                username=username or None,
+                password=None,
+            )
+            config = Configuration(
+                server=server,
+                credentials=credentials,
+                auth_type=GSSAPI,
+            )
+        else:
+            credentials = Credentials(username=username, password=password)
+            # Specify NTLM explicitly to bypass exchangelib's auth-type
+            # auto-detection, which fails on some corporate Exchange setups
+            # ("Failed to get auth type from service").
+            from exchangelib import NTLM
+            config = Configuration(
+                server=server,
+                credentials=credentials,
+                auth_type=NTLM,
+            )
 
         account = Account(
             primary_smtp_address=effective_from,

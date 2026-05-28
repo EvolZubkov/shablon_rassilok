@@ -112,10 +112,12 @@ async function initUserApp() {
     UserThemeUI.init();
 
     // Загружаем конфиг и список шаблонов параллельно.
-    // generateEmailHTML (внутри loadCardPreviews) использует данные конфига,
-    // но вызывается только после Phase 1 (N fetches шаблонов) — к тому моменту
-    // ConfigLoader гарантированно завершён.
-    await Promise.all([ConfigLoader.load(), loadTemplatesAndCategories()]);
+    // Профиль и конфиг грузятся параллельно с шаблонами.
+    // ProfileLoader должен завершиться до рендера блоков (blockDefaults, settingsPanels).
+    const profileLoad = (typeof ProfileLoader !== 'undefined')
+        ? ProfileLoader.load()
+        : Promise.resolve();
+    await Promise.all([ConfigLoader.load(), profileLoad, loadTemplatesAndCategories()]);
 
     // Инициализируем обработчики
     initStartScreenHandlers();

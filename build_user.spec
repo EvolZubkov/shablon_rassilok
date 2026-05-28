@@ -27,6 +27,7 @@ raw_datas = [
     maybe('static',                    'static'),
     maybe('js',                        'js'),
     maybe('templates',                 'templates'),
+    maybe('profiles',                  'profiles'),  # профили аудиторий — fallback если нет в кеше
     maybe('index.html',                '.'),
     maybe('index-user.html',           '.'),
     maybe('styles.css',                '.'),
@@ -58,6 +59,26 @@ for pkg in ('PyQt5', 'PyQtWebEngine'):
         extra_datas    += d
         extra_binaries += b
         extra_hidden   += h
+    except Exception:
+        pass
+
+# ── Kerberos / GSSAPI (опционально) ──────────────────────────────────────────
+# На Linux собирается с gssapi + requests-kerberos если пакеты установлены
+# на сборочной машине (apt install python3-gssapi / pip install gssapi).
+# Системная libgssapi_krb5.so на машинах пользователей уже есть (доменные ПК).
+# На Windows gssapi не нужен — используется встроенный SSPI.
+#
+# collect_all + collect_submodules нужны оба: collect_all берёт данные и
+# бинарные .so, collect_submodules явно прописывает Cython-расширения
+# (gssapi.raw.cython_converters и др.) которые PyInstaller может пропустить
+# при статическом анализе импортов.
+for pkg in ('gssapi', 'requests_kerberos'):
+    try:
+        d, b, h = collect_all(pkg)
+        extra_datas    += d
+        extra_binaries += b
+        extra_hidden   += h
+        extra_hidden   += collect_submodules(pkg)
     except Exception:
         pass
 

@@ -13,11 +13,53 @@ Routes:
     - POST /api/send/meeting        — create a calendar meeting via Exchange
 """
 
+import subprocess
+import sys
+
 from flask import Blueprint, current_app, jsonify, request
 
 import app as _m  # module reference — gives live access to all app.py globals
 
 bp = Blueprint('exchange', __name__)
+
+
+@bp.route('/api/credentials/detect-auth', methods=['GET'])
+def api_detect_auth():
+    """Проверяет доступность Kerberos на текущей машине.
+
+    1. Проверяет, установлен ли requests-kerberos (ImportError → NTLM).
+    2. На Linux дополнительно проверяет пакет gssapi — он обязателен для
+       requests-kerberos на Linux (на Windows используется встроенный SSPI).
+    3. Запускает klist — если тикет есть, возвращает kerberos: true.
+    """
+    try:
+        import importlib.util
+
+        kerberos_pkg = importlib.util.find_spec('requests_kerberos')
+        if kerberos_pkg is None:
+            return jsonify({'kerberos': False, 'reason': 'requests-kerberos not installed'})
+
+        # On Linux requests-kerberos delegates to the gssapi Python package.
+        # On Windows it uses SSPI directly and gssapi is not required.
+        if sys.platform != 'win32':
+            gssapi_pkg = importlib.util.find_spec('gssapi')
+            if gssapi_pkg is None:
+                return jsonify({'kerberos': False, 'reason': 'gssapi not installed'})
+
+        result = subprocess.run(
+            ['klist'],
+            capture_output=True, text=True, timeout=5,
+        )
+        if result.returncode == 0:
+            return jsonify({'kerberos': True})
+        return jsonify({'kerberos': False, 'reason': 'no active Kerberos ticket'})
+    except FileNotFoundError:
+        return jsonify({'kerberos': False, 'reason': 'klist not found'})
+    except subprocess.TimeoutExpired:
+        return jsonify({'kerberos': False, 'reason': 'klist timed out'})
+    except Exception as e:
+        current_app.logger.warning('detect-auth error: %s', e)
+        return jsonify({'kerberos': False, 'reason': str(e)})
 
 
 @bp.route('/api/credentials/status', methods=['GET'])
@@ -35,6 +77,7 @@ def api_credentials_status():
                 'server':          creds.get('server') if creds else None,
                 'from_email':      creds.get('from_email') if creds else None,
                 'default_senders': creds.get('default_senders') if creds else [],
+                'auth_type':       (creds.get('auth_type') or 'ntlm') if creds else 'ntlm',
             })
         return jsonify({'exists': False, 'has_password': False,
                         'username': None, 'server': None,
@@ -55,12 +98,13 @@ def api_credentials_save():
         password = str(data.get('password') or '').strip()
         from_email = str(data.get('from_email') or '').strip()
         default_senders = data.get('default_senders') or []
+        auth_type = str(data.get('auth_type') or 'ntlm').lower()
         path = _m.get_credentials_path()
 
         # Opening the settings form does not repopulate the password field.
         # Reuse the existing secret when the username stays unchanged and the
         # user saved other settings without entering a new password.
-        if not password and _m.credentials_exist(path):
+        if auth_type != 'kerberos' and not password and _m.credentials_exist(path):
             try:
                 existing_creds = _m.load_credentials(path)
                 if (existing_creds and existing_creds.get('password')
@@ -72,12 +116,13 @@ def api_credentials_save():
         ok, err = _m.validate_credentials_data({
             'server': server, 'username': username,
             'password': password, 'from_email': from_email,
+            'auth_type': auth_type,
         })
         if not ok:
             return jsonify({'success': False, 'error': err}), 400
 
         _m.save_credentials(path, server, username, password,
-                            from_email, default_senders)
+                            from_email, default_senders, auth_type=auth_type)
         return jsonify({'success': True})
     except Exception as e:
         current_app.logger.error('credentials_save error: %s', e, exc_info=True)
@@ -94,8 +139,9 @@ def api_credentials_test():
         username   = str(data.get('username')   or '').strip()
         password   = str(data.get('password')   or '').strip()
         from_email = str(data.get('from_email') or '').strip()
+        auth_type  = str(data.get('auth_type')  or 'ntlm').lower()
 
-        if not password and _m.credentials_exist(path):
+        if auth_type != 'kerberos' and not password and _m.credentials_exist(path):
             try:
                 existing = _m.load_credentials(path)
                 if existing and existing.get('username') == username:
@@ -103,11 +149,18 @@ def api_credentials_test():
             except RuntimeError:
                 pass
 
-        if not server or not username or not password or not from_email:
-            return jsonify({'success': False, 'error': 'Заполните все поля'}), 400
+        if not server or not from_email:
+            return jsonify({'success': False, 'error': 'Заполните поля: сервер и email отправителя'}), 400
+        if auth_type != 'kerberos' and (not username or not password):
+            return jsonify({'success': False, 'error': 'Заполните поля: логин и пароль'}), 400
 
-        account = _m.connect_exchange(server, username, password, from_email)
-        account.inbox.refresh()  # первый реальный EWS-запрос — проверяет аутентификацию
+        account = _m.connect_exchange(server, username, password, from_email, auth_type=auth_type)
+        try:
+            account.inbox.refresh()  # первый реальный EWS-запрос — проверяет аутентификацию
+        except (ValueError, ConnectionError, RuntimeError):
+            raise
+        except Exception as e:
+            _m._wrap_exchange_error(e)  # конвертирует в ValueError/ConnectionError/RuntimeError
         current_app.logger.info('credentials_test: OK server=%s username=%s', server, username)
         return jsonify({'success': True})
 
@@ -153,7 +206,8 @@ def api_send_email():
                             'error': 'Не удалось загрузить учётные данные'}), 401
         account = _m.connect_exchange(
             creds['server'], creds['username'], creds['password'],
-            from_email or creds['from_email']
+            from_email or creds['from_email'],
+            auth_type=creds.get('auth_type', 'ntlm'),
         )
         html_body = _m.prepare_html_for_email(data.get('html_body', ''))
         attachments = data.get('attachments', [])
@@ -221,7 +275,8 @@ def api_send_meeting():
                             'error': 'Не удалось загрузить учётные данные'}), 401
         account = _m.connect_exchange(
             creds['server'], creds['username'], creds['password'],
-            from_email or creds['from_email']
+            from_email or creds['from_email'],
+            auth_type=creds.get('auth_type', 'ntlm'),
         )
         html_body = _m.prepare_html_for_email(data.get('html_body', ''))
         attachments = data.get('attachments', [])

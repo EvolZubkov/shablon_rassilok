@@ -2977,6 +2977,35 @@ body {
   border: 1px solid rgba(99, 102, 241, 0.3);
 }
 
+.exc-kerberos-badge {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 8px;
+  background: rgba(16, 185, 129, 0.10);
+  border: 1px solid var(--accent-success, #10b981);
+  font-size: 13px;
+  color: var(--accent-success, #10b981);
+  margin-bottom: 4px;
+}
+
+.exc-link-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  color: var(--text-secondary, #8090a8);
+  text-decoration: underline;
+  cursor: pointer;
+  white-space: nowrap;
+  margin-left: auto;
+}
+
+.exc-link-btn:hover {
+  color: var(--text-primary, #e0e6ef);
+}
+
 /* Футер */
 .exc-footer {
   display: flex;

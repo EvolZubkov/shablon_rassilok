@@ -93,7 +93,8 @@ def validate_credentials_data(data: dict) -> Tuple[bool, Optional[str]]:
     Проверяет обязательные поля.
     Returns: (ok: bool, error_message: str | None)
     """
-    required = ["server", "username", "password", "from_email"]
+    is_kerberos = str(data.get('auth_type') or 'ntlm').lower() == 'kerberos'
+    required = ["server", "from_email"] if is_kerberos else ["server", "username", "password", "from_email"]
     for field in required:
         if not str(data.get(field) or "").strip():
             return False, f"Поле {field} обязательно"
@@ -113,16 +114,20 @@ def save_credentials(
     from_email: str,
     default_senders: list = None,
     hostname: str = None,
+    auth_type: str = 'ntlm',
 ) -> None:
-    """Шифрует пароль и сохраняет credentials.json."""
-    key = make_key(username, hostname)
+    """Шифрует пароль (для NTLM) и сохраняет credentials.json."""
+    is_kerberos = str(auth_type or 'ntlm').lower() == 'kerberos'
     payload = {
         "server": server.strip(),
-        "username": username.strip(),
-        "password": encrypt_password(password, key),
+        "username": (username or '').strip(),
         "from_email": from_email.strip(),
         "default_senders": default_senders or [],
+        "auth_type": 'kerberos' if is_kerberos else 'ntlm',
     }
+    if not is_kerberos:
+        key = make_key(username, hostname)
+        payload["password"] = encrypt_password(password, key)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -141,10 +146,15 @@ def load_credentials(path: str, hostname: Optional[str] = None) -> Optional[Dict
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        key = make_key(data["username"], hostname)
-        data["password"] = decrypt_password(data["password"], key)
-        _logger.debug('credentials loaded for user=%s server=%s',
-                      data.get('username'), data.get('server'))
+        is_kerberos = str(data.get('auth_type') or 'ntlm').lower() == 'kerberos'
+        if is_kerberos:
+            data['password'] = ''
+        else:
+            key = make_key(data["username"], hostname)
+            data["password"] = decrypt_password(data["password"], key)
+        data.setdefault('auth_type', 'ntlm')
+        _logger.debug('credentials loaded for user=%s server=%s auth_type=%s',
+                      data.get('username'), data.get('server'), data.get('auth_type'))
         return data
     except InvalidToken:
         _logger.error(

@@ -1385,7 +1385,8 @@ def _initialize_cache_locked():
     # 1a. Копируем профили аудиторий
     network_profiles = os.path.join(NETWORK_RESOURCES_PATH, 'profiles')
     cache_profiles   = os.path.join(CACHE_DIR, 'profiles')
-    if os.path.exists(network_profiles):
+    # Пропускаем если network и cache указывают на одну папку (dev-режим на Windows)
+    if os.path.exists(network_profiles) and os.path.normcase(os.path.abspath(network_profiles)) != os.path.normcase(os.path.abspath(cache_profiles)):
         print("\n📥 Загрузка profiles/...")
         os.makedirs(cache_profiles, exist_ok=True)
         for fname in os.listdir(network_profiles):
@@ -3261,7 +3262,7 @@ try:
     )
     from exchange_sender import (
         connect_exchange, exchange_send_email, exchange_send_meeting,
-        parse_datetime, parse_recipients,
+        parse_datetime, parse_recipients, _wrap_exchange_error,
     )
     EXCHANGE_AVAILABLE = True
 except ImportError:
