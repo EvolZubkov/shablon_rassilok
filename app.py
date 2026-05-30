@@ -3097,6 +3097,11 @@ def _run_webview_or_browser() -> None:
             pass
 
         view = QWebEngineView()
+        # В dev-режиме отключаем дисковый кеш чтобы изменения статики были видны сразу
+        if not getattr(sys, 'frozen', False):
+            from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+            profile = QWebEngineProfile.defaultProfile()
+            profile.setHttpCacheType(QWebEngineProfile.NoCache)
         view.load(QUrl(url))
         window.setCentralWidget(view)
         window.show()

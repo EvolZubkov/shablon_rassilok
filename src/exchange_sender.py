@@ -103,21 +103,26 @@ def connect_exchange(server: str, username: str, password: str,
     try:
         if auth_type == 'kerberos':
             try:
-                from exchangelib.credentials import GSSAPICredentials
-                from exchangelib import GSSAPI
-            except ImportError:
+                import gssapi  # noqa: F401
+                from requests_kerberos import HTTPKerberosAuth, OPTIONAL
+            except ImportError as _kerb_err:
                 raise RuntimeError(
-                    'Для Kerberos-аутентификации требуется: '
-                    'pip install requests-kerberos')
-            credentials = GSSAPICredentials(
-                username=username or None,
-                password=None,
-            )
-            config = Configuration(
-                server=server,
-                credentials=credentials,
-                auth_type=GSSAPI,
-            )
+                    'Для Kerberos-аутентификации требуется gssapi: '
+                    f'{_kerb_err}')
+            # exchangelib 5.x removed native GSSAPI support AND this server
+            # returns 401 without WWW-Authenticate, so auto-detection fails.
+            # Inject HTTPKerberosAuth directly into the requests.Session that
+            # BaseProtocol creates. requests_kerberos handles the Negotiate
+            # challenge transparently before exchangelib sees the response.
+            from exchangelib.transport import NOAUTH
+            from exchangelib.protocol import BaseProtocol
+            _orig_create_session = BaseProtocol.create_session
+            def _kerberos_create_session(self):
+                s = _orig_create_session(self)
+                s.auth = HTTPKerberosAuth(mutual_authentication=OPTIONAL)
+                return s
+            BaseProtocol.create_session = _kerberos_create_session
+            config = Configuration(server=server, auth_type=NOAUTH)
         else:
             credentials = Credentials(username=username, password=password)
             # Specify NTLM explicitly to bypass exchangelib's auth-type
@@ -153,6 +158,13 @@ def _wrap_exchange_error(exc: Exception) -> None:
     name = type(exc).__name__
     msg  = str(exc)
     _logger.error('Exchange error [%s]: %s', name, msg)
+
+    # Kerberos / GSSAPI ticket errors
+    if any(k in name for k in ('GSSError', 'KerberosError', 'MutualAuthenticationError')):
+        raise ConnectionError(
+            f'Ошибка Kerberos — нет действующего тикета (выполните kinit): {msg}')
+    if 'gss' in msg.lower() or 'kerberos' in msg.lower() or 'negotiate' in msg.lower():
+        raise ConnectionError(f'Ошибка Kerberos-аутентификации: {msg}')
 
     # Authentication / authorisation
     if any(k in name for k in ('Unauthorized', 'AuthenticationFailed',

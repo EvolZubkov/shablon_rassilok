@@ -41,10 +41,13 @@ def api_detect_auth():
 
         # On Linux requests-kerberos delegates to the gssapi Python package.
         # On Windows it uses SSPI directly and gssapi is not required.
+        # Use actual import (not find_spec) — find_spec returns non-None even
+        # for partially-bundled packages where Cython extensions are missing.
         if sys.platform != 'win32':
-            gssapi_pkg = importlib.util.find_spec('gssapi')
-            if gssapi_pkg is None:
-                return jsonify({'kerberos': False, 'reason': 'gssapi not installed'})
+            try:
+                import gssapi  # noqa: F401
+            except Exception:
+                return jsonify({'kerberos': False, 'reason': 'gssapi not functional'})
 
         result = subprocess.run(
             ['klist'],
