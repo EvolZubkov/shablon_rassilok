@@ -364,6 +364,9 @@ function initToolbarHandlers() {
             updateToolbarState();
         }
     });
+
+    // Кнопка вставки плейсхолдера (добавляется только один раз)
+    initBulkMailFieldButton();
 }
 
 /**
@@ -649,14 +652,6 @@ function setBulkMailColumnsAvailable(available) {
     const btn = document.getElementById('toolbar-btn-field');
     if (btn) btn.style.display = available ? 'flex' : 'none';
     if (!available) hideFieldDropdown();
-}
-
-/**
- * Показать/скрыть кнопку в зависимости от того загружен ли файл
- */
-function setBulkMailColumnsAvailable(available) {
-    const btn = document.getElementById('toolbar-btn-field');
-    if (btn) btn.style.display = available ? 'flex' : 'none';
 }
 
 // Инициализируем toolbar при загрузке

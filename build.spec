@@ -73,6 +73,52 @@ for pkg in ('PyQt5', 'PyQtWebEngine'):
 
 datas += extra_datas
 
+# ── Kerberos / GSSAPI (опционально, Linux) ───────────────────────────────────
+for pkg in ('gssapi', 'requests_kerberos'):
+    try:
+        d, b, h = collect_all(pkg)
+        extra_datas    += d
+        extra_binaries += b
+        extra_hidden   += h
+        extra_hidden   += collect_submodules(pkg)
+    except Exception:
+        pass
+
+try:
+    import importlib.util as _ilu
+    import glob as _glob
+    import site as _site
+
+    _gssapi_dir = None
+    _sp = _ilu.find_spec('gssapi')
+    if _sp and _sp.origin:
+        _gssapi_dir = os.path.dirname(_sp.origin)
+    if not _gssapi_dir:
+        _sp2 = _ilu.find_spec('gssapi.raw')
+        if _sp2 and _sp2.submodule_search_locations:
+            _gssapi_dir = os.path.dirname(list(_sp2.submodule_search_locations)[0])
+    if not _gssapi_dir:
+        for _spdir in (_site.getsitepackages() if hasattr(_site, 'getsitepackages') else []):
+            _cand = os.path.join(_spdir, 'gssapi')
+            if os.path.isdir(_cand):
+                _gssapi_dir = _cand
+                break
+
+    if _gssapi_dir:
+        _sos_found = []
+        for _so in _glob.glob(os.path.join(_gssapi_dir, '**', '*.so*'), recursive=True):
+            if os.path.isfile(_so):
+                _rel_dir = os.path.relpath(os.path.dirname(_so), os.path.dirname(_gssapi_dir))
+                extra_binaries.append((_so, _rel_dir))
+                _sos_found.append(_so)
+        print(f'[gssapi] dir={_gssapi_dir}, bundled {len(_sos_found)} .so files: {_sos_found}', flush=True)
+    else:
+        print('[gssapi] package not found', flush=True)
+except Exception as _e:
+    print(f'[gssapi] collection error: {_e}', flush=True)
+
+datas += extra_datas
+
 # ── Hidden imports ────────────────────────────────────────────────────────────
 hiddenimports = [
     # Flask stack

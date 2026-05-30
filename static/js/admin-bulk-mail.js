@@ -108,10 +108,10 @@ const AdminBulkMail = (() => {
 .abm-ph-section-title { font-size:11px; font-weight:600; color:var(--accent-primary,#f97316); text-transform:uppercase; letter-spacing:.5px; margin-bottom:8px; }
 .abm-ph-chip { display:inline-flex; padding:3px 9px; border-radius:4px; border:1px solid rgba(249,115,22,0.35); background:rgba(249,115,22,0.1); color:var(--accent-primary,#f97316); font-size:12px; font-family:monospace; cursor:pointer; transition:background .15s; }
 .abm-ph-chip:hover { background:rgba(249,115,22,0.22); }
-.abm-ph-manual-row { display:flex; gap:6px; margin-top:8px; }
-.abm-ph-manual-input { flex:1; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color,#334155); background:var(--bg-secondary,#1e293b); color:var(--text-primary,#f9fafb); font-size:13px; outline:none; transition:border-color .15s; }
+.abm-ph-manual-row { display:flex; gap:6px; margin-top:8px; overflow:hidden; }
+.abm-ph-manual-input { flex:1; min-width:0; padding:6px 10px; border-radius:6px; border:1px solid var(--border-color,#334155); background:var(--bg-secondary,#1e293b); color:var(--text-primary,#f9fafb); font-size:12px; outline:none; transition:border-color .15s; }
 .abm-ph-manual-input:focus { border-color:var(--accent-primary,#f97316); }
-.abm-ph-insert-btn { padding:6px 12px; border-radius:6px; border:none; background:var(--accent-primary,#f97316); color:#fff; font-size:13px; font-weight:500; cursor:pointer; white-space:nowrap; transition:background .15s; }
+.abm-ph-insert-btn { flex-shrink:0; padding:6px 10px; border-radius:6px; border:none; background:var(--accent-primary,#f97316); color:#fff; font-size:12px; font-weight:500; cursor:pointer; white-space:nowrap; transition:background .15s; }
 .abm-ph-insert-btn:hover { background:var(--accent-primary-hover,#ea580c); }
 #abm-toast { transition:opacity .3s; }
 `;
@@ -199,6 +199,9 @@ const AdminBulkMail = (() => {
                     const cur = block.settings[settingKey] || '';
                     updateBlockSetting(blockId, settingKey, cur + placeholder);
                     if (typeof renderSettings === 'function') renderSettings();
+                    setTimeout(() => {
+                        if (typeof window.BulkMail?.refresh === 'function') window.BulkMail.refresh();
+                    }, 50);
                 }
             }
             return;
@@ -217,11 +220,19 @@ const AdminBulkMail = (() => {
         const newPos = start + placeholder.length;
         textarea.focus();
         textarea.setSelectionRange(newPos, newPos);
+
+        // Обновить маппинг плейсхолдеров в панели рассылки после перерисовки канваса
+        setTimeout(() => {
+            if (typeof window.BulkMail?.refresh === 'function') window.BulkMail.refresh();
+        }, 50);
     }
 
     // ── Патч renderSettings — вешается после инициализации ───────────────────
+    let _patched = false;
     function patchRenderSettings() {
         if (typeof renderTextSettings !== 'function') return;
+        if (_patched) return; // уже применён — не дублировать
+        _patched = true;
 
         const _origText = renderTextSettings;
         window.renderTextSettings = function(container, block) {
@@ -701,6 +712,10 @@ const AdminBulkMail = (() => {
 
     function getColumns() { return availableColumns; }
 
+    function updateColumns(cols) {
+        availableColumns = cols && cols.length ? cols : [];
+    }
+
     // ── Инициализация ─────────────────────────────────────────────────────────
     function init() {
         const style=document.createElement('style');
@@ -717,6 +732,6 @@ const AdminBulkMail = (() => {
 
     document.addEventListener('DOMContentLoaded', init);
 
-    return { open, close, goTo, changeRow, setFilter, searchRows, autoMap, sendTest, startSend, togglePause, cancelSend, retryErrors, openSendConfirm, closeSendConfirm, getColumns };
+    return { open, close, goTo, changeRow, setFilter, searchRows, autoMap, sendTest, startSend, togglePause, cancelSend, retryErrors, openSendConfirm, closeSendConfirm, getColumns, updateColumns, patchRenderSettings };
 
 })();
