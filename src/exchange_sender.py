@@ -238,11 +238,22 @@ def _convert_data_images_to_cid(html_body: str):
     return html_out, attachments
 
 
+def _to_ews_datetime(dt: datetime.datetime) -> 'EWSDateTime':
+    """Конвертирует naive или aware datetime в EWSDateTime (Europe/Moscow)."""
+    import pytz
+    tz = EWSTimeZone.from_pytz(pytz.timezone('Europe/Moscow'))
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(pytz.timezone('Europe/Moscow')).replace(tzinfo=None)
+    return EWSDateTime(dt.year, dt.month, dt.day, dt.hour, dt.minute, dt.second, tzinfo=tz)
+
+
 def exchange_send_email(account: 'Account', subject: str, html_body: str,
                         to: list, cc: list = None, bcc: list = None,
-                        attachments: list = None) -> None:
+                        attachments: list = None,
+                        send_at: datetime.datetime = None) -> None:
     """
     Отправляет HTML-письмо через Exchange.
+
     Args:
         account   — объект Account из connect_exchange()
         subject   — тема письма
@@ -250,6 +261,8 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
         to        — список адресов получателей
         cc        — копия (необязательно)
         bcc       — скрытая копия (необязательно)
+        send_at   — если задан, письмо откладывается до указанного времени
+                    (Exchange держит его в Outbox и отправляет сам)
     """
     if not to and not cc and not bcc:
         raise ValueError('Не указаны получатели')
@@ -257,8 +270,8 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
     if cc:  validate_recipients(cc)
     if bcc: validate_recipients(bcc)
     attachments_raw = attachments or []
-    _logger.info('send_email: subject=%r to=%s cc=%s bcc=%s attachments=%d',
-                 subject, to, cc, bcc, len(attachments_raw))
+    _logger.info('send_email: subject=%r to=%s cc=%s bcc=%s attachments=%d send_at=%s',
+                 subject, to, cc, bcc, len(attachments_raw), send_at)
     try:
         html_with_cid, attachments = _convert_data_images_to_cid(html_body)
         _logger.debug('send_email: %d inline CID images converted', len(attachments))
@@ -270,6 +283,9 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
             cc_recipients=_to_mailboxes(cc) if cc else None,
             bcc_recipients=_to_mailboxes(bcc) if bcc else None,
         )
+        if send_at is not None:
+            msg.deferred_delivery_time = _to_ews_datetime(send_at)
+            _logger.info('send_email: deferred until %s', send_at)
         for att in attachments:
             msg.attach(att)
         # Прикрепляем пользовательские файлы

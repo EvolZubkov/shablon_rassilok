@@ -37,6 +37,7 @@ from exchange_sender import (
     exchange_send_email,
     exchange_send_meeting,
     exchange_save_draft,
+    _to_ews_datetime,
     _to_mailboxes,
     _to_attendees,
 )
@@ -605,3 +606,88 @@ class TestExchangeSaveDraft:
             MockMsg.return_value = instance
             with pytest.raises((RuntimeError, ConnectionError)):
                 exchange_save_draft(account, 'Тема', '<p>html</p>', to=['a@rt.ru'])
+
+
+# ─── Отложенная отправка (send_at / DeferredDeliveryTime) ─────────────────────
+
+class TestDeferredDelivery:
+
+    def _make_account(self):
+        account = MagicMock()
+        return account
+
+    def test_send_at_sets_deferred_delivery_time(self):
+        account = self._make_account()
+        send_at = datetime.datetime(2026, 9, 1, 10, 0, 0)
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.EWSDateTime'), \
+             patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            MockTZ.from_pytz.return_value = MagicMock()
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], send_at=send_at
+            )
+            # deferred_delivery_time был явно присвоен через instance.attr = value
+            assert 'deferred_delivery_time' in instance.__dict__
+
+    def test_without_send_at_no_deferred_time(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], send_at=None
+            )
+            # deferred_delivery_time НЕ должен быть присвоен явно
+            assert 'deferred_delivery_time' not in instance.__dict__
+
+    def test_send_at_still_calls_send(self):
+        account = self._make_account()
+        send_at = datetime.datetime(2026, 9, 1, 10, 0, 0)
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.EWSDateTime'), \
+             patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            MockTZ.from_pytz.return_value = MagicMock()
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], send_at=send_at
+            )
+            instance.send.assert_called_once()
+
+
+class TestToEwsDatetime:
+    """_to_ews_datetime: конвертация datetime в EWSDateTime."""
+
+    def test_naive_datetime_converted(self):
+        dt = datetime.datetime(2026, 9, 1, 10, 30, 0)
+        with patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            tz_mock = MagicMock()
+            MockTZ.from_pytz.return_value = tz_mock
+            _to_ews_datetime(dt)
+            MockEWSDT.assert_called_once_with(2026, 9, 1, 10, 30, 0, tzinfo=tz_mock)
+
+    def test_year_month_day_preserved(self):
+        dt = datetime.datetime(2026, 12, 31, 23, 59, 0)
+        with patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            MockTZ.from_pytz.return_value = MagicMock()
+            _to_ews_datetime(dt)
+            args = MockEWSDT.call_args[0]
+            assert args[0] == 2026
+            assert args[1] == 12
+            assert args[2] == 31

@@ -9,6 +9,7 @@ Routes:
     POST /api/bulk/send/cancel/<id>   — cancel running job
 """
 import base64
+import datetime
 import html as _html
 import io
 import json
@@ -336,6 +337,18 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     is_draft      = data.get('draft_mode', False)
     stop_on_error = data.get('stop_on_error', False)
     delay         = float(data.get('delay', 0))
+
+    send_at = None
+    send_at_raw = data.get('send_at', '')
+    if send_at_raw:
+        try:
+            send_at = _m.parse_datetime(send_at_raw)
+            if send_at <= datetime.datetime.now():
+                q.put({'type': 'error',
+                       'message': 'Дата отложенной отправки должна быть в будущем'})
+                return
+        except (ValueError, TypeError) as e:
+            _logger.warning('bulk_send: invalid send_at %r: %s', send_at_raw, e)
     total         = len(rows)
 
     # Attachment settings
@@ -415,12 +428,16 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                                        attachments=attachments)
             else:
                 _m.exchange_send_email(account, subject, body, to, cc, bcc,
-                                       attachments=attachments)
+                                       attachments=attachments,
+                                       send_at=send_at)
 
             sent += 1
+            comment = ('Сохранён черновик' if is_draft
+                       else f'Запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}' if send_at
+                       else 'Отправлено')
             q.put({'type': 'progress', 'index': i, 'total': total,
                    'name': name, 'email': email, 'status': 'sent',
-                   'comment': 'Сохранён черновик' if is_draft else 'Отправлено'})
+                   'comment': comment})
 
         except Exception as e:
             errors += 1

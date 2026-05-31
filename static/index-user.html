@@ -420,6 +420,14 @@
                             <option value="10">10 секунд</option>
                           </select>
                         </div>
+                        <div class="bm-field">
+                          <label class="bm-toggle-row" style="margin-bottom:4px">
+                            <input type="checkbox" id="bm-schedule-toggle">
+                            <span class="bm-toggle-label">Отложенная отправка</span>
+                          </label>
+                          <div id="bm-send-at-wrapper" style="display:none"></div>
+                          <input type="hidden" id="bm-send-at">
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1063,6 +1071,7 @@
   <!-- Общие модули -->
   <script src="js/textSanitizer.js"></script>
   <script src="js/toast.js"></script>
+  <script src="js/dateTimePicker.js"></script>
   <script src="js/shared/utils.js"></script>
   <script src="js/shared/favoritesStore.js"></script>
   <script src="js/definitions.js"></script>

@@ -84,6 +84,7 @@ function setupBlockButtons() {
         if (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded) {
             if (!ProfileLoader.isBlockEnabled(blockType)) {
                 btn.style.display = 'none';
+                btn.dataset.profileHidden = 'true';
                 return;
             }
         }
@@ -369,6 +370,7 @@ function applySidebarSearchFilter() {
 
     if (activePanel === 'blocks') {
         document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
+            if (el.dataset.profileHidden) return; // не трогаем заблокированные профилем
             const match = !query || el.textContent.toLowerCase().includes(query);
             el.style.display = match ? '' : 'none';
         });

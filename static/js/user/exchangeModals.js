@@ -72,6 +72,10 @@ const ExchangeModals = (() => {
         return _credentialsStatus;
     }
 
+    // ─── Кастомный пикер даты/времени → см. js/dateTimePicker.js ─────────────
+
+    let _emailDtp = null;   // экземпляр пикера для модалки письма
+
     // ─── HTML: Credentials Modal ─────────────────────────────────────────────
 
     function _renderCredentialsModal() {
@@ -254,6 +258,17 @@ const ExchangeModals = (() => {
                 </div>
               </div>
 
+              <div class="exc-field exc-field--comment">
+                <label class="exc-comment-toggle">
+                  <input type="checkbox" id="email-schedule-toggle">
+                  <span class="exc-comment-toggle__label">Отложенная отправка</span>
+                </label>
+                <div id="email-dtp-wrapper" style="display:none;margin-top:8px">
+                  <!-- кастомный пикер вставляется сюда при инициализации -->
+                </div>
+                <input type="hidden" id="email-send-at">
+              </div>
+
             </div>
             <div class="exc-footer">
               <button class="exc-btn exc-btn--secondary" onclick="ExchangeModals.closeEmail()">Отмена</button>
@@ -262,6 +277,11 @@ const ExchangeModals = (() => {
             </div>
           </div>
         </div>`);
+
+        // Слушатель «Отложенная отправка» — программно, без inline-хандлера
+        _q('email-schedule-toggle')?.addEventListener('change', function () {
+            _onScheduleToggle(this.checked);
+        });
     }
 
     // ─── HTML: Send Meeting Modal ─────────────────────────────────────────────
@@ -823,6 +843,17 @@ const ExchangeModals = (() => {
         if (tpl?.name) _q('email-subject').value = tpl.name;
 
         _open('exchange-email-modal');
+
+        // Инициализируем кастомный пикер при первом открытии
+        if (!_emailDtp) {
+            _emailDtp = initDateTimePicker('email-dtp-wrapper', 'email-send-at');
+        }
+    }
+
+    function _onScheduleToggle(checked) {
+        const wrapper = _q('email-dtp-wrapper');
+        if (wrapper) wrapper.style.display = checked ? 'block' : 'none';
+        if (!checked && _emailDtp) _emailDtp.clear();
     }
 
     function closeEmail() {
@@ -834,6 +865,12 @@ const ExchangeModals = (() => {
         const toggle = _q('email-comment-toggle');
         if (toggle) toggle.checked = false;
         toggleEmailComment(false);
+        // Reset schedule toggle and picker
+        const schedTgl = _q('email-schedule-toggle');
+        if (schedTgl) schedTgl.checked = false;
+        _onScheduleToggle(false);
+        // При следующем открытии пикер пересоздастся — убираем старый дропдаун с body
+        if (_emailDtp) { _emailDtp.destroy(); _emailDtp = null; }
     }
 
     // ─── Send Meeting: открыть ────────────────────────────────────────────────
@@ -931,7 +968,20 @@ const ExchangeModals = (() => {
         const commentOn   = _q('email-comment-toggle')?.checked;
         const commentText = commentOn ? (_q('email-comment-text')?.value || '') : '';
 
-        _setLoading('email-send-btn', true, 'Отправить');
+        const scheduleOn = _q('email-schedule-toggle')?.checked || false;
+        const sendAtVal  = scheduleOn ? (_emailDtp?.getValue() || '') : '';
+        if (scheduleOn) {
+            if (!sendAtVal) {
+                Toast.warning('Выберите дату и время отложенной отправки');
+                return;
+            }
+            if (new Date(sendAtVal) <= new Date()) {
+                Toast.warning('Дата отложенной отправки должна быть в будущем');
+                return;
+            }
+        }
+
+        _setLoading('email-send-btn', true, scheduleOn ? 'Планирование…' : 'Отправить');
         try {
             const rawHtml = await _generateHtml();
             const html = _injectPreamble(rawHtml, commentText);
@@ -941,11 +991,12 @@ const ExchangeModals = (() => {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ subject, to, cc, bcc,
                                        from_email: fromEmail, html_body: html,
-                                       attachments })
+                                       attachments,
+                                       send_at: sendAtVal || null })
             });
             const data = await r.json();
             if (data.success) {
-                Toast.success('Письмо отправлено');
+                Toast.success(data.message || 'Письмо отправлено');
                 if (typeof EmailHistoryStore !== 'undefined') {
                     EmailHistoryStore.addMany([...to, ...cc, ...bcc]);
                 }
@@ -960,7 +1011,7 @@ const ExchangeModals = (() => {
         } catch {
             Toast.error('Нет связи с сервером');
         } finally {
-            _setLoading('email-send-btn', false, 'Отправить');
+            _setLoading('email-send-btn', false, scheduleOn ? 'Запланировать' : 'Отправить');
         }
     }
 

@@ -591,6 +591,20 @@ const BulkMailPanel = (() => {
     const stopOnError = $('bm-stop-on-error')?.checked || false;
     const skipNoEmail = $('bm-skip-no-email')?.checked !== false;
     const delay       = parseInt($('bm-delay')?.value) || 0;
+    const scheduleOn  = $('bm-schedule-toggle')?.checked || false;
+    const sendAtVal   = scheduleOn ? ($('bm-send-at')?.value || '') : '';
+    if (scheduleOn) {
+      if (!sendAtVal) {
+        Toast.show('Укажите дату и время отложенной отправки', 'warning');
+        state.sending = false;
+        return;
+      }
+      if (new Date(sendAtVal) <= new Date()) {
+        Toast.show('Дата отложенной отправки должна быть в будущем', 'warning');
+        state.sending = false;
+        return;
+      }
+    }
 
     // UI: показать секцию прогресса
     const section   = $('bm-progress-section');
@@ -630,6 +644,7 @@ const BulkMailPanel = (() => {
           draft_mode:       isDraft,
           stop_on_error:    stopOnError,
           delay,
+          send_at:          sendAtVal || null,
           attach_enabled:   $('bm-attach-toggle')?.checked  || false,
           attach_folder:    $('bm-attach-folder')?.value    || '',
           attach_template:  $('bm-attach-template')?.value  || '',
@@ -968,7 +983,12 @@ const BulkMailPanel = (() => {
          </div>`] : []),
     ].join('');
 
-    if (okLabel) okLabel.textContent = `${isDraft ? 'Сохранить черновики' : 'Отправить'} — ${toSend} ${action}`;
+    const scheduleOn2 = $('bm-schedule-toggle')?.checked || false;
+    const sendAtLabel = scheduleOn2 ? ($('bm-send-at')?.value || '') : '';
+    const okText = isDraft ? 'Сохранить черновики'
+                 : sendAtLabel ? `Запланировать на ${sendAtLabel.replace('T', ' ')}`
+                 : 'Отправить';
+    if (okLabel) okLabel.textContent = `${okText} — ${toSend} ${action}`;
 
     // Показываем через JS (не CSS-класс) — совместимо с QWebEngineView
     modal.style.display = 'flex';
@@ -1038,6 +1058,24 @@ const BulkMailPanel = (() => {
         advArea.style.display = open ? 'none' : 'block';
         advBtn.setAttribute('aria-expanded', String(!open));
         advBtn.classList.toggle('bm-collapse-btn--open', !open);
+      });
+    }
+
+    // Отложенная отправка: кастомный пикер из dateTimePicker.js
+    let _bmDtp = null;
+    const scheduleTgl = $('bm-schedule-toggle');
+    if (scheduleTgl) {
+      scheduleTgl.addEventListener('change', () => {
+        const wrapper = $('bm-send-at-wrapper');
+        if (scheduleTgl.checked) {
+          if (wrapper) wrapper.style.display = 'block';
+          if (!_bmDtp && typeof initDateTimePicker === 'function') {
+            _bmDtp = initDateTimePicker('bm-send-at-wrapper', 'bm-send-at');
+          }
+        } else {
+          if (wrapper) wrapper.style.display = 'none';
+          if (_bmDtp) { _bmDtp.clear(); }
+        }
       });
     }
 
