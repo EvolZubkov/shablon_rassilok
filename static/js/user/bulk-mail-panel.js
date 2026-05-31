@@ -1,7 +1,7 @@
 'use strict';
 
 /* ─────────────────────────────────────────────────────────────────────────────
-   BulkMailPanel — панель рассылки (Фаза 1: прототип с демо-данными)
+   BulkMailPanel — панель рассылки
    Блоки 1-7 по спецификации
    ───────────────────────────────────────────────────────────────────────────── */
 const BulkMailPanel = (() => {
@@ -10,22 +10,11 @@ const BulkMailPanel = (() => {
   const MODE      = document.getElementById('user-canvas') ? 'user' : 'admin';
   const CANVAS_ID = MODE === 'user' ? 'user-canvas' : 'canvas';
 
-  // ── Демо-данные (Фаза 1) ──────────────────────────────────────────────────────
-  const DEMO_ROWS = [
-    { ФИО: 'Иванов Иван Иванович',       Email: 'ivanov@corp.ru',  Отдел: 'ИТ',          Должность: 'Разработчик',  НомерДоговора: 'ИТ-001' },
-    { ФИО: 'Петрова Мария Сергеевна',    Email: 'petrova@corp.ru', Отдел: 'Бухгалтерия', Должность: 'Бухгалтер',   НомерДоговора: 'БУХ-002' },
-    { ФИО: 'Сидоров Алексей Петрович',   Email: 'sidorov@corp.ru', Отдел: 'HR',          Должность: 'Менеджер',    НомерДоговора: 'HR-003' },
-    { ФИО: 'Козлова Ольга Николаевна',   Email: '',                Отдел: 'Маркетинг',   Должность: 'Аналитик',    НомерДоговора: 'МКТ-004' },
-    { ФИО: 'Новиков Дмитрий Андреевич',  Email: 'novikov@corp.ru', Отдел: 'ИТ',          Должность: 'Тестировщик', НомерДоговора: 'ИТ-005' },
-  ];
-  // Демо: два листа
-  const DEMO_SHEETS = ['Сотрудники', 'Архив'];
-  const DEMO_HEADERS = Object.keys(DEMO_ROWS[0]);
-
   // ── Состояние ──────────────────────────────────────────────────────────────────
   const state = {
     isOpen:        false,
     fileLoaded:    false,
+    currentFile:   null,   // File object — нужен для re-parse при смене листа/заголовка
     headers:       [],
     rows:          [],
     currentRow:    0,
@@ -76,6 +65,17 @@ const BulkMailPanel = (() => {
 
   function onPanelOpen() {
     if (state.fileLoaded) { detectPlaceholders(); showRowNav(); renderCurrentRow(); }
+    _checkExchangeStatus();
+  }
+
+  async function _checkExchangeStatus() {
+    const warn = $('bm-exchange-warn');
+    if (!warn) return;
+    try {
+      const resp = await fetch('/api/credentials/status');
+      const data = await resp.json();
+      warn.style.display = data.exists ? 'none' : 'flex';
+    } catch (_) { /* сервер недоступен — молчим */ }
   }
   function onPanelClose() {
     hideRowNav();
@@ -86,63 +86,130 @@ const BulkMailPanel = (() => {
   // БЛОК 1: ЗАГРУЗКА ФАЙЛА
   // ══════════════════════════════════════════════════════════════════════════════
   function initFileUpload() {
-    const btn   = $('bm-file-btn');
-    const input = $('bm-file-input');
-    const zone  = $('bm-file-zone');
-    const clear = $('bm-file-clear');
+    const btn      = $('bm-file-btn');
+    const input    = $('bm-file-input');
+    const zone     = $('bm-file-zone');
+    const clear    = $('bm-file-clear');
     const sheetSel = $('bm-sheet-sel');
+    const hdrSel   = $('bm-header-row-sel');
 
-    if (btn)   btn.addEventListener('click',  () => input?.click());
-    if (input) input.addEventListener('change', e => { const f = e.target.files[0]; if (f) loadDemoData(f.name); e.target.value=''; });
+    if (btn)   btn.addEventListener('click', () => input?.click());
     if (clear) clear.addEventListener('click', clearFile);
+
+    if (input) input.addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (f) parseFile(f);
+      e.target.value = '';
+    });
 
     if (zone) {
       zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('bm-file-zone--drag'); });
       zone.addEventListener('dragleave', ()  => zone.classList.remove('bm-file-zone--drag'));
       zone.addEventListener('drop', e => {
         e.preventDefault(); zone.classList.remove('bm-file-zone--drag');
-        loadDemoData(e.dataTransfer.files[0]?.name || 'данные.xlsx');
+        const f = e.dataTransfer.files[0];
+        if (f) parseFile(f);
       });
     }
 
+    // Re-parse при смене листа
     if (sheetSel) sheetSel.addEventListener('change', () => {
-      // Демо: при смене листа перезаполняем теми же данными (в реале — запрос к бэкенду)
-      populateEmailColumn();
-      populateAttachColSel();
-      detectPlaceholders();
-      updateSendButton();
-      renderCurrentRow();
+      if (state.currentFile) parseFile(state.currentFile, sheetSel.value, _getHeaderRow());
+    });
+
+    // Re-parse при смене строки заголовка
+    if (hdrSel) hdrSel.addEventListener('change', () => {
+      if (state.currentFile) parseFile(state.currentFile, _getSelectedSheet(), _getHeaderRow());
     });
   }
 
-  function loadDemoData(filename) {
+  function _getSelectedSheet() {
+    return $('bm-sheet-sel')?.value || null;
+  }
+  function _getHeaderRow() {
+    return parseInt($('bm-header-row-sel')?.value) || 1;
+  }
+
+  // ── Парсинг файла через /api/bulk/parse ───────────────────────────────────
+  async function parseFile(file, sheetName, headerRow) {
+    state.currentFile = file;
+    _showFileParsing(file.name);
+
+    const fd = new FormData();
+    fd.append('file', file);
+    if (sheetName) fd.append('sheet', sheetName);
+    if (headerRow) fd.append('header_row', String(headerRow));
+
+    try {
+      const resp = await fetch('/api/bulk/parse', { method: 'POST', body: fd });
+      const ct = resp.headers.get('content-type') || '';
+      if (!ct.includes('application/json')) {
+        throw new Error(`Сервер вернул ${resp.status} — перезапустите приложение`);
+      }
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      _applyParsedData(file.name, data);
+    } catch (err) {
+      _showFileError(file.name, err.message);
+    }
+  }
+
+  function _showFileParsing(filename) {
+    const zone   = $('bm-file-zone');
+    const info   = $('bm-file-info');
+    const nameEl = $('bm-file-name');
+    const countEl = $('bm-file-count');
+    if (zone)    zone.style.display  = 'none';
+    if (info)    info.style.display  = 'flex';
+    if (nameEl)  nameEl.textContent  = filename;
+    if (countEl) { countEl.textContent = '…'; countEl.style.color = ''; }
+  }
+
+  function _showFileError(filename, msg) {
+    const countEl = $('bm-file-count');
+    const info    = $('bm-file-info');
+    const zone    = $('bm-file-zone');
+    if (info) info.style.display = 'flex';
+    if (zone) zone.style.display = 'none';
+    if (countEl) { countEl.textContent = 'Ошибка'; countEl.style.color = '#ef4444'; }
+    const nameEl = $('bm-file-name');
+    if (nameEl) nameEl.textContent = filename;
+    console.error('[BulkMail] parse error:', msg);
+  }
+
+  function _applyParsedData(filename, data) {
+    const { sheets = [], headers = [], rows = [], total = 0 } = data;
+
     state.fileLoaded = true;
-    state.headers    = DEMO_HEADERS;
-    state.rows       = [...DEMO_ROWS];
+    state.headers    = headers;
+    state.rows       = rows;
     state.currentRow = 0;
     state.results    = [];
 
-    // UI: зона → файл-инфо
-    const zone    = $('bm-file-zone');
-    const info    = $('bm-file-info');
-    const nameEl  = $('bm-file-name');
-    const countEl = $('bm-file-count');
+    // UI
+    const zone     = $('bm-file-zone');
+    const info     = $('bm-file-info');
+    const nameEl   = $('bm-file-name');
+    const countEl  = $('bm-file-count');
     const settings = $('bm-settings-section');
-    const badge   = $('bm-accordion-badge');
+    const badge    = $('bm-accordion-badge');
     const sheetField = $('bm-sheet-field');
     const sheetSel   = $('bm-sheet-sel');
+    const hdrField   = $('bm-header-row-field');
 
-    if (zone)    zone.style.display    = 'none';
-    if (info)    info.style.display    = 'flex';
-    if (nameEl)  nameEl.textContent    = filename;
-    if (countEl) countEl.textContent   = state.rows.length + ' строк';
+    if (zone)     zone.style.display     = 'none';
+    if (info)     info.style.display     = 'flex';
+    if (nameEl)   nameEl.textContent     = filename;
+    if (countEl)  { countEl.textContent  = total + ' строк'; countEl.style.color = ''; }
     if (settings) settings.style.display = 'block';
-    if (badge)   { badge.textContent = state.rows.length; badge.style.display = 'inline-flex'; }
+    if (badge)    { badge.textContent = total; badge.style.display = 'inline-flex'; }
+    if (hdrField) hdrField.style.display = 'flex';
 
-    // Листы (демо: 2 листа)
+    // Листы — показываем если их больше одного
     if (sheetSel && sheetField) {
-      sheetSel.innerHTML = DEMO_SHEETS.map((s,i) => `<option value="${i}">${s}</option>`).join('');
-      sheetField.style.display = 'block';
+      const curSheet = sheetSel.value;
+      sheetSel.innerHTML = sheets.map(s => `<option value="${escHtml(s)}"${s === curSheet ? ' selected' : ''}>${escHtml(s)}</option>`).join('');
+      sheetField.style.display = sheets.length > 1 ? 'block' : 'none';
     }
 
     populateEmailColumn();
@@ -154,13 +221,12 @@ const BulkMailPanel = (() => {
     updateSendButton();
     resetProgress();
     if (state.isOpen) { showRowNav(); renderCurrentRow(); }
-
-    // ── Уведомить тулбар и admin-панель о доступных колонках ──────────────────
     notifyColumnsAvailable(true);
   }
 
   function clearFile() {
-    state.fileLoaded = false; state.headers = []; state.rows = [];
+    state.fileLoaded = false; state.currentFile = null;
+    state.headers = []; state.rows = [];
     state.mapping = {}; state.placeholders = []; state.currentRow = 0; state.results = [];
 
     [$('bm-file-zone'), $('bm-file-info'), $('bm-settings-section'), $('bm-sheet-field'),
@@ -513,101 +579,141 @@ const BulkMailPanel = (() => {
     state.results = []; state.sending = false; state.cancelled = false;
   }
 
-  function startSend(rowsToSend) {
+  let _currentJobId = null;
+  let _currentEventSource = null;
+
+  async function startSend(rowsToSend) {
     if (state.sending) return;
     state.sending = true; state.cancelled = false;
 
-    const rows = rowsToSend || state.rows;
-    const section = $('bm-progress-section');
-    const list    = $('bm-progress-list');
-    const fill    = $('bm-progress-fill');
-    const sendBtn = $('bm-send-btn');
+    const rows        = rowsToSend || state.rows;
+    const isDraft     = $('bm-draft-mode')?.checked    || false;
+    const stopOnError = $('bm-stop-on-error')?.checked || false;
+    const skipNoEmail = $('bm-skip-no-email')?.checked !== false;
+    const delay       = parseInt($('bm-delay')?.value) || 0;
+
+    // UI: показать секцию прогресса
+    const section   = $('bm-progress-section');
+    const list      = $('bm-progress-list');
+    const fill      = $('bm-progress-fill');
+    const sendBtn   = $('bm-send-btn');
     const cancelBtn = $('bm-cancel-btn');
-    const summary = $('bm-progress-summary');
-    const postAct = $('bm-post-actions');
-    const stopOnError = $('bm-stop-on-error')?.checked;
-    const isDraft     = $('bm-draft-mode')?.checked;
-    const skipNoEmail = $('bm-skip-no-email')?.checked;
+    const summary   = $('bm-progress-summary');
+    const postAct   = $('bm-post-actions');
 
-    if (section)  section.style.display = 'block';
-    if (!rowsToSend) list.innerHTML = ''; // при retry — добавляем к существующим
-    if (summary)  summary.style.display = 'none';
-    if (postAct)  postAct.style.display = 'none';
-    if (sendBtn)  sendBtn.disabled = true;
+    if (section)   section.style.display  = 'block';
+    if (!rowsToSend) list.innerHTML = '';
+    if (summary)   summary.style.display  = 'none';
+    if (postAct)   postAct.style.display  = 'none';
+    if (sendBtn)   sendBtn.disabled       = true;
     if (cancelBtn) cancelBtn.style.display = 'inline-flex';
+    if (fill)      fill.style.width       = '0%';
 
-    const total = rows.length;
-    let processed = 0;
-    let sent = 0, errors = 0, skipped = 0;
+    // Получаем чистый HTML шаблона через emailGenerator (без лейблов, со светлой темой)
+    const templateHtml = await _getTemplateHtml();
 
-    function sendNext() {
-      if (state.cancelled || processed >= total) {
-        finishSend(sent, errors, skipped);
-        return;
-      }
-
-      const row   = rows[processed];
-      const email = row[state.emailColumn] || '';
-      const name  = row[state.mapping['{{ФИО}}'] || 'ФИО'] || '';
-
-      // Пропустить если нет email и включена опция
-      if (skipNoEmail && !email) {
-        skipped++;
-        appendResultItem(name || '—', email || '(нет email)', 'skip', isDraft ? 'Пропущено (нет email)' : 'Пропущено');
-        processed++;
-        if (fill) fill.style.width = `${Math.round((processed / total) * 100)}%`;
-        setTimeout(sendNext, 50);
-        return;
-      }
-
-      const item = appendResultItem(name, email, 'sending', isDraft ? 'Черновик...' : 'Отправка...');
-      if (fill) fill.style.width = `${Math.round((processed / total) * 100)}%`;
-
-      // Симуляция задержки. В реале здесь fetch('/api/bulk/send')
-      const delay = (parseInt($('bm-delay')?.value) || 0) * 1000;
-      const sendTime = 200 + Math.random() * 400 + delay;
-
-      setTimeout(() => {
-        // 85% успех в демо
-        const ok = Math.random() > 0.15;
-        if (ok) {
-          sent++;
-          updateResultItem(item, 'sent', isDraft ? 'Сохранён черновик' : 'Отправлено');
-        } else {
-          errors++;
-          const errMsg = ['Недоступен сервер Exchange', 'Адрес не найден', 'Превышен лимит'][Math.floor(Math.random()*3)];
-          updateResultItem(item, 'error', errMsg);
-          state.results.push({ row, email, name, status: 'error', error: errMsg });
-          if (stopOnError) { state.cancelled = true; }
-        }
-        processed++;
-        sendNext();
-      }, sendTime);
+    // Стартуем задачу
+    let jobId;
+    try {
+      const resp = await fetch('/api/bulk/send/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_html: templateHtml,
+          rows,
+          mapping:       state.mapping,
+          subject:       $('bm-subject')?.value || '',
+          email_column:  state.emailColumn,
+          cc:            $('bm-cc')?.value  || '',
+          bcc:           $('bm-bcc')?.value || '',
+          skip_no_email:    skipNoEmail,
+          draft_mode:       isDraft,
+          stop_on_error:    stopOnError,
+          delay,
+          attach_enabled:   $('bm-attach-toggle')?.checked  || false,
+          attach_folder:    $('bm-attach-folder')?.value    || '',
+          attach_template:  $('bm-attach-template')?.value  || '',
+          attach_missing:   $('bm-attach-missing')?.value   || 'send',
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      jobId = data.job_id;
+    } catch (e) {
+      finishSend(0, 0, 0, e.message);
+      return;
     }
 
-    sendNext();
+    _currentJobId = jobId;
+    const total = rows.length;
+
+    // Слушаем SSE-поток
+    const es = new EventSource(`/api/bulk/send/stream/${jobId}`);
+    _currentEventSource = es;
+
+    es.onmessage = (e) => {
+      const evt = JSON.parse(e.data);
+      if (evt.type === 'heartbeat') return;
+
+      if (evt.type === 'progress') {
+        const pct = Math.round(((evt.index + 1) / evt.total) * 100);
+        if (fill) fill.style.width = pct + '%';
+        appendResultItem(evt.name, evt.email, evt.status, evt.comment);
+        if (evt.status === 'error') {
+          state.results.push({ row: rows[evt.index], email: evt.email, name: evt.name, status: 'error', error: evt.comment });
+        }
+        return;
+      }
+
+      if (evt.type === 'done' || evt.type === 'cancelled') {
+        es.close(); _currentEventSource = null; _currentJobId = null;
+        finishSend(evt.sent, evt.errors, evt.skipped);
+        return;
+      }
+
+      if (evt.type === 'error') {
+        es.close(); _currentEventSource = null; _currentJobId = null;
+        finishSend(0, 0, 0, evt.message);
+        return;
+      }
+    };
+
+    es.onerror = () => {
+      es.close(); _currentEventSource = null; _currentJobId = null;
+      finishSend(0, 0, 0, 'Потеряно соединение с сервером');
+    };
   }
 
-  function finishSend(sent, errors, skipped) {
+  function finishSend(sent, errors, skipped, fatalError) {
     state.sending = false;
-    const fill    = $('bm-progress-fill');
-    const summary = $('bm-progress-summary');
-    const postAct = $('bm-post-actions');
+    const fill      = $('bm-progress-fill');
+    const summary   = $('bm-progress-summary');
+    const postAct   = $('bm-post-actions');
     const cancelBtn = $('bm-cancel-btn');
     const sendBtn   = $('bm-send-btn');
     const retryBtn  = $('bm-retry-btn');
 
-    if (fill)    fill.style.width = '100%';
+    if (fill)      fill.style.width        = '100%';
     if (cancelBtn) cancelBtn.style.display = 'none';
-    if (sendBtn)   { sendBtn.disabled = false; $('bm-send-count').textContent = state.rows.length; }
+    if (sendBtn)   { sendBtn.disabled = false; updateSendButton(); }
+
+    if (fatalError) {
+      if (summary) {
+        summary.style.display = 'flex';
+        const okEl = $('bm-progress-ok');
+        if (okEl) { okEl.textContent = `⚠ ${fatalError}`; okEl.style.color = '#ef4444'; }
+      }
+      if (postAct) postAct.style.display = 'flex';
+      return;
+    }
 
     if (summary) {
       summary.style.display = 'flex';
       const okEl   = $('bm-progress-ok');
       const errEl  = $('bm-progress-err');
       const skipEl = $('bm-progress-skip');
-      if (okEl)   okEl.textContent   = `✓ ${sent} отправлено`;
-      if (errEl)  { errEl.textContent  = `✗ ${errors} ошибок`;   errEl.style.display  = errors  > 0 ? 'inline-flex' : 'none'; }
+      if (okEl)   { okEl.textContent = `✓ ${sent} отправлено`; okEl.style.color = ''; }
+      if (errEl)  { errEl.textContent  = `✗ ${errors} ошибок`;    errEl.style.display  = errors  > 0 ? 'inline-flex' : 'none'; }
       if (skipEl) { skipEl.textContent = `⊘ ${skipped} пропущено`; skipEl.style.display = skipped > 0 ? 'inline-flex' : 'none'; }
     }
 
@@ -644,27 +750,86 @@ const BulkMailPanel = (() => {
   }
 
   // ── Тестовое письмо ────────────────────────────────────────────────────────
-  function sendTest() {
+  async function sendTest() {
     if (!state.rows.length) return;
-    const row   = state.rows[state.currentRow];
-    const email = row[state.emailColumn];
-    const name  = row[state.mapping['{{ФИО}}'] || 'ФИО'] || '';
-    if (!email) { alert('У текущей строки нет email-адреса'); return; }
-    alert(`Тестовое письмо для:\n${name}\n${email}\n\n(Демо: в реальном режиме отправит через Exchange)`);
+    const row = state.rows[state.currentRow];
+    const btn = $('bm-test-btn');
+    if (btn) { btn.disabled = true; btn.textContent = 'Отправка…'; }
+    try {
+      const resp = await fetch('/api/bulk/send-test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          template_html: await _getTemplateHtml(),
+          row,
+          mapping:     state.mapping,
+          subject:     $('bm-subject')?.value || '',
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok || !data.success) throw new Error(data.error || 'Ошибка');
+      Toast.show(`Тестовое письмо отправлено на ${data.to}`, 'success');
+    } catch (e) {
+      Toast.show(`Ошибка отправки: ${e.message}`, 'error', 6000);
+    } finally {
+      if (btn) { btn.disabled = false; btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8"/><rect x="3" y="6" width="18" height="12" rx="2"/></svg> Тестовое письмо себе'; }
+    }
+  }
+
+  async function _getTemplateHtml() {
+    // generateEmailHTML строит чистый email-HTML из AppState.blocks.
+    // В user-режиме блоки живут в UserAppState.blocks — делаем временный своп,
+    // как это делает renderTemplatePreview в userApp.js.
+    if (typeof generateEmailHTML === 'function') {
+      const originalBlocks = (typeof AppState !== 'undefined') ? AppState.blocks : null;
+      try {
+        if (MODE === 'user' && typeof UserAppState !== 'undefined' && UserAppState.blocks?.length) {
+          AppState.blocks = JSON.parse(JSON.stringify(UserAppState.blocks));
+        }
+        return await generateEmailHTML({ previewTheme: 'light' });
+      } catch (e) {
+        console.warn('[BulkMail] generateEmailHTML failed, falling back to innerHTML:', e);
+      } finally {
+        if (typeof AppState !== 'undefined' && originalBlocks !== null) {
+          AppState.blocks = originalBlocks;
+        }
+      }
+    }
+    // Fallback: canvas innerHTML без UI-элементов
+    restoreCanvas();
+    const canvas = $(CANVAS_ID);
+    if (!canvas) return '';
+    const clone = canvas.cloneNode(true);
+    clone.querySelectorAll('.block-header, .block-title, .block-controls, [data-ui-only]').forEach(el => el.remove());
+    return clone.innerHTML;
   }
 
   // ── Экспорт CSV ────────────────────────────────────────────────────────────
   function exportCSV() {
-    const rows = state.results.length > 0 ? state.results : state.rows.map(row => ({
-      row, email: row[state.emailColumn] || '', name: row[state.mapping['{{ФИО}}'] || 'ФИО'] || '', status: 'pending'
-    }));
-    const header = 'ФИО,Email,Статус,Комментарий';
-    const lines  = rows.map(r => `"${(r.name||'').replace(/"/g,'""')}","${(r.email||'').replace(/"/g,'""')}","${r.status}","${(r.error||'').replace(/"/g,'""')}"`);
-    const csv    = '﻿' + header + '\n' + lines.join('\n'); // BOM for Excel
-    const blob   = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-    const url    = URL.createObjectURL(blob);
-    const a      = document.createElement('a');
-    a.href = url; a.download = 'rassylka_otchet.csv';
+    const nameCol  = state.mapping['{{ФИО}}'] || state.headers.find(h => h.toLowerCase().includes('фио') || h.toLowerCase().includes('имя')) || state.headers[0] || '';
+    const statusMap = Object.fromEntries(state.results.map(r => [r.email + '|' + (r.name || ''), r]));
+
+    const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
+
+    const extraHeaders = state.headers.filter(h => h !== state.emailColumn && h !== nameCol);
+    const headerRow = ['Статус', 'Комментарий', nameCol || 'Имя', state.emailColumn || 'Email', ...extraHeaders].join(',');
+
+    const lines = state.rows.map(row => {
+      const email = row[state.emailColumn] || '';
+      const name  = row[nameCol] || '';
+      const key   = email + '|' + name;
+      const res   = statusMap[key];
+      const status  = res ? (res.status === 'sent' ? 'Отправлено' : res.status === 'error' ? 'Ошибка' : 'Пропущено') : 'Не обработано';
+      const comment = res?.error || '';
+      const extras  = extraHeaders.map(h => q(row[h] ?? ''));
+      return [q(status), q(comment), q(name), q(email), ...extras].join(',');
+    });
+
+    const csv  = '﻿' + headerRow + '\n' + lines.join('\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement('a');
+    a.href = url; a.download = `rassylka_${new Date().toISOString().slice(0,10)}.csv`;
     document.body.appendChild(a); a.click();
     document.body.removeChild(a); URL.revokeObjectURL(url);
   }
@@ -762,6 +927,72 @@ const BulkMailPanel = (() => {
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
+  // МОДАЛКА ПОДТВЕРЖДЕНИЯ
+  // ══════════════════════════════════════════════════════════════════════════════
+  function _showConfirmModal(onConfirm) {
+    const skipNoEmail = $('bm-skip-no-email')?.checked !== false;
+    const isDraft     = $('bm-draft-mode')?.checked || false;
+    const isValidEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e));
+
+    let toSend = 0, skip = 0, emptyEmail = 0, badEmail = 0;
+    state.rows.forEach(r => {
+      const e = String(r[state.emailColumn] || '');
+      if (!e) { emptyEmail++; if (skipNoEmail) { skip++; return; } }
+      else if (!isValidEmail(e)) { badEmail++; skip++; return; }
+      toSend++;
+    });
+
+    const unPH = state.placeholders.filter(ph => !state.mapping[ph]);
+    const action = isDraft ? 'черновиков' : 'писем';
+
+    const body = $('bm-confirm-body');
+    const warns = $('bm-confirm-warns');
+    const okLabel = $('bm-confirm-ok-label');
+    const modal = $('bm-confirm-modal');
+    if (!modal) { onConfirm(); return; }  // fallback if no modal in DOM
+
+    if (body) body.innerHTML =
+      `Будет отправлено <strong style="color:#c4b5fd">${toSend} ${_plural(toSend,'письмо','письма','писем')}</strong>.` +
+      (skip > 0 ? ` ${skip} ${_plural(skip,'строка','строки','строк')} будут пропущены.` : '');
+
+    if (warns) warns.innerHTML = [
+      ...unPH.map(ph =>
+        `<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(249,115,22,.08);
+                     border:1px solid rgba(249,115,22,.22);border-radius:7px;font-size:12px;color:#fb923c">
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
+           Поле <strong style="font-family:monospace">${escHtml(ph)}</strong> не сопоставлено — останется пустым
+         </div>`),
+      ...(badEmail > 0 ? [`<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;font-size:12px;color:#fca5a5">
+           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+           ${badEmail} ${_plural(badEmail,'строка','строки','строк')} с некорректным email — будут пропущены
+         </div>`] : []),
+    ].join('');
+
+    if (okLabel) okLabel.textContent = `${isDraft ? 'Сохранить черновики' : 'Отправить'} — ${toSend} ${action}`;
+
+    // Показываем через JS (не CSS-класс) — совместимо с QWebEngineView
+    modal.style.display = 'flex';
+
+    const ok     = $('bm-confirm-ok');
+    const cancel = $('bm-confirm-cancel');
+
+    function close() { modal.style.display = 'none'; }
+    function onOk()  { close(); onConfirm(); }
+
+    ok?.addEventListener('click', onOk,   { once: true });
+    cancel?.addEventListener('click', close, { once: true });
+    modal.addEventListener('click', e => { if (e.target === modal) close(); }, { once: true });
+  }
+
+  function _plural(n, one, two, five) {
+    const m = n % 100, m10 = n % 10;
+    if (m >= 11 && m <= 14) return five;
+    if (m10 === 1) return one;
+    if (m10 >= 2 && m10 <= 4) return two;
+    return five;
+  }
+
+  // ══════════════════════════════════════════════════════════════════════════════
   // ИНИЦИАЛИЗАЦИЯ СОБЫТИЙ
   // ══════════════════════════════════════════════════════════════════════════════
   function init() {
@@ -817,12 +1048,7 @@ const BulkMailPanel = (() => {
     // Кнопки отправки
     $('bm-send-btn')?.addEventListener('click', () => {
       if (!state.rows.length) return;
-      const count = state.rows.length;
-      const draft = $('bm-draft-mode')?.checked;
-      const msg   = draft
-        ? `Сохранить черновики для ${count} получателей?`
-        : `Отправить рассылку ${count} получателям?`;
-      if (confirm(msg)) { resetProgress(); startSend(); }
+      _showConfirmModal(() => { resetProgress(); startSend(); });
     });
 
     $('bm-test-btn')?.addEventListener('click', sendTest);
@@ -831,6 +1057,10 @@ const BulkMailPanel = (() => {
     $('bm-cancel-btn')?.addEventListener('click', () => {
       if (!confirm('Остановить рассылку?')) return;
       state.cancelled = true;
+      if (_currentJobId) {
+        fetch(`/api/bulk/send/cancel/${_currentJobId}`, { method: 'POST' });
+      }
+      if (_currentEventSource) { _currentEventSource.close(); _currentEventSource = null; }
     });
 
     // Повторить ошибки

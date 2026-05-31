@@ -36,6 +36,7 @@ from exchange_sender import (
     _convert_data_images_to_cid,
     exchange_send_email,
     exchange_send_meeting,
+    exchange_save_draft,
     _to_mailboxes,
     _to_attendees,
 )
@@ -491,3 +492,116 @@ class TestInlineAndUserAttachmentsTogether:
 
             call_kwargs = MockFileAtt.call_args[1]
             assert call_kwargs['content_type'] == 'application/octet-stream'
+
+
+# ─── exchange_save_draft ──────────────────────────────────────────────────────
+
+class TestExchangeSaveDraft:
+    """exchange_save_draft() — сохранение письма в папку Черновики без отправки."""
+
+    def _make_account(self):
+        account = MagicMock()
+        account.drafts = MagicMock()
+        return account
+
+    def test_saves_to_drafts_folder(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(account, 'Тема черновика', '<p>html</p>', to=['a@rt.ru'])
+
+            call_kwargs = MockMsg.call_args[1]
+            assert call_kwargs['folder'] is account.drafts
+
+    def test_calls_save_not_send(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(account, 'Тема', '<p>html</p>', to=['a@rt.ru'])
+
+            instance.save.assert_called_once()
+            instance.send.assert_not_called()
+
+    def test_invalid_recipient_raises(self):
+        account = self._make_account()
+        with pytest.raises(ValueError, match='Некорректные адреса'):
+            exchange_save_draft(account, 'Тема', '<p>html</p>', to=['not-email'])
+
+    def test_cc_and_bcc_passed(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], cc=['cc@rt.ru'], bcc=['bcc@rt.ru']
+            )
+            call_kwargs = MockMsg.call_args[1]
+            assert call_kwargs['cc_recipients'] is not None
+            assert call_kwargs['bcc_recipients'] is not None
+
+    def test_no_recipients_saves_ok(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            # Черновик можно сохранить без получателей — to=[]
+            exchange_save_draft(account, 'Тема', '<p>html</p>', to=[])
+            instance.save.assert_called_once()
+
+    def test_user_attachments_attached(self):
+        account = self._make_account()
+        content = base64.b64encode(b'pdf-content').decode()
+        attachments = [{'name': 'doc.pdf', 'content': content, 'mime_type': 'application/pdf'}]
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.FileAttachment') as MockFileAtt, \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], attachments=attachments
+            )
+            MockFileAtt.assert_called_once()
+            instance.attach.assert_called()
+
+    def test_inline_images_converted_to_cid(self):
+        account = self._make_account()
+        img_data = b'\x89PNG\r\n'
+        b64_img = base64.b64encode(img_data).decode()
+        html = f'<img src="data:image/png;base64,{b64_img}">'
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.FileAttachment'):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(account, 'Тема', html, to=['a@rt.ru'])
+            instance.attach.assert_called()
+
+    def test_exchange_error_wrapped(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            instance.save.side_effect = RuntimeError('EWS 503')
+            MockMsg.return_value = instance
+            with pytest.raises((RuntimeError, ConnectionError)):
+                exchange_save_draft(account, 'Тема', '<p>html</p>', to=['a@rt.ru'])

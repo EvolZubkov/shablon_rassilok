@@ -5,6 +5,8 @@
   "scripts": {
     "test": "vitest run tests/app.test.js",
     "test:sanitizer": "vitest run tests/textSanitizer.test.js",
+    "test:generator": "vitest run tests/emailGenerator.test.js",
+    "test:bulk": "vitest run tests/bulkMailPanel.test.js",
     "test:all": "vitest run tests/",
     "test:watch": "vitest tests/",
     "test:ui": "vitest --ui tests/"
