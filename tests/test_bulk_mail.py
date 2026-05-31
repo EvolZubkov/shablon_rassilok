@@ -420,3 +420,74 @@ class TestBulkSendStart:
                                  headers={'Accept': 'text/event-stream'})
         raw = stream_resp.get_data(as_text=True)
         assert 'error' in raw or 'cancelled' in raw or 'done' in raw
+
+    def test_send_at_passed_to_exchange_send_email(self, client):
+        """send_at из запроса должен дойти до exchange_send_email как datetime."""
+        import datetime as dt_mod
+        creds = self._mock_creds()
+        mock_account = MagicMock()
+        captured = {}
+        def capture_send(account, subject, body, to, *args, **kwargs):
+            captured['send_at'] = kwargs.get('send_at')
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_exchange', return_value=mock_account), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture_send), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {},
+                'subject': 'Тест',
+                'email_column': 'Email',
+                'send_at': '2026-09-01T10:00:00',
+            })
+            assert resp.status_code == 200
+            time.sleep(0.4)
+
+        assert isinstance(captured.get('send_at'), dt_mod.datetime)
+        assert captured['send_at'].year == 2026
+        assert captured['send_at'].hour == 10
+
+    def test_invalid_send_at_ignored(self, client):
+        """Некорректный send_at не должен ломать рассылку — просто игнорируется."""
+        creds = self._mock_creds()
+        mock_account = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_exchange', return_value=mock_account), \
+             patch.object(email_app, 'exchange_send_email'), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {},
+                'subject': 'Тест',
+                'email_column': 'Email',
+                'send_at': 'not-a-date',
+            })
+        assert resp.status_code == 200
+
+    def test_send_at_comment_in_progress(self, client):
+        """При send_at в прогрессе должно быть 'Запланировано', а не 'Отправлено'."""
+        creds = self._mock_creds()
+        mock_account = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_exchange', return_value=mock_account), \
+             patch.object(email_app, 'exchange_send_email'), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {},
+                'subject': 'Тест',
+                'email_column': 'Email',
+                'send_at': '2026-09-01T10:00:00',
+            })
+            job_id = resp.get_json()['job_id']
+            time.sleep(0.4)
+            stream_resp = client.get(f'/api/bulk/send/stream/{job_id}',
+                                     headers={'Accept': 'text/event-stream'})
+            raw = stream_resp.get_data(as_text=True)
+        assert 'Запланировано' in raw

@@ -13,6 +13,7 @@ Routes:
     - POST /api/send/meeting        — create a calendar meeting via Exchange
 """
 
+import datetime
 import subprocess
 import sys
 
@@ -214,11 +215,23 @@ def api_send_email():
         )
         html_body = _m.prepare_html_for_email(data.get('html_body', ''))
         attachments = data.get('attachments', [])
+
+        send_at = None
+        send_at_raw = str(data.get('send_at') or '').strip()
+        if send_at_raw:
+            send_at = _m.parse_datetime(send_at_raw)
+            if send_at <= datetime.datetime.now():
+                return jsonify({'success': False,
+                                'error': 'Дата отложенной отправки должна быть в будущем'}), 400
+
         _m.exchange_send_email(
             account, subject, html_body, to, cc, bcc,
-            attachments=attachments
+            attachments=attachments,
+            send_at=send_at,
         )
-        return jsonify({'success': True})
+        msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
+               if send_at else 'Письмо отправлено')
+        return jsonify({'success': True, 'message': msg})
 
     except ValueError as e:
         current_app.logger.warning('send_email auth/validation error: %s', e)
