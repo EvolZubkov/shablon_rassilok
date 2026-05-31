@@ -295,6 +295,53 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
         _wrap_exchange_error(e)
 
 
+# ─── Сохранение черновика ────────────────────────────────────────────────────
+
+def exchange_save_draft(account: 'Account', subject: str, html_body: str,
+                        to: list, cc: list = None, bcc: list = None,
+                        attachments: list = None) -> None:
+    """
+    Сохраняет письмо в папку Черновики (Drafts) через EWS без отправки.
+    Использует Message.save() с folder=account.drafts (MessageDisposition=SaveOnly).
+    """
+    if to:  validate_recipients(to)
+    if cc:  validate_recipients(cc)
+    if bcc: validate_recipients(bcc)
+    attachments_raw = attachments or []
+    _logger.info('save_draft: subject=%r to=%s cc=%s bcc=%s attachments=%d',
+                 subject, to, cc, bcc, len(attachments_raw))
+    try:
+        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)
+        msg = Message(
+            account=account,
+            folder=account.drafts,
+            subject=subject,
+            body=HTMLBody(html_with_cid),
+            to_recipients=_to_mailboxes(to) if to else None,
+            cc_recipients=_to_mailboxes(cc) if cc else None,
+            bcc_recipients=_to_mailboxes(bcc) if bcc else None,
+        )
+        for att in inline_atts:
+            msg.attach(att)
+        for file_data in attachments_raw:
+            try:
+                raw = base64.b64decode(file_data['content'])
+                msg.attach(FileAttachment(
+                    name=file_data['name'],
+                    content_type=file_data.get('mime_type', 'application/octet-stream'),
+                    content=raw,
+                ))
+            except Exception as e:
+                _logger.warning('draft attachment skipped %s: %s', file_data.get('name'), e)
+        msg.save()
+        _logger.info('save_draft: success subject=%r', subject)
+    except (ValueError, ConnectionError):
+        raise
+    except Exception as e:
+        _logger.error('save_draft failed: %s: %s', type(e).__name__, e, exc_info=True)
+        _wrap_exchange_error(e)
+
+
 # ─── Отправка встречи ────────────────────────────────────────────────────────
 
 def exchange_send_meeting(account: 'Account', subject: str, html_body: str,

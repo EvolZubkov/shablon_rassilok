@@ -3267,6 +3267,7 @@ try:
     )
     from exchange_sender import (
         connect_exchange, exchange_send_email, exchange_send_meeting,
+        exchange_save_draft,
         parse_datetime, parse_recipients, _wrap_exchange_error,
     )
     EXCHANGE_AVAILABLE = True
@@ -3363,9 +3364,11 @@ from routes.exchange import bp as exchange_bp
 from routes.settings import bp as settings_bp
 from routes.profile import bp as profile_bp
 from routes.profiles_admin import bp as profiles_admin_bp
+from routes.bulk_mail import bp as bulk_mail_bp
 
 app.register_blueprint(utility_bp)
 app.register_blueprint(static_files_bp)
+app.register_blueprint(bulk_mail_bp)
 app.register_blueprint(resources_bp)
 app.register_blueprint(templates_bp)
 app.register_blueprint(exchange_bp)

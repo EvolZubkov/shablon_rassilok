@@ -41,6 +41,10 @@ PyQtWebEngine>=5.15,<6.0
 pyinstaller>=6.0,<7.0
 Pillow>=10.0,<12.0     # icon conversion only — excluded from PyInstaller bundle
 
+# ── Excel / ODS parsing (bulk mail) ─────────────────────────────────────────
+openpyxl>=3.1,<4.0     # .xlsx / .xlsm
+odfpy>=1.4,<2.0        # .ods
+
 # ── Tests ────────────────────────────────────────────────────────────────────
 pytest>=8.0
 pytest-flask>=1.3

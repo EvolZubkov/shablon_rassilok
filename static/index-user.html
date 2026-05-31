@@ -238,6 +238,16 @@
 
               <div class="bm-accordion-body" id="bm-accordion-body">
 
+                <!-- Предупреждение: Exchange не настроен -->
+                <div id="bm-exchange-warn" style="display:none;align-items:center;gap:10px;
+                     padding:10px 16px;background:rgba(239,68,68,.08);
+                     border-bottom:1px solid rgba(239,68,68,.18);font-size:12px;color:#fca5a5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Учётные данные Exchange не настроены — отправка недоступна.
+                  <a href="#" onclick="event.preventDefault(); document.querySelector('[data-panel=settings]')?.click()"
+                     style="color:#c4b5fd;text-decoration:underline;white-space:nowrap">Настроить</a>
+                </div>
+
                 <!-- ── Блок 1: Данные ─────────────────────────────── -->
                 <div class="bm-section">
                   <div class="bm-section-title">Данные</div>
@@ -1099,6 +1109,33 @@
   </button>
 
   <script src="js/userInit.js"></script>
+
+  <!-- ── Модалка подтверждения рассылки ──────────────────────────────────── -->
+  <div id="bm-confirm-modal"
+       style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
+              background:rgba(0,0,0,.65);
+              align-items:center;justify-content:center;">
+    <div style="background:#1e293b;border:1px solid #334155;
+                border-radius:12px;padding:24px;width:420px;max-width:90vw;
+                display:flex;flex-direction:column;gap:16px;
+                box-shadow:0 20px 60px rgba(0,0,0,.5);">
+      <div style="font-size:15px;font-weight:700;color:#f1f5f9" id="bm-confirm-title">Подтверждение рассылки</div>
+      <div style="font-size:13px;color:#94a3b8;line-height:1.6" id="bm-confirm-body"></div>
+      <div id="bm-confirm-warns" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button id="bm-confirm-cancel"
+                style="height:36px;padding:0 16px;background:transparent;border:1px solid #334155;
+                       border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer;font-family:inherit;">
+          Отмена
+        </button>
+        <button id="bm-confirm-ok"
+                style="height:36px;padding:0 20px;background:#7700ff;border:none;border-radius:8px;
+                       color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
+          <span id="bm-confirm-ok-label">Отправить</span>
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 
 </html>

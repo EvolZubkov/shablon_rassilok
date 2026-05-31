@@ -678,6 +678,33 @@
   <script src="js/admin-bulk-mail.js"></script>
   <script src="js/user/bulk-mail-panel.js"></script>
   <script src="js/adminInit.js"></script>
+
+  <!-- ── Модалка подтверждения рассылки ──────────────────────────────────── -->
+  <div id="bm-confirm-modal"
+       style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
+              background:rgba(0,0,0,.65);
+              align-items:center;justify-content:center;">
+    <div style="background:#1e293b;border:1px solid #334155;
+                border-radius:12px;padding:24px;width:420px;max-width:90vw;
+                display:flex;flex-direction:column;gap:16px;
+                box-shadow:0 20px 60px rgba(0,0,0,.5);">
+      <div style="font-size:15px;font-weight:700;color:#f1f5f9" id="bm-confirm-title">Подтверждение рассылки</div>
+      <div style="font-size:13px;color:#94a3b8;line-height:1.6" id="bm-confirm-body"></div>
+      <div id="bm-confirm-warns" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button id="bm-confirm-cancel"
+                style="height:36px;padding:0 16px;background:transparent;border:1px solid #334155;
+                       border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer;font-family:inherit;">
+          Отмена
+        </button>
+        <button id="bm-confirm-ok"
+                style="height:36px;padding:0 20px;background:#7700ff;border:none;border-radius:8px;
+                       color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
+          <span id="bm-confirm-ok-label">Отправить</span>
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 
 </html>
