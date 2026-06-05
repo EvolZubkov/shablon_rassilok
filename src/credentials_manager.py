@@ -115,6 +115,7 @@ def save_credentials(
     default_senders: list = None,
     hostname: str = None,
     auth_type: str = 'ntlm',
+    krb_realm: str = '',
 ) -> None:
     """Шифрует пароль (для NTLM) и сохраняет credentials.json."""
     is_kerberos = str(auth_type or 'ntlm').lower() == 'kerberos'
@@ -125,6 +126,8 @@ def save_credentials(
         "default_senders": default_senders or [],
         "auth_type": 'kerberos' if is_kerberos else 'ntlm',
     }
+    if is_kerberos and krb_realm:
+        payload["krb_realm"] = krb_realm.strip().upper()
     if not is_kerberos:
         key = make_key(username, hostname)
         payload["password"] = encrypt_password(password, key)

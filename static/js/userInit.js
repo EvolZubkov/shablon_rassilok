@@ -80,6 +80,8 @@
                             if (!r.ok || !data.success) throw new Error(data.error || 'Не удалось открыть журнал');
                         })
                         .catch((err) => { Toast.error(err.message || 'Не удалось открыть журнал'); });
+                } else if (action === 'open-review-json') {
+                    document.getElementById('review-json-input')?.click();
                 } else if (action === 'exit') {
                     const hasBlocks = UserAppState.blocks && UserAppState.blocks.length > 0;
                     if (hasBlocks) {
@@ -109,8 +111,150 @@
     document.addEventListener('DOMContentLoaded', initModeSwitcher);
     document.addEventListener('DOMContentLoaded', initUserMenu);
     document.addEventListener('DOMContentLoaded', updateUserMenuState);
+    document.addEventListener('DOMContentLoaded', initReviewJsonImport);
     window.updateUserMenuState = updateUserMenuState;
 }());
+
+// ─── Импорт JSON согласования ─────────────────────────────────────────────────
+
+function initReviewJsonImport() {
+
+    // ── Загрузка и применение JSON ──────────────────────────────────────────
+    async function _loadReviewJson(file) {
+        if (!file || !file.name.endsWith('.json')) {
+            if (typeof Toast !== 'undefined') Toast.error('Ожидается файл .json');
+            return;
+        }
+
+        let payload;
+        try {
+            const text = await file.text();
+            payload = JSON.parse(text);
+        } catch {
+            if (typeof Toast !== 'undefined') Toast.error('Не удалось прочитать JSON файл');
+            return;
+        }
+
+        // Поддерживаем оба формата: обёрнутый { source, blocks } и сырой массив
+        const blocks = Array.isArray(payload) ? payload : payload.blocks;
+        if (!Array.isArray(blocks) || !blocks.length) {
+            if (typeof Toast !== 'undefined') Toast.error('Файл не содержит блоков шаблона');
+            return;
+        }
+
+        // Предупреждаем если уже есть несохранённые изменения
+        const hasWork = typeof UserAppState !== 'undefined' &&
+                        UserAppState.blocks?.length &&
+                        UserAppState.isDirty;
+        if (hasWork) {
+            const ok = confirm('Открыть шаблон из файла согласования?\nТекущие несохранённые изменения будут потеряны.');
+            if (!ok) return;
+        }
+
+        // Перенумеровываем IDs чтобы избежать конфликтов
+        let nextId = 1;
+        function reassignIds(blockList) {
+            for (const b of blockList) {
+                b.id = nextId++;
+                if (Array.isArray(b.columns)) {
+                    for (const col of b.columns) {
+                        if (Array.isArray(col.blocks)) reassignIds(col.blocks);
+                    }
+                }
+            }
+        }
+        reassignIds(blocks);
+
+        // Загружаем в редактор через реальные функции userApp.js
+        const templateName = payload.subject || 'Согласование';
+
+        if (typeof UserAppState !== 'undefined') {
+            UserAppState.currentTemplate   = { name: templateName };
+            UserAppState.originalBlocks    = JSON.parse(JSON.stringify(blocks));
+            UserAppState.blocks            = JSON.parse(JSON.stringify(blocks));
+            UserAppState.isDirty           = false;
+
+            // Обновляем заголовок в шапке редактора
+            const titleEl = document.getElementById('current-template-name');
+            if (titleEl) titleEl.textContent = templateName;
+
+            if (typeof updateUserEditorMeta === 'function') updateUserEditorMeta();
+        } else if (typeof AppState !== 'undefined') {
+            AppState.blocks = blocks;
+        }
+
+        // Переключаемся на редактор и рендерим
+        if (typeof switchScreen === 'function') switchScreen('editor');
+        if (typeof renderUserCanvas === 'function') renderUserCanvas();
+        else if (typeof renderCanvas === 'function') {
+            renderCanvas();
+            if (typeof renderSettings === 'function') renderSettings();
+        }
+
+        const label = payload.subject ? `«${payload.subject}»` : 'шаблон';
+        if (typeof Toast !== 'undefined') Toast.success(`Открыт ${label} для редактирования`);
+    }
+
+    // ── Кнопка выбора файла ─────────────────────────────────────────────────
+    const fileInput = document.getElementById('review-json-input');
+    if (fileInput) {
+        fileInput.addEventListener('change', (e) => {
+            const file = e.target.files?.[0];
+            if (file) _loadReviewJson(file);
+            fileInput.value = '';
+        });
+    }
+
+    // ── Дроп-зона на стартовом экране ───────────────────────────────────────
+    const startScreen = document.getElementById('start-screen');
+    if (!startScreen) return;
+
+    // Визуальный оверлей при drag-over JSON файла
+    const dropOverlay = document.createElement('div');
+    dropOverlay.id = 'review-drop-overlay';
+    dropOverlay.style.cssText = `
+        display:none; position:absolute; inset:0; z-index:9998;
+        background:rgba(139,92,246,.12); border:2px dashed rgba(139,92,246,.6);
+        border-radius:12px; pointer-events:none;
+        align-items:center; justify-content:center;
+        font-size:16px; font-weight:600; color:rgba(139,92,246,.9);
+        letter-spacing:.3px;
+    `;
+    dropOverlay.textContent = 'Отпустите для открытия шаблона согласования';
+    startScreen.style.position = 'relative';
+    startScreen.appendChild(dropOverlay);
+
+    function isJsonFile(e) {
+        return Array.from(e.dataTransfer?.items || [])
+            .some(item => item.kind === 'file' &&
+                (item.type === 'application/json' || item.getAsFile()?.name?.endsWith('.json')));
+    }
+
+    let _dragCounter = 0;
+    document.addEventListener('dragenter', (e) => {
+        if (!isJsonFile(e)) return;
+        e.preventDefault();
+        _dragCounter++;
+        dropOverlay.style.display = 'flex';
+    });
+    document.addEventListener('dragleave', () => {
+        _dragCounter--;
+        if (_dragCounter <= 0) { _dragCounter = 0; dropOverlay.style.display = 'none'; }
+    });
+    document.addEventListener('dragover', (e) => {
+        if (!isJsonFile(e)) return;
+        e.preventDefault();
+    });
+    document.addEventListener('drop', (e) => {
+        _dragCounter = 0;
+        dropOverlay.style.display = 'none';
+        const file = e.dataTransfer?.files?.[0];
+        if (file?.name?.endsWith('.json')) {
+            e.preventDefault();
+            _loadReviewJson(file);
+        }
+    });
+}
 
 // Heartbeat — ping the server every 5 seconds to keep the session alive.
 // Fire immediately on load so we don't fall into the watchdog timeout window

@@ -3390,6 +3390,18 @@ body.admin-mode-page .settings-panel {
   color: #f5f3ff;
 }
 
+.toolbar-btn-bulk {
+  background: rgba(34, 197, 94, 0.12);
+  border-color: rgba(34, 197, 94, 0.35);
+  color: #bbf7d0;
+}
+
+.toolbar-btn-bulk:hover {
+  background: rgba(34, 197, 94, 0.22);
+  border-color: rgba(34, 197, 94, 0.5);
+  color: #dcfce7;
+}
+
 .blocks-library,
 .canvas-area,
 .settings-panel {

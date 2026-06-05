@@ -174,15 +174,18 @@ function buildEmailThemeStyles() {
 }
 
 .email-text,
+.email-heading {
+    color:${DEFAULT_COLORS.TEXT};
+}
+
 .email-text p,
 .email-text span,
 .email-text strong,
 .email-text b,
 .email-text em,
 .email-text i,
-.email-text u,
-.email-heading {
-    color:${DEFAULT_COLORS.TEXT};
+.email-text u {
+    color:inherit;
 }
 
 .email-text a,
@@ -336,6 +339,24 @@ function adaptColorForWhiteBackground(originalColor) {
     }
 
     return originalColor || DEFAULT_COLORS.TEXT;
+}
+
+/**
+ * Resolves text color for a block, honoring its own background when active.
+ * When bgEnabled + bgColor are set, auto-contrast is computed from the background
+ * (matching blockPreview logic). Otherwise falls back to adaptColorForWhiteBackground.
+ */
+function resolveBlockTextColor(s, ctx, colorField) {
+    if (s.bgEnabled !== false && s.bgColor) {
+        return isLightColorPreview(s.bgColor) ? DEFAULT_COLORS.TEXT : '#ffffff';
+    }
+    const savedColor = s[colorField || 'color'] || ctx.textColor;
+    // Dark-theme emails have a dark body background — light colors are already correct,
+    // applying adaptColorForWhiteBackground would wrongly darken them.
+    if (ctx.previewTheme === 'dark') {
+        return savedColor;
+    }
+    return adaptColorForWhiteBackground(savedColor);
 }
 
 // ===== РАБОТА СО ШРИФТАМИ =====
@@ -550,7 +571,7 @@ function generateTextHTML(s) {
     const ctx = getCurrentEmailRenderContext();
     const textHTML = TextSanitizer.render(s.content || '', ctx.linkColor);
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.color || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx);
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
     const lineHeightValue = typeof lineHeight === 'number' ? `${lineHeight * 100}%` : lineHeight;
@@ -573,7 +594,7 @@ function generateHeadingHTML(s) {
 
     const ctx = getCurrentEmailRenderContext();
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.color || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx);
     const size = s.size || 24;
     const weight = s.weight || 'bold';
     const align = s.align || 'left';
@@ -664,7 +685,7 @@ function generateListHTML(s) {
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
     const cellWidth = bulletSize + bulletGap + 2;
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const itemSpacing = s.itemSpacing ?? 8;
 
     const isNumbered = s.listStyle === 'numbered';
@@ -776,7 +797,7 @@ function generateImportantHTML(s) {
     const fontSize = s.fontSize ?? 14;
     const lineHeight = s.lineHeight ?? 1;
     const borderColor = s.borderColor || ctx.borderColor;
-    const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const textContent = TextSanitizer.render(TextSanitizer.sanitize(s.text || '', true), ctx.linkColor);
     const textCellAccent = iconSrc
         ? 'padding-left:0;'

@@ -184,10 +184,42 @@ class TestBulkParse:
         assert 'error' in resp.get_json()
 
     def test_unsupported_format_returns_400(self, client):
-        data = {'file': (io.BytesIO(b'data'), 'test.csv')}
+        # .pdf is not a supported format
+        data = {'file': (io.BytesIO(b'%PDF-1.4 fake'), 'report.pdf')}
         resp = client.post('/api/bulk/parse', data=data, content_type='multipart/form-data')
         assert resp.status_code == 400
-        assert 'error' in resp.get_json()
+        body = resp.get_json()
+        assert 'error' in body
+        assert 'pdf' in body['error'].lower() or 'формат' in body['error'].lower()
+
+    def test_csv_comma_parsed(self, client):
+        csv_content = 'ФИО,Email,Должность\nИван,ivan@test.ru,Менеджер\nМария,maria@test.ru,Аналитик\n'
+        data = {'file': (io.BytesIO(csv_content.encode('utf-8')), 'contacts.csv')}
+        resp = client.post('/api/bulk/parse', data=data, content_type='multipart/form-data')
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['headers'] == ['ФИО', 'Email', 'Должность']
+        assert body['total'] == 2
+        assert body['rows'][0]['Email'] == 'ivan@test.ru'
+
+    def test_csv_semicolon_parsed(self, client):
+        csv_content = 'ФИО;Email\nПётр;petr@test.ru\nАнна;anna@test.ru\n'
+        data = {'file': (io.BytesIO(csv_content.encode('utf-8')), 'contacts.csv')}
+        resp = client.post('/api/bulk/parse', data=data, content_type='multipart/form-data')
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['headers'] == ['ФИО', 'Email']
+        assert body['total'] == 2
+
+    def test_csv_bom_utf8_parsed(self, client):
+        # UTF-8 with BOM — encode('utf-8-sig') prepends BOM automatically
+        csv_content = 'Имя,Почта\nТест,test@example.com\n'
+        data = {'file': (io.BytesIO(csv_content.encode('utf-8-sig')), 'export.csv')}
+        resp = client.post('/api/bulk/parse', data=data, content_type='multipart/form-data')
+        assert resp.status_code == 200
+        body = resp.get_json()
+        assert body['headers'] == ['Имя', 'Почта']
+        assert body['total'] == 1
 
     def test_xlsx_parsed(self, client):
         import openpyxl

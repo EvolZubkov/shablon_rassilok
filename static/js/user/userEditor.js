@@ -440,34 +440,26 @@ function deleteBlock(blockId) {
  * Рендер одиночного блока
  */
 function renderUserSingleBlock(block) {
-    const s = block.settings || {};
-
+    let html;
     switch (block.type) {
-        case 'banner':
-            return renderUserBanner(block);
-        case 'text':
-            return renderUserText(block);
-        case 'heading':
-            return renderUserHeading(block);
-        case 'button':
-            return renderUserButton(block);
-        case 'list':
-            return renderUserList(block);
-        case 'expert':
-            return renderUserExpert(block);
-        case 'important':
-            return renderUserImportant(block);
-        case 'divider':
-            return renderUserDivider(block);
-        case 'image':
-            return renderUserImage(block);
-        case 'spacer':
-            return renderUserSpacer(block);
-        case 'canvas':
-            return renderUserCanvasBlock(block);
-        default:
-            return '<p style="padding: 20px; color: #999;">Неизвестный блок</p>';
+        case 'banner':    html = renderUserBanner(block);    break;
+        case 'text':      html = renderUserText(block);      break;
+        case 'heading':   html = renderUserHeading(block);   break;
+        case 'button':    html = renderUserButton(block);    break;
+        case 'list':      html = renderUserList(block);      break;
+        case 'expert':    html = renderUserExpert(block);    break;
+        case 'important': html = renderUserImportant(block); break;
+        case 'divider':   html = renderUserDivider(block);   break;
+        case 'image':     html = renderUserImage(block);     break;
+        case 'spacer':    html = renderUserSpacer(block);    break;
+        case 'canvas':    html = renderUserCanvasBlock(block); break;
+        default:          html = '<p style="padding:20px;color:#999">Неизвестный блок</p>';
     }
+    // Применяем capabilities (подложка, рамка, ссылка и др.) — как в admin/blockPreview.js
+    if (typeof CapabilityRegistry !== 'undefined') {
+        html = CapabilityRegistry.applyWrappers(html, block, 'preview');
+    }
+    return html;
 }
 
 /**
@@ -531,7 +523,7 @@ function renderUserText(block) {
                 font-size:${s.fontSize || 14}px;
                 line-height:${s.lineHeight || 1.5};
                 text-align:${s.align || 'left'};
-                color:${s.color || '#1D2533'};
+                color:${(s.bgEnabled !== false && s.bgColor) ? (isLightColorPreview(s.bgColor) ? '#1D2533' : '#ffffff') : (typeof adaptColorForWhiteBackground === 'function' ? adaptColorForWhiteBackground(s.color || '#1D2533') : (s.color || '#1D2533'))};
                 font-family:${fontFamily};
                 padding:16px 20px;
                 outline:none;
@@ -557,7 +549,7 @@ function renderUserHeading(block) {
                 font-size:${s.size || 24}px;
                 font-weight:${s.weight || 'bold'};
                 text-align:${s.align || 'left'};
-                color:${s.color || '#1D2533'};
+                color:${(s.bgEnabled !== false && s.bgColor) ? (isLightColorPreview(s.bgColor) ? '#1D2533' : '#ffffff') : (typeof adaptColorForWhiteBackground === 'function' ? adaptColorForWhiteBackground(s.color || '#1D2533') : (s.color || '#1D2533'))};
                 font-family:${fontFamily};
                 padding:16px 20px;
                 outline:none;

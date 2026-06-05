@@ -33,6 +33,8 @@
           <button type="button" class="menu-action" data-action="save-as">Сохранить как...</button>
           <button type="button" class="menu-action" data-action="create-email">Отправить письмо</button>
           <button type="button" class="menu-action" data-action="create-meeting">Отправить встречу</button>
+          <button type="button" class="menu-action" data-action="open-review-json">Открыть из JSON (согласование)...</button>
+          <input type="file" id="review-json-input" accept=".json" style="display:none">
           <button type="button" class="menu-action" data-action="settings">Настройки...</button>
           <button type="button" class="menu-action" data-action="exit">Выход</button>
         </div>
@@ -113,6 +115,12 @@
               <line x1="3" y1="10" x2="21" y2="10"></line>
             </svg>
             <span>Отправить встречу</span>
+          </button>
+          <button id="btn-bulk-send" type="button" class="toolbar-btn toolbar-btn-bulk" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+              <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+            </svg>
+            <span>Разослать — <span id="bm-send-count">0</span> писем</span>
           </button>
         </div>
         <div class="toolbar-group toolbar-group-compact">
@@ -339,9 +347,9 @@
                   <div class="bm-section-title">Данные</div>
                   <div class="bm-file-zone" id="bm-file-zone">
                     <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
-                    <span>Перетащите .xlsx / .ods</span>
+                    <span>Перетащите .xlsx / .ods / .csv</span>
                     <button type="button" class="bm-btn-ghost" id="bm-file-btn">Выбрать файл</button>
-                    <input type="file" id="bm-file-input" accept=".xlsx,.ods,.xls" style="display:none">
+                    <input type="file" id="bm-file-input" accept=".xlsx,.ods,.xls,.csv" style="display:none">
                   </div>
                   <div class="bm-file-loaded" id="bm-file-info" style="display:none">
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
@@ -401,6 +409,10 @@
                           <input type="text" class="bm-input" id="bm-bcc" placeholder="boss@corp.ru">
                         </div>
                       </div>
+                    </div>
+                    <div class="bm-field" id="bm-from-field">
+                      <label class="bm-label">От кого</label>
+                      <select class="bm-select" id="bm-from"></select>
                     </div>
                     <div class="bm-field">
                       <label class="bm-label">Тема письма</label>
@@ -501,10 +513,6 @@
                     <button type="button" class="bm-btn-secondary" id="bm-test-btn">
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8"/><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
                       Тестовое письмо себе
-                    </button>
-                    <button type="button" class="bm-btn-primary" id="bm-send-btn">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
-                      Начать рассылку — <span id="bm-send-count">0</span> писем
                     </button>
                   </div>
 
@@ -714,6 +722,12 @@
       </div>
     </div>
   </div>
+<script>
+  function setBulkMailColumnsAvailable(available) {
+    const btn = document.getElementById('btn-bulk-send');
+    if (btn) btn.style.display = available ? '' : 'none';
+  }
+</script>
 </body>
 
 </html>
