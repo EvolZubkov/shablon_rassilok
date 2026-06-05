@@ -3096,7 +3096,161 @@ def _run_webview_or_browser() -> None:
         except Exception:
             pass
 
-        view = QWebEngineView()
+        class DropAwareWebView(QWebEngineView):
+            """QWebEngineView that forwards file drops to JavaScript instead of navigating."""
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.setAcceptDrops(True)
+
+            def dragEnterEvent(self, event):
+                _logger.info('DropAwareWebView: dragEnter hasUrls=%s', event.mimeData().hasUrls())
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                else:
+                    super().dragEnterEvent(event)
+
+            def dragMoveEvent(self, event):
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    pos = event.pos()
+                    self.page().runJavaScript(
+                        f'(function(){{'
+                        # clear all highlights
+                        f'  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){{'
+                        f'    var t=w.querySelector(".exc-drop-target");'
+                        f'    var h=w.querySelector(".exc-drag-hint");'
+                        f'    var b=w.querySelector(".exc-pick-btn");'
+                        f'    if(t)t.classList.remove("exc-drop-target--over");'
+                        f'    if(h)h.style.display="none";'
+                        f'    if(b)b.style.borderColor="";'
+                        f'  }});'
+                        f'  var bz=document.getElementById("bm-file-zone");'
+                        f'  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                        # find element under cursor
+                        f'  var _dpr=window.devicePixelRatio||1;'
+                        f'  var el=document.elementFromPoint({pos.x()}/_dpr,{pos.y()}/_dpr);'
+                        # bulk mail zone
+                        f'  var bel=el;'
+                        f'  while(bel&&bel.id!=="bm-file-zone"){{bel=bel.parentElement;}}'
+                        f'  if(bel){{bel.classList.add("bm-file-zone--drag");return;}}'
+                        # exchange drop targets
+                        f'  while(el&&!el.classList.contains("exc-drop-target")){{el=el.parentElement;}}'
+                        f'  if(el){{'
+                        f'    el.classList.add("exc-drop-target--over");'
+                        f'    var w=el.closest(".exc-drop-wrap");'
+                        f'    if(w){{'
+                        f'      var h=w.querySelector(".exc-drag-hint");'
+                        f'      var b=w.querySelector(".exc-pick-btn");'
+                        f'      if(h)h.style.display="flex";'
+                        f'      if(b)b.style.borderColor="#a78bfa";'
+                        f'    }}'
+                        f'  }}'
+                        f'}})()'
+                    )
+                else:
+                    super().dragMoveEvent(event)
+
+            def dragLeaveEvent(self, event):
+                _logger.info('DropAwareWebView: dragLeave')
+                self.page().runJavaScript(
+                    '(function(){'
+                    '  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){'
+                    '    var t=w.querySelector(".exc-drop-target");'
+                    '    var h=w.querySelector(".exc-drag-hint");'
+                    '    var b=w.querySelector(".exc-pick-btn");'
+                    '    if(t)t.classList.remove("exc-drop-target--over");'
+                    '    if(h)h.style.display="none";'
+                    '    if(b)b.style.borderColor="";'
+                    '  });'
+                    '  var bz=document.getElementById("bm-file-zone");'
+                    '  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                    '})()'
+                )
+                super().dragLeaveEvent(event)
+
+            def dropEvent(self, event):
+                urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+                files = [u.toLocalFile() for u in urls if u.isLocalFile()]
+                _logger.info('DropAwareWebView: dropEvent files=%s', files)
+                if not files:
+                    _logger.info('DropAwareWebView: no local files, delegating to super')
+                    super().dropEvent(event)
+                    return
+                event.acceptProposedAction()
+                filepath = files[0]
+                pos = event.pos()
+                _logger.info('DropAwareWebView: processing file=%s pos=(%s,%s)', filepath, pos.x(), pos.y())
+                try:
+                    import json as _json, os as _os, requests as _req
+                    fname = _os.path.basename(filepath)
+                    _allowed = ('.xlsx', '.xlsm', '.xls', '.ods', '.csv')
+                    if not fname.lower().endswith(_allowed):
+                        _err = _json.dumps(
+                            f'Неподдерживаемый формат «{fname}». '
+                            f'Разрешены: .xlsx, .xls, .ods, .csv',
+                            ensure_ascii=False)
+                        self.page().runJavaScript(
+                            '(function(){'
+                            '  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){'
+                            '    var t=w.querySelector(".exc-drop-target");'
+                            '    var h=w.querySelector(".exc-drag-hint");'
+                            '    var b=w.querySelector(".exc-pick-btn");'
+                            '    if(t)t.classList.remove("exc-drop-target--over");'
+                            '    if(h)h.style.display="none";'
+                            '    if(b)b.style.borderColor="";'
+                            '  });'
+                            '  var bz=document.getElementById("bm-file-zone");'
+                            '  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                            f'  if(typeof Toast!=="undefined") Toast.error({_err});'
+                            '})()'
+                        )
+                        return
+                    _logger.info('DropAwareWebView: POST /api/bulk/parse fname=%s', fname)
+                    with open(filepath, 'rb') as fh:
+                        resp = _req.post(
+                            f'http://127.0.0.1:{PORT}/api/bulk/parse',
+                            files={'file': (fname, fh)},
+                            timeout=30,
+                        )
+                    _logger.info('DropAwareWebView: parse response status=%s', resp.status_code)
+                    data = resp.json()
+                    _logger.info('DropAwareWebView: parsed headers=%s rows=%d',
+                                 data.get('headers'), len(data.get('rows', [])))
+                    fname_js = _json.dumps(fname, ensure_ascii=False)
+                    data_js = _json.dumps(data, ensure_ascii=False).replace('\\', '\\\\').replace('`', '\\`')
+                    js = (
+                        f'(function(){{'
+                        f'  var dpr=window.devicePixelRatio||1;'
+                        f'  var cx={pos.x()}/dpr, cy={pos.y()}/dpr;'
+                        f'  var el=document.elementFromPoint(cx,cy);'
+                        # — bulk mail drop zone —
+                        f'  var bz=el;'
+                        f'  while(bz&&bz.id!=="bm-file-zone"){{bz=bz.parentElement;}}'
+                        f'  if(bz&&typeof BulkMailPanel!=="undefined"){{'
+                        f'    BulkMailPanel.loadParsed({fname_js},JSON.parse(`{data_js}`));'
+                        f'    return;'
+                        f'  }}'
+                        # — exchange email/meeting fields —
+                        f'  while(el&&!el.classList.contains("exc-drop-target")){{el=el.parentElement;}}'
+                        f'  if(!el){{return;}}'
+                        f'  el.classList.remove("exc-drop-target--over");'
+                        f'  var w=el.closest(".exc-drop-wrap");'
+                        f'  if(w){{'
+                        f'    var h=w.querySelector(".exc-drag-hint");'
+                        f'    var b=w.querySelector(".exc-pick-btn");'
+                        f'    if(h)h.style.display="none";'
+                        f'    if(b)b.style.borderColor="";'
+                        f'  }}'
+                        f'  if(typeof ExchangeModals!=="undefined")'
+                        f'    ExchangeModals._xlsxProcessParsed(JSON.parse(`{data_js}`),el.id);'
+                        f'}})()'
+                    )
+                    self.page().runJavaScript(js)
+                except Exception as exc:
+                    _logger.error('DropAwareWebView.dropEvent error: %s', exc, exc_info=True)
+
+        view = DropAwareWebView()
         # В dev-режиме отключаем дисковый кеш чтобы изменения статики были видны сразу
         if not getattr(sys, 'frozen', False):
             from PyQt5.QtWebEngineWidgets import QWebEngineProfile

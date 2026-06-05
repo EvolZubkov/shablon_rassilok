@@ -224,13 +224,39 @@
         const mval     = $id(`${wrapperId}-mval`);
 
         function reposition() {
-            const r = trigger.getBoundingClientRect();
-            const W = 272;
+            const r    = trigger.getBoundingClientRect();
+            const W    = 272;
+            const GAP  = 6;
+            const MARGIN = 8;
+
+            // Горизонталь — не выходим за края экрана
             let left = r.left;
-            if (left + W > window.innerWidth - 8) left = window.innerWidth - W - 8;
-            if (left < 8) left = 8;
-            const below = window.innerHeight - r.bottom;
-            drop.style.top  = (below >= 280 || below > r.top ? r.bottom + 6 : r.top - drop.offsetHeight - 6) + 'px';
+            if (left + W > window.innerWidth - MARGIN) left = window.innerWidth - W - MARGIN;
+            if (left < MARGIN) left = MARGIN;
+
+            // Вертикаль — предпочитаем открываться вверх если снизу мало места
+            const spaceBelow = window.innerHeight - r.bottom - MARGIN;
+            const spaceAbove = r.top - MARGIN;
+            const dropH = drop.offsetHeight || 360; // реальная высота или запасная оценка
+
+            let top;
+            if (spaceBelow >= dropH) {
+                // Достаточно места снизу — открываем вниз
+                top = r.bottom + GAP;
+            } else if (spaceAbove >= dropH) {
+                // Места снизу не хватает, но есть сверху — открываем вверх
+                top = r.top - dropH - GAP;
+            } else {
+                // Не помещается ни сверху ни снизу — выбираем сторону с бо́льшим пространством
+                // и прижимаем к краю с отступом
+                if (spaceBelow >= spaceAbove) {
+                    top = r.bottom + GAP;
+                } else {
+                    top = Math.max(MARGIN, r.top - dropH - GAP);
+                }
+            }
+
+            drop.style.top  = top + 'px';
             drop.style.left = left + 'px';
         }
 
@@ -278,7 +304,9 @@
             if (!selDate) return;
             const iso = `${selDate.getFullYear()}-${_pad(selDate.getMonth()+1)}-${_pad(selDate.getDate())}T${_pad(hours)}:${_pad(minutes)}:00`;
             if (hidden) hidden.value = iso;
-            trigger.innerHTML = `<span style="color:var(--input-text,#f5f7fb)">${_pad(selDate.getDate())}.${_pad(selDate.getMonth()+1)}.${selDate.getFullYear()} ${_pad(hours)}:${_pad(minutes)}</span>${CAL_ICO}`;
+            const offsetH  = -(new Date().getTimezoneOffset() / 60);
+            const tzLabel  = `UTC${offsetH >= 0 ? '+' : ''}${offsetH}`;
+            trigger.innerHTML = `<span style="color:var(--input-text,#f5f7fb)">${_pad(selDate.getDate())}.${_pad(selDate.getMonth()+1)}.${selDate.getFullYear()} ${_pad(hours)}:${_pad(minutes)}</span><span style="color:var(--text-muted,#9ca3af);font-size:11px;margin-left:6px">${tzLabel}</span>${CAL_ICO}`;
         }
 
         let _oh = null;

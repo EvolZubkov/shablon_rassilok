@@ -72,6 +72,50 @@ function setupAdminShell() {
     setupSidebarSearch();
     setupCanvasContextTracking();
     setupInlinePresetLibrary();
+    setupReviewJsonImport();
+}
+
+function setupReviewJsonImport() {
+    const input = document.getElementById('review-json-input');
+    if (!input) return;
+    input.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (file) _loadReviewJsonAdmin(file);
+        input.value = '';
+    });
+}
+
+async function _loadReviewJsonAdmin(file) {
+    if (!file.name.endsWith('.json')) {
+        if (typeof Toast !== 'undefined') Toast.error('Ожидается файл .json');
+        return;
+    }
+    let payload;
+    try {
+        const text = await file.text();
+        payload = JSON.parse(text);
+    } catch {
+        if (typeof Toast !== 'undefined') Toast.error('Не удалось прочитать JSON файл');
+        return;
+    }
+    const blocks = Array.isArray(payload) ? payload : payload.blocks;
+    if (!Array.isArray(blocks) || !blocks.length) {
+        if (typeof Toast !== 'undefined') Toast.error('Файл не содержит блоков шаблона');
+        return;
+    }
+    if (AppState.blocks?.length) {
+        const ok = confirm('Открыть шаблон из файла согласования?\nТекущие несохранённые изменения будут потеряны.');
+        if (!ok) return;
+    }
+    AppState.blocks = JSON.parse(JSON.stringify(blocks));
+    AppState.selectedBlockId = null;
+    if (payload.subject && window.TemplatesUI?.currentTemplate) {
+        window.TemplatesUI.currentTemplate.name = payload.subject;
+    }
+    renderCanvas();
+    renderSettings();
+    const label = payload.subject ? `«${payload.subject}»` : 'шаблон';
+    if (typeof Toast !== 'undefined') Toast.success(`Открыт ${label} для редактирования`);
 }
 
 function setupBlockButtons() {
@@ -233,6 +277,9 @@ function setupAdminMenu() {
                     break;
                 case 'create-meeting':
                     document.getElementById('btn-create-meeting')?.click();
+                    break;
+                case 'open-review-json':
+                    document.getElementById('review-json-input')?.click();
                     break;
                 case 'settings':
                     document.getElementById('btn-exchange-settings')?.click();

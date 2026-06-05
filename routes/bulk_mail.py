@@ -8,6 +8,8 @@ Routes:
     GET  /api/bulk/send/stream/<id>   — SSE stream: progress events
     POST /api/bulk/send/cancel/<id>   — cancel running job
 """
+from __future__ import annotations
+
 import base64
 import datetime
 import html as _html
@@ -59,7 +61,7 @@ def _substitute(template: str, mapping: dict, row: dict) -> str:
     return result
 
 
-def _connect() -> tuple:
+def _connect(from_email: str = '') -> tuple:
     """Load credentials and return (account, creds) or raise."""
     path  = _m.get_credentials_path()
     if not _m.credentials_exist(path):
@@ -67,9 +69,10 @@ def _connect() -> tuple:
     creds = _m.load_credentials(path)
     if not creds:
         raise ValueError('Не удалось загрузить учётные данные')
+    effective_from = from_email.strip() or creds.get('from_email', '')
     account = _m.connect_exchange(
         creds['server'], creds['username'], creds['password'],
-        creds.get('from_email', ''),
+        effective_from,
         auth_type=creds.get('auth_type', 'ntlm'),
     )
     return account, creds
@@ -113,8 +116,13 @@ def api_bulk_parse():
             result = _parse_xls(file_bytes, sheet_name, header_row)
         elif fname.endswith('.ods'):
             result = _parse_ods(file_bytes, sheet_name, header_row)
+        elif fname.endswith('.csv'):
+            result = _parse_csv(file_bytes, header_row)
         else:
-            return jsonify({'error': f'Неподдерживаемый формат файла: {file.filename}'}), 400
+            return jsonify({'error': (
+                f'Неподдерживаемый формат: «{file.filename}». '
+                'Разрешены: .xlsx, .xls, .ods, .csv'
+            )}), 400
     except ImportError as e:
         return jsonify({'error': str(e)}), 501
     except Exception as e:
@@ -188,6 +196,32 @@ def _parse_ods(file_bytes: bytes, sheet_name: str | None, header_row: int) -> di
     return _rows_to_result(rows_raw, sheets, header_row)
 
 
+def _parse_csv(file_bytes: bytes, header_row: int) -> dict:
+    import csv, io as _io
+    # Try common encodings (BOM-aware utf-8-sig first, then cp1251 for Windows files)
+    for enc in ('utf-8-sig', 'utf-8', 'cp1251', 'latin-1'):
+        try:
+            text = file_bytes.decode(enc)
+            break
+        except UnicodeDecodeError:
+            continue
+    else:
+        text = file_bytes.decode('utf-8', errors='replace')
+
+    # Auto-detect delimiter from the first 8 KB
+    sample = text[:8192]
+    sniffer = csv.Sniffer()
+    try:
+        dialect = sniffer.sniff(sample, delimiters=',;\t|')
+        delimiter = dialect.delimiter
+    except csv.Error:
+        delimiter = ','  # fallback
+
+    reader = csv.reader(_io.StringIO(text), delimiter=delimiter)
+    rows_raw = [row for row in reader]
+    return _rows_to_result(rows_raw, [], header_row)
+
+
 # ── Shared conversion ─────────────────────────────────────────────────────────
 
 def _rows_to_result(rows_raw: list[list[str]], sheets: list[str], header_row: int) -> dict:
@@ -235,8 +269,9 @@ def api_bulk_send_test():
     subject_tpl   = data.get('subject', 'Тестовое письмо')
 
     try:
-        account, creds = _connect()
-        to      = creds.get('from_email', '')
+        from_email = data.get('from_email', '').strip()
+        account, creds = _connect(from_email)
+        to      = from_email or creds.get('from_email', '')
         subject = '[Тест] ' + _substitute(subject_tpl, mapping, row)
         body    = _m.prepare_html_for_email(_substitute(template_html, mapping, row))
         _m.exchange_send_email(account, subject, body, _m.parse_recipients([to]))
@@ -349,7 +384,9 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                 return
         except (ValueError, TypeError) as e:
             _logger.warning('bulk_send: invalid send_at %r: %s', send_at_raw, e)
-    total         = len(rows)
+
+    timezone = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
+    total    = len(rows)
 
     # Attachment settings
     attach_enabled  = data.get('attach_enabled', False)
@@ -363,7 +400,7 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
 
     # Connect to Exchange once for all rows
     try:
-        account, _ = _connect()
+        account, _ = _connect(data.get('from_email', ''))
     except Exception as e:
         q.put({'type': 'error', 'message': str(e)})
         return
@@ -429,7 +466,8 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
             else:
                 _m.exchange_send_email(account, subject, body, to, cc, bcc,
                                        attachments=attachments,
-                                       send_at=send_at)
+                                       send_at=send_at,
+                                       timezone=timezone)
 
             sent += 1
             comment = ('Сохранён черновик' if is_draft

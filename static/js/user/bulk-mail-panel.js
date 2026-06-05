@@ -69,13 +69,27 @@ const BulkMailPanel = (() => {
   }
 
   async function _checkExchangeStatus() {
-    const warn = $('bm-exchange-warn');
-    if (!warn) return;
     try {
       const resp = await fetch('/api/credentials/status');
       const data = await resp.json();
-      warn.style.display = data.exists ? 'none' : 'flex';
+      const warn = $('bm-exchange-warn');
+      if (warn) warn.style.display = data.exists ? 'none' : 'flex';
+      _populateFromSelect(data);
     } catch (_) { /* сервер недоступен — молчим */ }
+  }
+
+  function _populateFromSelect(status) {
+    const sel = $('bm-from');
+    if (!sel) return;
+    const primary = status.from_email || status.username || '';
+    const senders = (status.default_senders || []).filter(e => e && e !== primary);
+    const all     = primary ? [primary, ...senders] : senders;
+    sel.innerHTML = '';
+    all.forEach(email => {
+      const opt = document.createElement('option');
+      opt.value = opt.textContent = email;
+      sel.appendChild(opt);
+    });
   }
   function onPanelClose() {
     hideRowNav();
@@ -96,9 +110,19 @@ const BulkMailPanel = (() => {
     if (btn)   btn.addEventListener('click', () => input?.click());
     if (clear) clear.addEventListener('click', clearFile);
 
+    const ALLOWED_EXT = ['.xlsx', '.xls', '.ods', '.csv'];
+
+    function _checkExt(file) {
+      const name = (file.name || '').toLowerCase();
+      if (ALLOWED_EXT.some(e => name.endsWith(e))) return true;
+      const allowed = ALLOWED_EXT.join(', ');
+      _showFileError(file.name, `Неподдерживаемый формат. Разрешены: ${allowed}`);
+      return false;
+    }
+
     if (input) input.addEventListener('change', e => {
       const f = e.target.files[0];
-      if (f) parseFile(f);
+      if (f && _checkExt(f)) parseFile(f);
       e.target.value = '';
     });
 
@@ -108,7 +132,7 @@ const BulkMailPanel = (() => {
       zone.addEventListener('drop', e => {
         e.preventDefault(); zone.classList.remove('bm-file-zone--drag');
         const f = e.dataTransfer.files[0];
-        if (f) parseFile(f);
+        if (f && _checkExt(f)) parseFile(f);
       });
     }
 
@@ -637,6 +661,7 @@ const BulkMailPanel = (() => {
           rows,
           mapping:       state.mapping,
           subject:       $('bm-subject')?.value || '',
+          from_email:    $('bm-from')?.value    || '',
           email_column:  state.emailColumn,
           cc:            $('bm-cc')?.value  || '',
           bcc:           $('bm-bcc')?.value || '',
@@ -645,6 +670,7 @@ const BulkMailPanel = (() => {
           stop_on_error:    stopOnError,
           delay,
           send_at:          sendAtVal || null,
+          timezone:         -(new Date().getTimezoneOffset() / 60),
           attach_enabled:   $('bm-attach-toggle')?.checked  || false,
           attach_folder:    $('bm-attach-folder')?.value    || '',
           attach_template:  $('bm-attach-template')?.value  || '',
@@ -779,6 +805,7 @@ const BulkMailPanel = (() => {
           row,
           mapping:     state.mapping,
           subject:     $('bm-subject')?.value || '',
+          from_email:  $('bm-from')?.value    || '',
         }),
       });
       const data = await resp.json();
@@ -1083,8 +1110,12 @@ const BulkMailPanel = (() => {
     $('bm-row-prev')?.addEventListener('click', () => { if (state.currentRow > 0) { state.currentRow--; renderCurrentRow(); } });
     $('bm-row-next')?.addEventListener('click', () => { if (state.currentRow < state.rows.length-1) { state.currentRow++; renderCurrentRow(); } });
 
-    // Кнопки отправки
+    // Кнопки отправки (сайдбар — если элемент остался) + тулбар
     $('bm-send-btn')?.addEventListener('click', () => {
+      if (!state.rows.length) return;
+      _showConfirmModal(() => { resetProgress(); startSend(); });
+    });
+    document.getElementById('btn-bulk-send')?.addEventListener('click', () => {
       if (!state.rows.length) return;
       _showConfirmModal(() => { resetProgress(); startSend(); });
     });
@@ -1122,7 +1153,16 @@ const BulkMailPanel = (() => {
     init();
   }
 
-  return { init, getColumns: () => state.headers, detectPlaceholders, recalcSummary };
+  function loadParsed(filename, data) {
+    if (data && data.error) {
+      _showFileError(filename, data.error);
+      return;
+    }
+    _showFileParsing(filename);
+    _applyParsedData(filename, data);
+  }
+
+  return { init, getColumns: () => state.headers, detectPlaceholders, recalcSummary, loadParsed };
 })();
 
 // ── Глобальный объект BulkMail для userToolbar.js и admin-bulk-mail.js ────────
@@ -1131,7 +1171,6 @@ window.BulkMail = {
     const lc = h.toLowerCase();
     return !lc.includes('email') && !lc.includes('e-mail') && !lc.includes('почта');
   }),
-  // Перезапуск детекта плейсхолдеров + пересчёт сводки после внешних изменений
   refresh: () => {
     BulkMailPanel.detectPlaceholders();
     BulkMailPanel.recalcSummary();

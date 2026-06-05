@@ -46,6 +46,17 @@ const TextSanitizer = (() => {
 
         const tag = node.tagName.toLowerCase();
 
+        // Preserve inline placeholder spans inserted by bulk-mail panel
+        if (tag === 'span' && node.classList.contains('bm-inline-ph')) {
+            const clean = doc.createElement('span');
+            clean.className = 'bm-inline-ph';
+            clean.setAttribute('contenteditable', 'false');
+            if (node.hasAttribute('data-field')) clean.setAttribute('data-field', node.getAttribute('data-field'));
+            if (node.hasAttribute('data-placeholder')) clean.setAttribute('data-placeholder', node.getAttribute('data-placeholder'));
+            clean.textContent = node.textContent;
+            return clean;
+        }
+
         if (ALLOWED_TAGS.hasOwnProperty(tag)) {
             const clean = doc.createElement(tag);
             for (const attr of ALLOWED_TAGS[tag]) {

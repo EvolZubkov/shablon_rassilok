@@ -20,8 +20,42 @@ import sys
 from flask import Blueprint, current_app, jsonify, request
 
 import app as _m  # module reference — gives live access to all app.py globals
+from src.exchange_sender import ExchangeAuthError
 
 bp = Blueprint('exchange', __name__)
+
+
+@bp.route('/api/credentials/detect-realm', methods=['GET'])
+def api_detect_realm():
+    """Определяет Kerberos-realm для Exchange-сервера по выводу klist.
+
+    Парсит klist: ищет строку 'HTTP/<server>@' и читает realm из
+    'Ticket server: HTTP/<server>@REALM'. Если не находит — возвращает
+    realm, вычисленный из имени хоста (uppercase домена).
+    """
+    server = request.args.get('server', '').strip().lower()
+    if not server:
+        return jsonify({'realm': ''}), 400
+    try:
+        result = subprocess.run(
+            ['klist'], capture_output=True, text=True, timeout=5,
+        )
+        output = result.stdout + result.stderr
+        # Ищем строку вида: Ticket server: HTTP/<server>@REALM
+        import re
+        pattern = re.compile(
+            rf'Ticket server:\s+HTTP/{re.escape(server)}@(\S+)', re.IGNORECASE
+        )
+        m = pattern.search(output)
+        if m:
+            realm = m.group(1).strip().upper()
+            return jsonify({'realm': realm, 'source': 'klist'})
+    except Exception:
+        pass
+    # Fallback: uppercase домена (cas.rt.ru → RT.RU)
+    parts = server.rsplit('.', 2)
+    realm = '.'.join(parts[-2:]).upper() if len(parts) >= 2 else server.upper()
+    return jsonify({'realm': realm, 'source': 'hostname'})
 
 
 @bp.route('/api/credentials/detect-auth', methods=['GET'])
@@ -103,6 +137,7 @@ def api_credentials_save():
         from_email = str(data.get('from_email') or '').strip()
         default_senders = data.get('default_senders') or []
         auth_type = str(data.get('auth_type') or 'ntlm').lower()
+        krb_realm = str(data.get('krb_realm') or '').strip().upper()
         path = _m.get_credentials_path()
 
         # Opening the settings form does not repopulate the password field.
@@ -126,7 +161,8 @@ def api_credentials_save():
             return jsonify({'success': False, 'error': err}), 400
 
         _m.save_credentials(path, server, username, password,
-                            from_email, default_senders, auth_type=auth_type)
+                            from_email, default_senders,
+                            auth_type=auth_type, krb_realm=krb_realm)
         return jsonify({'success': True})
     except Exception as e:
         current_app.logger.error('credentials_save error: %s', e, exc_info=True)
@@ -212,6 +248,7 @@ def api_send_email():
             creds['server'], creds['username'], creds['password'],
             from_email or creds['from_email'],
             auth_type=creds.get('auth_type', 'ntlm'),
+            krb_realm=creds.get('krb_realm', ''),
         )
         html_body = _m.prepare_html_for_email(data.get('html_body', ''))
         attachments = data.get('attachments', [])
@@ -224,18 +261,29 @@ def api_send_email():
                 return jsonify({'success': False,
                                 'error': 'Дата отложенной отправки должна быть в будущем'}), 400
 
+        timezone = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
+
         _m.exchange_send_email(
             account, subject, html_body, to, cc, bcc,
             attachments=attachments,
             send_at=send_at,
+            timezone=timezone,
         )
         msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
                if send_at else 'Письмо отправлено')
         return jsonify({'success': True, 'message': msg})
 
+    except ExchangeAuthError as e:
+        current_app.logger.warning('send_email auth error: %s', e)
+        msg = str(e)
+        if creds and creds.get('auth_type') == 'kerberos':
+            msg = ('Kerberos-аутентификация не удалась. '
+                   'Убедитесь, что вы в домене и тикет действителен (kinit). '
+                   'Или переключитесь на NTLM в настройках.')
+        return jsonify({'success': False, 'error': msg}), 401
     except ValueError as e:
-        current_app.logger.warning('send_email auth/validation error: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 401
+        current_app.logger.warning('send_email validation error: %s', e)
+        return jsonify({'success': False, 'error': str(e)}), 400
     except ConnectionError as e:
         current_app.logger.warning('send_email connection error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 503
@@ -293,19 +341,30 @@ def api_send_meeting():
             creds['server'], creds['username'], creds['password'],
             from_email or creds['from_email'],
             auth_type=creds.get('auth_type', 'ntlm'),
+            krb_realm=creds.get('krb_realm', ''),
         )
+        timezone  = str(data.get('timezone') or 'Europe/Moscow').strip()
         html_body = _m.prepare_html_for_email(data.get('html_body', ''))
         attachments = data.get('attachments', [])
         _m.exchange_send_meeting(
             account, subject, html_body, to, cc, bcc,
             location, start_dt, end_dt,
-            attachments=attachments
+            attachments=attachments,
+            timezone=timezone,
         )
         return jsonify({'success': True})
 
+    except ExchangeAuthError as e:
+        current_app.logger.warning('send_meeting auth error: %s', e)
+        msg = str(e)
+        if creds and creds.get('auth_type') == 'kerberos':
+            msg = ('Kerberos-аутентификация не удалась. '
+                   'Убедитесь, что вы в домене и тикет действителен (kinit). '
+                   'Или переключитесь на NTLM в настройках.')
+        return jsonify({'success': False, 'error': msg}), 401
     except ValueError as e:
-        current_app.logger.warning('send_meeting auth/validation error: %s', e)
-        return jsonify({'success': False, 'error': str(e)}), 401
+        current_app.logger.warning('send_meeting validation error: %s', e)
+        return jsonify({'success': False, 'error': str(e)}), 400
     except ConnectionError as e:
         current_app.logger.warning('send_meeting connection error: %s', e)
         return jsonify({'success': False, 'error': str(e)}), 503

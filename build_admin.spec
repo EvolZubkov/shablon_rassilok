@@ -139,6 +139,10 @@ hiddenimports = [
     'requests', 'urllib3', 'certifi', 'lxml', 'lxml.etree',
     # App modules
     'credentials_manager', 'exchange_sender', '_version',
+    # Excel / ODS parsing
+    'openpyxl', 'openpyxl.styles', 'openpyxl.utils',
+    'odf', 'odf.opendocument', 'odf.table', 'odf.text',
+    'xlrd',
     # Stdlib extras
     'configparser', 'hashlib', 'socket', 'pytz', 'atexit', 'signal',
     # Qt5 backend (collected above, listed explicitly as safety net)
