@@ -691,3 +691,157 @@ class TestToEwsDatetime:
             assert args[0] == 2026
             assert args[1] == 12
             assert args[2] == 31
+
+
+# ─── exchange_send_email: importance + read_receipt ──────────────────────────
+
+class TestExchangeSendEmailImportance:
+    """exchange_send_email должен устанавливать важность и read_receipt на объекте Message."""
+
+    def _make_account(self):
+        acc = MagicMock()
+        acc.primary_smtp_address = 'sender@test.ru'
+        return acc
+
+    def _send(self, account, importance='normal', read_receipt=False):
+        msg_mock = MagicMock()
+        with patch('exchange_sender.Message', return_value=msg_mock), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p/>', [])), \
+             patch('exchange_sender._to_mailboxes', return_value=[]):
+            exchange_send_email(
+                account, 'Subject', '<p/>', ['to@test.ru'],
+                importance=importance, read_receipt=read_receipt,
+            )
+        return msg_mock
+
+    def test_importance_high_sets_attribute(self):
+        msg = self._send(self._make_account(), importance='high')
+        assert msg.importance == 'High'
+
+    def test_importance_low_sets_attribute(self):
+        msg = self._send(self._make_account(), importance='low')
+        assert msg.importance == 'Low'
+
+    def test_importance_normal_not_set(self):
+        msg = self._send(self._make_account(), importance='normal')
+        # importance не должен быть установлен вообще
+        assert not hasattr(msg, 'importance') or msg.importance != 'Normal'
+
+    def test_importance_default_not_set(self):
+        msg = self._send(self._make_account())
+        # При дефолтном значении 'normal' атрибут не устанавливается
+        try:
+            val = msg.importance
+            assert val != 'High' and val != 'Low'
+        except AttributeError:
+            pass  # тоже ок — атрибут не задан
+
+    def test_read_receipt_true_sets_flag(self):
+        msg = self._send(self._make_account(), read_receipt=True)
+        assert msg.is_read_receipt_requested is True
+
+    def test_read_receipt_false_not_set(self):
+        msg = self._send(self._make_account(), read_receipt=False)
+        # Не должен быть установлен в True
+        try:
+            assert msg.is_read_receipt_requested is not True
+        except AttributeError:
+            pass  # атрибут не установлен — тоже ок
+
+    def test_importance_map_covers_all_levels(self):
+        from exchange_sender import _IMPORTANCE_MAP
+        assert _IMPORTANCE_MAP['low']    == 'Low'
+        assert _IMPORTANCE_MAP['normal'] == 'Normal'
+        assert _IMPORTANCE_MAP['high']   == 'High'
+
+    def test_unknown_importance_defaults_to_normal(self):
+        msg = self._send(self._make_account(), importance='unknown')
+        # Не должен упасть; устанавливает Normal или ничего
+        msg.send.assert_called_once()
+
+    def test_send_called_once(self):
+        msg = self._send(self._make_account(), importance='high', read_receipt=True)
+        msg.send.assert_called_once()
+
+
+# ─── /api/send/email: importance + read_receipt ──────────────────────────────
+
+class TestSendEmailApiImportance:
+    """Flask-эндпоинт /api/send/email должен передавать importance и read_receipt."""
+
+    def _mock_creds(self):
+        return {
+            'server': 'cas.test.ru', 'username': 'u', 'password': 'p',
+            'from_email': 'u@test.ru', 'auth_type': 'ntlm', 'krb_realm': '',
+        }
+
+    def test_high_importance_passed_to_sender(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject':    'Test',
+                'to':         ['to@test.ru'],
+                'html_body':  '<p>Hi</p>',
+                'importance': 'high',
+            })
+        assert captured.get('importance') == 'high'
+
+    def test_read_receipt_passed_to_sender(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject':      'Test',
+                'to':           ['to@test.ru'],
+                'html_body':    '<p>Hi</p>',
+                'read_receipt': True,
+            })
+        assert captured.get('read_receipt') is True
+
+    def test_default_importance_normal(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject': 'Test', 'to': ['to@test.ru'], 'html_body': '<p/>',
+            })
+        assert captured.get('importance') == 'normal'
+
+    def test_default_read_receipt_false(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject': 'Test', 'to': ['to@test.ru'], 'html_body': '<p/>',
+            })
+        assert captured.get('read_receipt') is False

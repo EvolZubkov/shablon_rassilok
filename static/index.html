@@ -410,6 +410,7 @@
                         </div>
                       </div>
                     </div>
+                    <div id="bm-channel-block" style="display:none"></div>
                     <div class="bm-field" id="bm-from-field">
                       <label class="bm-label">От кого</label>
                       <select class="bm-select" id="bm-from"></select>
@@ -484,6 +485,27 @@
                     </button>
                     <div class="bm-collapse-area" id="bm-adv-area" style="display:none">
                       <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+
+                        <div class="bm-field">
+                          <label class="bm-label">Важность письма</label>
+                          <div class="bm-importance-seg" id="bm-importance">
+                            <button type="button" class="bm-imp-btn" data-val="low">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg> Низкая
+                            </button>
+                            <button type="button" class="bm-imp-btn bm-imp-active" data-val="normal">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/></svg> Обычная
+                            </button>
+                            <button type="button" class="bm-imp-btn" data-val="high">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Высокая
+                            </button>
+                          </div>
+                        </div>
+                        <label class="bm-toggle-row">
+                          <input type="checkbox" id="bm-read-receipt">
+                          <span class="bm-toggle-label">Уведомление о прочтении</span>
+                        </label>
+                        <div class="bm-divider-thin"></div>
+
                         <label class="bm-toggle-row"><input type="checkbox" id="bm-draft-mode"><span class="bm-toggle-label">Режим черновиков (не отправлять)</span></label>
                         <label class="bm-toggle-row"><input type="checkbox" id="bm-stop-on-error"><span class="bm-toggle-label">Остановить при первой ошибке</span></label>
                         <div class="bm-field">

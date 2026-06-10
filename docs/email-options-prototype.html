@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Прототип — Дополнительные настройки</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1f2e; color: #c9d1e0;
+    display: flex; align-items: flex-start; justify-content: center;
+    gap: 28px; padding: 32px 24px; flex-wrap: wrap;
+  }
+  h2 { font-size: 10px; font-weight: 700; color: #5a6a88; text-transform: uppercase; letter-spacing: .1em; margin-bottom: 10px; text-align: center; }
+
+  .panel { background: #242b3d; border: 1px solid #2e3a52; border-radius: 10px; overflow: hidden; box-shadow: 0 8px 32px rgba(0,0,0,.4); }
+  .panel-header { display:flex; align-items:center; justify-content:space-between; padding:13px 18px; border-bottom:1px solid #2e3a52; }
+  .panel-title { font-size:14px; font-weight:600; color:#e2e8f0; }
+
+  .body { padding:14px 16px; display:flex; flex-direction:column; gap:11px; }
+  .field { display:flex; flex-direction:column; gap:5px; }
+  .label { font-size:12px; font-weight:600; color:#9aabc5; letter-spacing:.03em; }
+  .hint { font-size:11px; color:#5a6a88; }
+  .input, .select {
+    background:#1a1f2e; border:1px solid #2e3a52; border-radius:6px;
+    padding:8px 11px; font-size:13px; color:#c9d1e0; outline:none; width:100%;
+  }
+  .input::placeholder { color:#3d4f6e; }
+  .divider { height:1px; background:#2e3a52; }
+
+  /* ── Чекбокс ── */
+  .check-row { display:flex; align-items:center; gap:8px; cursor:pointer; font-size:13px; color:#c9d1e0; user-select:none; }
+  .check-row input[type=checkbox] { width:14px; height:14px; accent-color:#3b5bdb; cursor:pointer; flex-shrink:0; }
+
+  /* ── Тогл ── */
+  .toggle-row { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+  .toggle { position:relative; width:34px; height:18px; flex-shrink:0; }
+  .toggle input { opacity:0; width:0; height:0; }
+  .toggle-track { position:absolute; inset:0; background:#2e3a52; border-radius:20px; cursor:pointer; transition:background .2s; }
+  .toggle-track::after { content:''; position:absolute; left:2px; top:2px; width:14px; height:14px; border-radius:50%; background:#7a8aaa; transition:transform .2s, background .2s; }
+  .toggle input:checked + .toggle-track { background:#3b5bdb; }
+  .toggle input:checked + .toggle-track::after { transform:translateX(16px); background:#fff; }
+
+  /* ── Важность — сегментированный контрол ── */
+  .importance-seg {
+    display:flex; background:#1a1f2e; border:1px solid #2e3a52;
+    border-radius:7px; padding:3px; gap:3px;
+  }
+  .imp-btn {
+    flex:1; padding:6px 4px; border:none; border-radius:5px; font-size:11px;
+    font-weight:500; cursor:pointer; background:none; color:#7a8aaa;
+    transition:background .15s, color .15s;
+    display:flex; align-items:center; justify-content:center; gap:3px;
+  }
+  .imp-btn:hover:not(.active) { color:#c9d1e0; }
+  .imp-btn[data-val="low"].active    { background:#1e3a2a; color:#4ade80; }
+  .imp-btn[data-val="normal"].active { background:#2e3a52; color:#e2e8f0; }
+  .imp-btn[data-val="high"].active   { background:#3a1e1e; color:#f87171; }
+
+  /* ── Аккордеон дополнительных настроек ── */
+  .extra-accordion {
+    border: 1px solid #2e3a52;
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .extra-trigger {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 9px 12px;
+    background: #1e2535;
+    cursor: pointer;
+    font-size: 12px; font-weight: 600; color: #9aabc5;
+    user-select: none;
+    border: none; width: 100%; text-align: left;
+  }
+  .extra-trigger:hover { background: #242b3d; color: #c9d1e0; }
+  .extra-trigger svg { transition: transform .2s; flex-shrink:0; }
+  .extra-trigger.open svg { transform: rotate(180deg); }
+  .extra-body {
+    display: none;
+    flex-direction: column;
+    gap: 10px;
+    padding: 12px;
+    background: #1e2535;
+    border-top: 1px solid #2e3a52;
+  }
+  .extra-body.open { display: flex; }
+  .extra-sub-label {
+    font-size: 10px; font-weight: 700; color: #5a6a88;
+    text-transform: uppercase; letter-spacing: .08em;
+    padding-bottom: 6px; border-bottom: 1px solid #2a3448;
+  }
+
+  /* ── Пауза select (компактный) ── */
+  .pause-row { display:flex; align-items:center; gap:10px; }
+  .pause-row .label { white-space:nowrap; font-size:12px; }
+  .pause-row .select { flex:1; height:30px; padding:0 8px; font-size:12px; }
+
+  /* ── Кнопки ── */
+  .footer { display:flex; gap:8px; justify-content:flex-end; padding:12px 16px; border-top:1px solid #2e3a52; }
+  .btn { padding:8px 18px; border-radius:6px; font-size:13px; font-weight:500; cursor:pointer; border:none; }
+  .btn-ghost { background:none; border:1px solid #2e3a52; color:#9aabc5; }
+  .btn-ghost:hover { background:#2e3a52; }
+  .btn-primary { background:#3b5bdb; color:#fff; }
+  .btn-primary:hover { background:#4c6ef5; }
+  .send-btn { width:100%; padding:10px; border:none; border-radius:7px; background:#3b5bdb; color:#fff; font-size:13px; font-weight:600; cursor:pointer; }
+  .send-btn:hover { background:#4c6ef5; }
+</style>
+</head>
+<body>
+
+<!-- ══════════ ОБЫЧНОЕ ПИСЬМО ══════════ -->
+<div>
+  <h2>Отправить письмо</h2>
+  <div class="panel" style="width:400px">
+    <div class="panel-header">
+      <div class="panel-title">✉ Отправить письмо</div>
+    </div>
+    <div class="body">
+
+      <div class="field">
+        <div class="label">Кому</div>
+        <input class="input" type="text" placeholder="recipient@corp.ru">
+      </div>
+      <div class="field">
+        <div class="label">От кого</div>
+        <select class="select"><option>zubkov.evgeniy@rt.ru</option><option>education.bti@rt.ru</option></select>
+      </div>
+      <div class="field">
+        <div class="label">Тема</div>
+        <input class="input" type="text" placeholder="Тема письма">
+      </div>
+
+      <!-- Дополнительные настройки -->
+      <div class="extra-accordion">
+        <button type="button" class="extra-trigger" onclick="toggleExtra(this)">
+          <span>⚙ Дополнительные настройки</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="extra-body">
+
+          <!-- Важность -->
+          <div class="field">
+            <div class="label">Важность письма</div>
+            <div class="importance-seg" id="email-imp">
+              <button type="button" class="imp-btn" data-val="low" onclick="setImp('email-imp','low')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg> Низкая
+              </button>
+              <button type="button" class="imp-btn active" data-val="normal" onclick="setImp('email-imp','normal')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/></svg> Обычная
+              </button>
+              <button type="button" class="imp-btn" data-val="high" onclick="setImp('email-imp','high')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Высокая
+              </button>
+            </div>
+          </div>
+
+          <!-- Уведомление о прочтении -->
+          <div class="toggle-row">
+            <div>
+              <div class="label">Уведомление о прочтении</div>
+              <div class="hint">Получатель может отклонить запрос</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox"><span class="toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Существующие опции -->
+          <label class="check-row"><input type="checkbox"> Добавить комментарий к письму</label>
+          <label class="check-row"><input type="checkbox"> На согласование</label>
+          <label class="check-row"><input type="checkbox"> Отложенная отправка</label>
+
+        </div>
+      </div>
+
+    </div>
+    <div class="footer">
+      <button class="btn btn-ghost">Отмена</button>
+      <button class="btn btn-primary">Отправить</button>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ РАССЫЛКА ══════════ -->
+<div>
+  <h2>Панель рассылки</h2>
+  <div class="panel" style="width:270px">
+    <div class="panel-header" style="padding:11px 14px">
+      <div class="panel-title" style="font-size:13px">✈ Рассылка</div>
+    </div>
+    <div class="body">
+
+      <div>
+        <div class="label" style="margin-bottom:5px">Email-колонка</div>
+        <select class="select"><option>Почта</option></select>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:5px">От кого</div>
+        <select class="select"><option>zubkov.evgeniy@rt.ru</option></select>
+      </div>
+      <div>
+        <div class="label" style="margin-bottom:5px">Тема письма</div>
+        <input class="input" type="text" placeholder="Уведомление для {{ФИО}}">
+      </div>
+
+      <!-- Дополнительные настройки -->
+      <div class="extra-accordion">
+        <button type="button" class="extra-trigger" onclick="toggleExtra(this)">
+          <span>⚙ Дополнительные настройки</span>
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+        </button>
+        <div class="extra-body">
+
+          <!-- Важность -->
+          <div class="field">
+            <div class="label">Важность письма</div>
+            <div class="importance-seg" id="bm-imp">
+              <button type="button" class="imp-btn" data-val="low" onclick="setImp('bm-imp','low')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg> Низкая
+              </button>
+              <button type="button" class="imp-btn active" data-val="normal" onclick="setImp('bm-imp','normal')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/></svg> Обычная
+              </button>
+              <button type="button" class="imp-btn" data-val="high" onclick="setImp('bm-imp','high')">
+                <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Высокая
+              </button>
+            </div>
+          </div>
+
+          <!-- Уведомление о прочтении -->
+          <div class="toggle-row">
+            <div>
+              <div class="label">Уведомление о прочтении</div>
+              <div class="hint">Запрос для каждого письма</div>
+            </div>
+            <label class="toggle">
+              <input type="checkbox"><span class="toggle-track"></span>
+            </label>
+          </div>
+
+          <div class="divider"></div>
+
+          <!-- Существующие опции -->
+          <label class="check-row"><input type="checkbox"> Режим черновиков (не отправлять)</label>
+          <label class="check-row"><input type="checkbox"> Остановить при первой ошибке</label>
+
+          <div class="pause-row">
+            <div class="label">Пауза между письмами</div>
+            <select class="select">
+              <option>Без паузы</option>
+              <option>1 сек</option>
+              <option>3 сек</option>
+              <option>5 сек</option>
+            </select>
+          </div>
+
+          <label class="check-row"><input type="checkbox"> Отложенная отправка</label>
+
+        </div>
+      </div>
+
+      <div class="divider"></div>
+      <button class="send-btn">✈ Разослать — 2 письма</button>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleExtra(trigger) {
+    trigger.classList.toggle('open');
+    trigger.nextElementSibling.classList.toggle('open');
+  }
+
+  function setImp(groupId, val) {
+    document.getElementById(groupId)
+      .querySelectorAll('.imp-btn')
+      .forEach(b => b.classList.toggle('active', b.dataset.val === val));
+  }
+</script>
+</body>
+</html>

@@ -116,6 +116,18 @@ def api_credentials_status():
                 'from_email':      creds.get('from_email') if creds else None,
                 'default_senders': creds.get('default_senders') if creds else [],
                 'auth_type':       (creds.get('auth_type') or 'ntlm') if creds else 'ntlm',
+                # SMTP
+                'smtp_host':             (creds.get('smtp_host') or '') if creds else '',
+                'smtp_port':             (creds.get('smtp_port') or 587) if creds else 587,
+                'smtp_username':         (creds.get('smtp_username') or '') if creds else '',
+                'smtp_has_password':     bool(creds and creds.get('smtp_password')),
+                'smtp_from_email':       (creds.get('smtp_from_email') or '') if creds else '',
+                'smtp_default_senders':  (creds.get('smtp_default_senders') or []) if creds else [],
+                'smtp_imap_enabled':     bool(creds.get('smtp_imap_enabled')) if creds else False,
+                'smtp_imap_host':        (creds.get('smtp_imap_host') or '') if creds else '',
+                'smtp_imap_port':        (creds.get('smtp_imap_port') or 993) if creds else 993,
+                'smtp_delay_enabled':    bool(creds.get('smtp_delay_enabled')) if creds else False,
+                'smtp_delay_seconds':    (creds.get('smtp_delay_seconds') or 1) if creds else 1,
             })
         return jsonify({'exists': False, 'has_password': False,
                         'username': None, 'server': None,
@@ -138,6 +150,24 @@ def api_credentials_save():
         default_senders = data.get('default_senders') or []
         auth_type = str(data.get('auth_type') or 'ntlm').lower()
         krb_realm = str(data.get('krb_realm') or '').strip().upper()
+
+        # SMTP fields
+        smtp_data = None
+        if any(k in data for k in ('smtp_host', 'smtp_username', 'smtp_password')):
+            smtp_data = {
+                'host':           str(data.get('smtp_host') or '').strip(),
+                'port':           int(data.get('smtp_port') or 587),
+                'username':       str(data.get('smtp_username') or '').strip(),
+                'password':       str(data.get('smtp_password') or '').strip(),
+                'from_email':     str(data.get('smtp_from_email') or '').strip(),
+                'default_senders': data.get('smtp_default_senders') or [],
+                'imap_enabled':   bool(data.get('smtp_imap_enabled')),
+                'imap_host':      str(data.get('smtp_imap_host') or '').strip(),
+                'imap_port':      int(data.get('smtp_imap_port') or 993),
+                'delay_enabled':  bool(data.get('smtp_delay_enabled')),
+                'delay_seconds':  float(data.get('smtp_delay_seconds') or 1),
+            }
+
         path = _m.get_credentials_path()
 
         # Opening the settings form does not repopulate the password field.
@@ -162,7 +192,8 @@ def api_credentials_save():
 
         _m.save_credentials(path, server, username, password,
                             from_email, default_senders,
-                            auth_type=auth_type, krb_realm=krb_realm)
+                            auth_type=auth_type, krb_realm=krb_realm,
+                            smtp=smtp_data)
         return jsonify({'success': True})
     except Exception as e:
         current_app.logger.error('credentials_save error: %s', e, exc_info=True)
@@ -171,10 +202,38 @@ def api_credentials_save():
 
 @bp.route('/api/credentials/test', methods=['POST'])
 def api_credentials_test():
-    """Проверяет подключение к Exchange, выполняя реальный EWS-запрос."""
+    """Проверяет подключение к Exchange или SMTP."""
     try:
         path = _m.get_credentials_path()
         data = request.json or {}
+        channel = str(data.get('channel') or 'exchange').lower()
+
+        # ── SMTP test ──────────────────────────────────────────────────────
+        if channel == 'smtp':
+            smtp_host     = str(data.get('smtp_host')     or '').strip()
+            smtp_port     = int(data.get('smtp_port')     or 587)
+            smtp_username = str(data.get('smtp_username') or '').strip()
+            smtp_password = str(data.get('smtp_password') or '').strip()
+            smtp_from     = str(data.get('smtp_from_email') or '').strip()
+
+            if not smtp_password and _m.credentials_exist(path):
+                try:
+                    existing = _m.load_credentials(path)
+                    if existing and existing.get('smtp_password') and \
+                            existing.get('smtp_username') == smtp_username:
+                        smtp_password = existing['smtp_password']
+                except RuntimeError:
+                    pass
+
+            if not smtp_host or not smtp_username or not smtp_from:
+                return jsonify({'success': False,
+                                'error': 'Заполните хост, логин и email отправителя'}), 400
+
+            _m.test_smtp_connection(smtp_host, smtp_port, smtp_username, smtp_password, smtp_from)
+            current_app.logger.info('credentials_test smtp: OK host=%s', smtp_host)
+            return jsonify({'success': True})
+
+        # ── Exchange test ──────────────────────────────────────────────────
         server     = str(data.get('server')     or '').strip()
         username   = str(data.get('username')   or '').strip()
         password   = str(data.get('password')   or '').strip()
@@ -261,13 +320,17 @@ def api_send_email():
                 return jsonify({'success': False,
                                 'error': 'Дата отложенной отправки должна быть в будущем'}), 400
 
-        timezone = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
+        timezone     = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
+        importance   = str(data.get('importance')   or 'normal').lower()
+        read_receipt = bool(data.get('read_receipt'))
 
         _m.exchange_send_email(
             account, subject, html_body, to, cc, bcc,
             attachments=attachments,
             send_at=send_at,
             timezone=timezone,
+            importance=importance,
+            read_receipt=read_receipt,
         )
         msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
                if send_at else 'Письмо отправлено')

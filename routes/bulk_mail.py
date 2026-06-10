@@ -61,14 +61,31 @@ def _substitute(template: str, mapping: dict, row: dict) -> str:
     return result
 
 
-def _connect(from_email: str = '') -> tuple:
-    """Load credentials and return (account, creds) or raise."""
-    path  = _m.get_credentials_path()
+def _connect(from_email: str = '', channel: str = 'exchange') -> tuple:
+    """Load credentials and return (account_or_smtp, creds) or raise.
+
+    Returns:
+        channel='exchange' → (exchangelib.Account, creds)
+        channel='smtp'     → (smtplib.SMTP, creds)
+    """
+    path = _m.get_credentials_path()
     if not _m.credentials_exist(path):
-        raise ValueError('Учётные данные Exchange не настроены')
+        raise ValueError('Учётные данные не настроены')
     creds = _m.load_credentials(path)
     if not creds:
         raise ValueError('Не удалось загрузить учётные данные')
+
+    if channel == 'smtp':
+        host     = creds.get('smtp_host', '')
+        port     = int(creds.get('smtp_port') or 587)
+        username = creds.get('smtp_username', '')
+        password = creds.get('smtp_password', '')
+        if not host or not username:
+            raise ValueError('SMTP не настроен. Заполните настройки SMTP.')
+        smtp = _m.connect_smtp(host, port, username, password)
+        return smtp, creds
+
+    # Exchange
     effective_from = from_email.strip() or creds.get('from_email', '')
     account = _m.connect_exchange(
         creds['server'], creds['username'], creds['password'],
@@ -269,12 +286,26 @@ def api_bulk_send_test():
     subject_tpl   = data.get('subject', 'Тестовое письмо')
 
     try:
-        from_email = data.get('from_email', '').strip()
-        account, creds = _connect(from_email)
-        to      = from_email or creds.get('from_email', '')
+        from_email   = data.get('from_email', '').strip()
+        channel      = str(data.get('channel')    or 'exchange').lower()
+        importance   = str(data.get('importance') or 'normal').lower()
+        read_receipt = bool(data.get('read_receipt'))
+        conn, creds = _connect(from_email, channel)
         subject = '[Тест] ' + _substitute(subject_tpl, mapping, row)
         body    = _m.prepare_html_for_email(_substitute(template_html, mapping, row))
-        _m.exchange_send_email(account, subject, body, _m.parse_recipients([to]))
+
+        if channel == 'smtp':
+            smtp_from = from_email or creds.get('smtp_from_email', '')
+            to        = smtp_from
+            _m.smtp_send_email(conn, smtp_from, subject, body, [smtp_from],
+                               importance=importance, read_receipt=read_receipt)
+            try: conn.quit()
+            except Exception: pass
+        else:
+            to = from_email or creds.get('from_email', '')
+            _m.exchange_send_email(conn, subject, body, _m.parse_recipients([to]),
+                                   importance=importance, read_receipt=read_receipt)
+
         return jsonify({'success': True, 'to': to})
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 401
@@ -372,6 +403,10 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     is_draft      = data.get('draft_mode', False)
     stop_on_error = data.get('stop_on_error', False)
     delay         = float(data.get('delay', 0))
+    channel        = str(data.get('channel')     or 'exchange').lower()
+    from_email_req = str(data.get('from_email')  or '').strip()
+    importance     = str(data.get('importance')  or 'normal').lower()
+    read_receipt   = bool(data.get('read_receipt'))
 
     send_at = None
     send_at_raw = data.get('send_at', '')
@@ -398,12 +433,34 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     cc  = _m.parse_recipients([cc_raw])  if cc_raw  else []
     bcc = _m.parse_recipients([bcc_raw]) if bcc_raw else []
 
-    # Connect to Exchange once for all rows
+    # Connect once for all rows
     try:
-        account, _ = _connect(data.get('from_email', ''))
+        conn, creds = _connect(from_email_req, channel)
     except Exception as e:
         q.put({'type': 'error', 'message': str(e)})
         return
+
+    # Determine effective from_email and SMTP-specific settings
+    if channel == 'smtp':
+        smtp_from      = from_email_req or creds.get('smtp_from_email', '')
+        smtp_imap      = creds.get('smtp_imap_enabled', False)
+        smtp_imap_host = creds.get('smtp_imap_host', '')
+        smtp_imap_port = int(creds.get('smtp_imap_port') or 993)
+        smtp_delay_on  = creds.get('smtp_delay_enabled', False)
+        smtp_delay_sec = float(creds.get('smtp_delay_seconds') or 1)
+        # Открываем IMAP если нужно
+        imap_conn = None
+        if smtp_imap and smtp_imap_host:
+            try:
+                imap_conn = _m.connect_imap(
+                    smtp_imap_host, smtp_imap_port,
+                    creds.get('smtp_username', ''),
+                    creds.get('smtp_password', ''),
+                )
+            except Exception as e:
+                _logger.warning('bulk_send: IMAP connect failed: %s', e)
+    else:
+        account = conn
 
     sent = skipped = errors = 0
 
@@ -460,14 +517,44 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                     return
                 # else 'send': proceed without attachment
 
-            if is_draft:
+            if channel == 'smtp':
+                # Вложения для SMTP: bytes вместо base64-строки
+                smtp_atts = []
+                for att in attachments:
+                    content = att.get('content', '')
+                    raw_bytes = (base64.b64decode(content)
+                                 if isinstance(content, str) else content)
+                    smtp_atts.append({
+                        'name': att['name'],
+                        'content': raw_bytes,
+                        'mime_type': att.get('mime_type', 'application/octet-stream'),
+                    })
+                raw_msg = _m.smtp_send_email(
+                    conn, smtp_from, subject, body,
+                    [email], cc_raw.split(',') if cc_raw else [],
+                    bcc_raw.split(',') if bcc_raw else [],
+                    attachments=smtp_atts,
+                    importance=importance,
+                    read_receipt=read_receipt,
+                )
+                if imap_conn and raw_msg:
+                    try:
+                        _m.imap_save_sent(imap_conn, raw_msg)
+                    except Exception as e:
+                        _logger.warning('bulk_send: imap_save_sent failed: %s', e)
+                if smtp_delay_on and smtp_delay_sec > 0:
+                    import time as _time
+                    _time.sleep(smtp_delay_sec)
+            elif is_draft:
                 _m.exchange_save_draft(account, subject, body, to, cc, bcc,
                                        attachments=attachments)
             else:
                 _m.exchange_send_email(account, subject, body, to, cc, bcc,
                                        attachments=attachments,
                                        send_at=send_at,
-                                       timezone=timezone)
+                                       timezone=timezone,
+                                       importance=importance,
+                                       read_receipt=read_receipt)
 
             sent += 1
             comment = ('Сохранён черновик' if is_draft
@@ -488,5 +575,13 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
 
         if delay > 0:
             cancel.wait(timeout=delay)
+
+    # Закрыть соединения
+    if channel == 'smtp':
+        try: conn.quit()
+        except Exception: pass
+        if imap_conn:
+            try: imap_conn.logout()
+            except Exception: pass
 
     q.put({'type': 'done', 'sent': sent, 'skipped': skipped, 'errors': errors})

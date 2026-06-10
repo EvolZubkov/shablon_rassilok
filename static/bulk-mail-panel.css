@@ -239,6 +239,47 @@
   box-sizing: border-box;
 }
 
+/* ── Переключатель канала в панели рассылки ── */
+.bm-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary, #5a6a88);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.bm-channel-switch {
+  display: flex;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #1e2a3a);
+  border-radius: 7px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.bm-channel-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  color: var(--text-secondary, #7a8aaa);
+  transition: background 0.15s, color 0.15s;
+}
+
+.bm-channel-btn.active {
+  background: var(--bg-elevated, #1e2a3a);
+  color: var(--text-primary, #e2e8f0);
+}
+
+.bm-channel-btn:hover:not(.active) {
+  color: var(--text-primary, #c9d1e0);
+}
+
 .bm-input:focus,
 .bm-select:focus {
   border-color: #7700ff;

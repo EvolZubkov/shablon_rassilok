@@ -91,69 +91,176 @@ const ExchangeModals = (() => {
             </div>
             <div class="exc-body">
               <div class="exchange-settings-tabs library-subtabs">
-                <button id="settings-tab-exchange" type="button" class="library-subtab active">Exchange</button>
+                <button id="settings-tab-exchange" type="button" class="library-subtab active">Отправка</button>
                 <button id="settings-tab-repository" type="button" class="library-subtab">Репозиторий</button>
               </div>
 
               <div id="settings-pane-exchange" class="exchange-settings-pane is-active">
                 <input type="hidden" id="exc-auth-type" value="ntlm">
 
+                <!-- Переключатель канала -->
                 <div class="exc-field">
-                  <label class="exc-label">Сервер Exchange</label>
-                  <input id="exc-server" type="text" class="exc-input"
-                         placeholder="mail.company.ru" autocomplete="off">
-                </div>
-
-                <div id="exc-kerberos-badge" class="exc-kerberos-badge" style="display:none;">
-                  <span>🔒 Kerberos-тикет обнаружен — логин и пароль не требуются</span>
-                  <button type="button" class="exc-link-btn"
-                          onclick="ExchangeModals._showNtlmFields()">Использовать NTLM</button>
-                </div>
-
-                <div id="exc-krb-realm-field" class="exc-field" style="display:none;">
-                  <label class="exc-label">
-                    Kerberos Realm
-                    <span class="exc-hint"> (например: RT.RU)</span>
-                  </label>
-                  <div style="display:flex;gap:6px;align-items:center">
-                    <input id="exc-krb-realm" type="text" class="exc-input"
-                           placeholder="RT.RU" autocomplete="off"
-                           style="flex:1;min-width:0;text-transform:uppercase">
-                    <button type="button" class="exc-btn exc-btn--secondary"
-                            style="white-space:nowrap;flex-shrink:0"
-                            onclick="ExchangeModals._detectRealm()">
-                      Определить
-                    </button>
+                  <label class="exc-label">Канал отправки</label>
+                  <div class="exc-channel-switch">
+                    <button type="button" class="exc-channel-btn active" id="exc-ch-btn-exchange"
+                            onclick="ExchangeModals._switchSettingsChannel('exchange')">📧 Exchange EWS</button>
+                    <button type="button" class="exc-channel-btn" id="exc-ch-btn-smtp"
+                            onclick="ExchangeModals._switchSettingsChannel('smtp')">📨 SMTP</button>
                   </div>
                 </div>
 
-                <div id="exc-ntlm-fields">
+                <!-- ── Exchange ── -->
+                <div id="exc-channel-block-exchange">
+                  <div class="exc-field">
+                    <label class="exc-label">Сервер Exchange</label>
+                    <input id="exc-server" type="text" class="exc-input"
+                           placeholder="mail.company.ru" autocomplete="off">
+                  </div>
+
+                  <div id="exc-kerberos-badge" class="exc-kerberos-badge" style="display:none;">
+                    <span>🔒 Kerberos-тикет обнаружен — логин и пароль не требуются</span>
+                    <button type="button" class="exc-link-btn"
+                            onclick="ExchangeModals._showNtlmFields()">Использовать NTLM</button>
+                  </div>
+
+                  <div id="exc-krb-realm-field" class="exc-field" style="display:none;">
+                    <label class="exc-label">
+                      Kerberos Realm
+                      <span class="exc-hint"> (например: RT.RU)</span>
+                    </label>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <input id="exc-krb-realm" type="text" class="exc-input"
+                             placeholder="RT.RU" autocomplete="off"
+                             style="flex:1;min-width:0;text-transform:uppercase">
+                      <button type="button" class="exc-btn exc-btn--secondary"
+                              style="white-space:nowrap;flex-shrink:0"
+                              onclick="ExchangeModals._detectRealm()">
+                        Определить
+                      </button>
+                    </div>
+                  </div>
+
+                  <div id="exc-ntlm-fields">
+                    <div class="exc-field">
+                      <label class="exc-label">Логин</label>
+                      <input id="exc-username" type="text" class="exc-input"
+                             placeholder="domain\\user_name" autocomplete="username">
+                    </div>
+                    <div class="exc-field">
+                      <label class="exc-label">Пароль</label>
+                      <input id="exc-password" type="password" class="exc-input"
+                             placeholder="••••••••" autocomplete="current-password">
+                    </div>
+                  </div>
+
+                  <div class="exc-field">
+                    <label class="exc-label">Email отправителя по умолчанию</label>
+                    <input id="exc-from-email" type="text" class="exc-input"
+                           placeholder="user_name@company.ru" autocomplete="email">
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">
+                      Дополнительные ящики
+                      <span class="exc-hint"> (через запятую, необязательно)</span>
+                    </label>
+                    <input id="exc-senders" type="text" class="exc-input"
+                           placeholder="sender1@rt.ru, sender2@rt.ru">
+                  </div>
+                </div>
+
+                <!-- ── SMTP ── -->
+                <div id="exc-channel-block-smtp" style="display:none">
+                  <div style="display:flex;gap:10px">
+                    <div class="exc-field" style="flex:2">
+                      <label class="exc-label">Хост</label>
+                      <input id="smtp-host" type="text" class="exc-input"
+                             placeholder="10.20.1.50" autocomplete="off">
+                    </div>
+                    <div class="exc-field" style="flex:1">
+                      <label class="exc-label">Порт</label>
+                      <select id="smtp-port" class="exc-input">
+                        <option value="587">587 (TLS)</option>
+                        <option value="25">25 (Plain)</option>
+                      </select>
+                    </div>
+                  </div>
                   <div class="exc-field">
                     <label class="exc-label">Логин</label>
-                    <input id="exc-username" type="text" class="exc-input"
-                           placeholder="domain\\user_name" autocomplete="username">
+                    <input id="smtp-username" type="text" class="exc-input"
+                           placeholder="smtp_user" autocomplete="off">
                   </div>
-
                   <div class="exc-field">
                     <label class="exc-label">Пароль</label>
-                    <input id="exc-password" type="password" class="exc-input"
-                           placeholder="••••••••" autocomplete="current-password">
+                    <input id="smtp-password" type="password" class="exc-input"
+                           placeholder="••••••••" autocomplete="new-password">
                   </div>
-                </div>
+                  <div class="exc-field">
+                    <label class="exc-label">Email отправителя</label>
+                    <input id="smtp-from-email" type="text" class="exc-input"
+                           placeholder="noreply@corp.ru" autocomplete="email">
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">
+                      Дополнительные ящики
+                      <span class="exc-hint"> (через запятую, необязательно)</span>
+                    </label>
+                    <input id="smtp-senders" type="text" class="exc-input"
+                           placeholder="bulk1@rt.ru, bulk2@rt.ru">
+                  </div>
 
-                <div class="exc-field">
-                  <label class="exc-label">Email отправителя по умолчанию</label>
-                  <input id="exc-from-email" type="text" class="exc-input"
-                         placeholder="user_name@company.ru" autocomplete="email">
-                </div>
+                  <div class="exc-smtp-section-title">Дополнительно</div>
 
-                <div class="exc-field">
-                  <label class="exc-label">
-                    Дополнительные ящики
-                    <span class="exc-hint"> (через запятую, необязательно)</span>
-                  </label>
-                  <input id="exc-senders" type="text" class="exc-input"
-                         placeholder="sender1@rt.ru, sender2@rt.ru">
+                  <!-- IMAP -->
+                  <div class="exc-toggle-row">
+                    <div>
+                      <div class="exc-label">Сохранять в "Отправленные" (IMAP)</div>
+                      <div class="exc-hint">Копирует письма в папку Sent на сервере</div>
+                    </div>
+                    <label class="exc-toggle">
+                      <input type="checkbox" id="smtp-imap-enabled"
+                             onchange="ExchangeModals._toggleSmtpImap()">
+                      <span class="exc-toggle-track"></span>
+                    </label>
+                  </div>
+                  <div id="smtp-imap-block" style="display:none">
+                    <div class="exc-smtp-collapse">
+                      <div style="display:flex;gap:10px">
+                        <div class="exc-field" style="flex:2">
+                          <label class="exc-label">IMAP Хост</label>
+                          <input id="smtp-imap-host" type="text" class="exc-input" placeholder="10.20.1.50">
+                        </div>
+                        <div class="exc-field" style="flex:1">
+                          <label class="exc-label">Порт</label>
+                          <select id="smtp-imap-port" class="exc-input">
+                            <option value="993">993 (SSL)</option>
+                            <option value="143">143 (TLS)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Задержка -->
+                  <div class="exc-toggle-row">
+                    <div>
+                      <div class="exc-label">Задержка между письмами</div>
+                      <div class="exc-hint">Снижает нагрузку при больших рассылках</div>
+                    </div>
+                    <label class="exc-toggle">
+                      <input type="checkbox" id="smtp-delay-enabled"
+                             onchange="ExchangeModals._toggleSmtpDelay()">
+                      <span class="exc-toggle-track"></span>
+                    </label>
+                  </div>
+                  <div id="smtp-delay-block" style="display:none">
+                    <div class="exc-smtp-collapse">
+                      <div class="exc-field">
+                        <label class="exc-label">Секунд между письмами</label>
+                        <input id="smtp-delay-seconds" type="number" class="exc-input"
+                               value="1" min="0" max="60" style="width:100px">
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div id="exc-test-result" class="exc-test-result"></div>
@@ -282,6 +389,43 @@ const ExchangeModals = (() => {
                 </div>
               </div>
 
+              <!-- Дополнительные настройки -->
+              <div class="exc-extra-accordion" id="email-extra-accordion">
+                <button type="button" class="exc-extra-trigger" id="email-extra-trigger"
+                        onclick="ExchangeModals._toggleEmailExtra()">
+                  <span>⚙ Дополнительные настройки</span>
+                  <svg class="exc-extra-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="exc-extra-body" id="email-extra-body" style="display:none">
+
+                  <div class="exc-field">
+                    <label class="exc-label">Важность письма</label>
+                    <div class="bm-importance-seg" id="email-importance">
+                      <button type="button" class="bm-imp-btn" data-val="low">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg> Низкая
+                      </button>
+                      <button type="button" class="bm-imp-btn bm-imp-active" data-val="normal">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/></svg> Обычная
+                      </button>
+                      <button type="button" class="bm-imp-btn" data-val="high">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Высокая
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="exc-toggle-row">
+                    <div>
+                      <div class="exc-label">Уведомление о прочтении</div>
+                      <div class="exc-hint">Получатель может отклонить запрос</div>
+                    </div>
+                    <label class="exc-toggle">
+                      <input type="checkbox" id="email-read-receipt">
+                      <span class="exc-toggle-track"></span>
+                    </label>
+                  </div>
+
+                  <hr style="border:none;border-top:1px solid var(--border-color,#2e3a52);margin:4px 0">
+
               <div class="exc-field exc-field--comment">
                 <label class="exc-comment-toggle">
                   <input type="checkbox" id="email-comment-toggle"
@@ -319,6 +463,9 @@ const ExchangeModals = (() => {
                 <input type="hidden" id="email-send-at">
               </div>
 
+                </div><!-- /exc-extra-body -->
+              </div><!-- /exc-extra-accordion -->
+
             </div>
             <div class="exc-footer">
               <button class="exc-btn exc-btn--secondary" onclick="ExchangeModals.closeEmail()">Отмена</button>
@@ -327,6 +474,15 @@ const ExchangeModals = (() => {
             </div>
           </div>
         </div>`);
+
+        // Важность — клики
+        _q('email-importance')?.querySelectorAll('.bm-imp-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _q('email-importance').querySelectorAll('.bm-imp-btn')
+                    .forEach(b => b.classList.remove('bm-imp-active'));
+                btn.classList.add('bm-imp-active');
+            });
+        });
 
         // Слушатель «На согласование»
         _q('email-review-toggle')?.addEventListener('change', function () {
@@ -474,6 +630,39 @@ const ExchangeModals = (() => {
         if (realmField)  realmField.style.display   = isKerberos ? ''     : 'none';
     }
 
+    function _toggleEmailExtra() {
+        const body    = _q('email-extra-body');
+        const trigger = _q('email-extra-trigger');
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        trigger?.classList.toggle('exc-extra-open', !open);
+    }
+
+    function _switchSettingsChannel(ch) {
+        const isSmtp = ch === 'smtp';
+        const btnEx  = _q('exc-ch-btn-exchange');
+        const btnSm  = _q('exc-ch-btn-smtp');
+        const blkEx  = _q('exc-channel-block-exchange');
+        const blkSm  = _q('exc-channel-block-smtp');
+        if (btnEx)  btnEx.classList.toggle('active', !isSmtp);
+        if (btnSm)  btnSm.classList.toggle('active', isSmtp);
+        if (blkEx)  blkEx.style.display = isSmtp ? 'none' : '';
+        if (blkSm)  blkSm.style.display = isSmtp ? '' : 'none';
+    }
+
+    function _toggleSmtpImap() {
+        const on = _q('smtp-imap-enabled') && _q('smtp-imap-enabled').checked;
+        const block = _q('smtp-imap-block');
+        if (block) block.style.display = on ? '' : 'none';
+    }
+
+    function _toggleSmtpDelay() {
+        const on = _q('smtp-delay-enabled') && _q('smtp-delay-enabled').checked;
+        const block = _q('smtp-delay-block');
+        if (block) block.style.display = on ? '' : 'none';
+    }
+
     function _showNtlmFields() {
         _applyAuthTypeUI(false);
         _updateSettingsDirtyState();
@@ -526,6 +715,24 @@ const ExchangeModals = (() => {
             else                   _q('exc-from-email').value = '';
             const senders = status.default_senders || [];
             _q('exc-senders').value = senders.join(', ');
+
+            // SMTP fields
+            if (_q('smtp-host')) _q('smtp-host').value = status.smtp_host || '';
+            if (_q('smtp-port')) _q('smtp-port').value = String(status.smtp_port || 587);
+            if (_q('smtp-username')) _q('smtp-username').value = status.smtp_username || '';
+            if (_q('smtp-from-email')) _q('smtp-from-email').value = status.smtp_from_email || '';
+            if (_q('smtp-senders')) _q('smtp-senders').value = (status.smtp_default_senders || []).join(', ');
+            if (_q('smtp-imap-enabled')) {
+                _q('smtp-imap-enabled').checked = !!status.smtp_imap_enabled;
+                ExchangeModals._toggleSmtpImap();
+            }
+            if (_q('smtp-imap-host')) _q('smtp-imap-host').value = status.smtp_imap_host || '';
+            if (_q('smtp-imap-port')) _q('smtp-imap-port').value = String(status.smtp_imap_port || 993);
+            if (_q('smtp-delay-enabled')) {
+                _q('smtp-delay-enabled').checked = !!status.smtp_delay_enabled;
+                ExchangeModals._toggleSmtpDelay();
+            }
+            if (_q('smtp-delay-seconds')) _q('smtp-delay-seconds').value = status.smtp_delay_seconds || 1;
         } else if (status.default_server) {
             _q('exc-server').value = status.default_server;
         }
@@ -549,10 +756,17 @@ const ExchangeModals = (() => {
         _q('exc-test-result').style.display = 'none';
 
         // Track changes to toggle Save ↔ Close button label.
-        const watchedIds = ['exc-server', 'exc-username', 'exc-password', 'exc-from-email', 'exc-senders', 'exc-krb-realm'];
+        const watchedIds = ['exc-server', 'exc-username', 'exc-password', 'exc-from-email', 'exc-senders', 'exc-krb-realm',
+                            'smtp-host', 'smtp-port', 'smtp-username', 'smtp-password', 'smtp-from-email', 'smtp-senders',
+                            'smtp-imap-host', 'smtp-imap-port', 'smtp-delay-seconds'];
         watchedIds.forEach(id => {
             const el = _q(id);
             if (el) el.addEventListener('input', _updateSettingsDirtyState);
+        });
+        // Чекбоксы/select тоже должны триггерить dirty
+        ['smtp-imap-enabled', 'smtp-delay-enabled', 'smtp-port', 'smtp-imap-port'].forEach(id => {
+            const el = _q(id);
+            if (el) el.addEventListener('change', _updateSettingsDirtyState);
         });
         _updateSettingsDirtyState();
     }
@@ -560,6 +774,7 @@ const ExchangeModals = (() => {
     function _getExchangeFormData() {
         const sendersRaw = _q('exc-senders').value.trim();
         const authTypeEl = _q('exc-auth-type');
+        const smtpSendersRaw = (_q('smtp-senders') ? _q('smtp-senders').value.trim() : '');
         return {
             server: _q('exc-server').value.trim(),
             username: _q('exc-username').value.trim(),
@@ -570,6 +785,20 @@ const ExchangeModals = (() => {
             defaultSenders: sendersRaw
                 ? sendersRaw.split(',').map(s => s.trim()).filter(Boolean)
                 : [],
+            // SMTP
+            smtpHost:         _q('smtp-host')         ? _q('smtp-host').value.trim() : '',
+            smtpPort:         _q('smtp-port')         ? parseInt(_q('smtp-port').value) : 587,
+            smtpUsername:     _q('smtp-username')     ? _q('smtp-username').value.trim() : '',
+            smtpPassword:     _q('smtp-password')     ? _q('smtp-password').value : '',
+            smtpFromEmail:    _q('smtp-from-email')   ? _q('smtp-from-email').value.trim() : '',
+            smtpDefaultSenders: smtpSendersRaw
+                ? smtpSendersRaw.split(',').map(s => s.trim()).filter(Boolean)
+                : [],
+            smtpImapEnabled:  _q('smtp-imap-enabled') ? _q('smtp-imap-enabled').checked : false,
+            smtpImapHost:     _q('smtp-imap-host')    ? _q('smtp-imap-host').value.trim() : '',
+            smtpImapPort:     _q('smtp-imap-port')    ? parseInt(_q('smtp-imap-port').value) : 993,
+            smtpDelayEnabled: _q('smtp-delay-enabled') ? _q('smtp-delay-enabled').checked : false,
+            smtpDelaySeconds: _q('smtp-delay-seconds') ? parseFloat(_q('smtp-delay-seconds').value) : 1,
         };
     }
 
@@ -584,7 +813,25 @@ const ExchangeModals = (() => {
         if ((status.from_email || '') !== data.fromEmail) return true;
         if ((status.auth_type || 'ntlm') !== (data.authType || 'ntlm')) return true;
         if (currentSenders.length !== nextSenders.length) return true;
-        return currentSenders.some((value, index) => value !== nextSenders[index]);
+        if (currentSenders.some((v, i) => v !== nextSenders[i])) return true;
+
+        // SMTP fields
+        if ((status.smtp_host     || '') !== (data.smtpHost     || '')) return true;
+        if ((status.smtp_port     || 587) !== (data.smtpPort    || 587)) return true;
+        if ((status.smtp_username || '') !== (data.smtpUsername || '')) return true;
+        if ((status.smtp_from_email || '') !== (data.smtpFromEmail || '')) return true;
+        if (data.smtpPassword) return true;
+        if (!!status.smtp_imap_enabled  !== !!data.smtpImapEnabled)  return true;
+        if (!!status.smtp_delay_enabled !== !!data.smtpDelayEnabled) return true;
+        if ((status.smtp_imap_host  || '') !== (data.smtpImapHost  || '')) return true;
+        if ((status.smtp_imap_port  || 993) !== (data.smtpImapPort || 993)) return true;
+        if ((status.smtp_delay_seconds || 1) !== (data.smtpDelaySeconds || 1)) return true;
+        const curSmtpSenders = Array.isArray(status.smtp_default_senders) ? status.smtp_default_senders : [];
+        const nxtSmtpSenders = Array.isArray(data.smtpDefaultSenders)     ? data.smtpDefaultSenders     : [];
+        if (curSmtpSenders.length !== nxtSmtpSenders.length) return true;
+        if (curSmtpSenders.some((v, i) => v !== nxtSmtpSenders[i])) return true;
+
+        return false;
     }
 
     function _isRepoFormDirty() {
@@ -850,17 +1097,15 @@ const ExchangeModals = (() => {
 
     async function saveCredentials(options = {}) {
         const { closeOnSuccess = true } = options;
+        const data = _getExchangeFormData();
         const {
-            server,
-            username,
-            password,
-            fromEmail,
-            authType,
-            krbRealm,
-            defaultSenders,
-        } = _getExchangeFormData();
+            server, username, password, fromEmail, authType, krbRealm, defaultSenders,
+            smtpHost, smtpPort, smtpUsername, smtpPassword, smtpFromEmail,
+            smtpDefaultSenders, smtpImapEnabled, smtpImapHost, smtpImapPort,
+            smtpDelayEnabled, smtpDelaySeconds,
+        } = data;
 
-        const isDirty = _isExchangeFormDirty({ server, username, password, fromEmail, authType, krbRealm, defaultSenders });
+        const isDirty = _isExchangeFormDirty(data);
 
         if (!isDirty) {
             return true;
@@ -881,6 +1126,18 @@ const ExchangeModals = (() => {
                     default_senders: defaultSenders,
                     auth_type: authType,
                     krb_realm: krbRealm,
+                    // SMTP
+                    smtp_host:             smtpHost,
+                    smtp_port:             smtpPort,
+                    smtp_username:         smtpUsername,
+                    smtp_password:         smtpPassword,
+                    smtp_from_email:       smtpFromEmail,
+                    smtp_default_senders:  smtpDefaultSenders,
+                    smtp_imap_enabled:     smtpImapEnabled,
+                    smtp_imap_host:        smtpImapHost,
+                    smtp_imap_port:        smtpImapPort,
+                    smtp_delay_enabled:    smtpDelayEnabled,
+                    smtp_delay_seconds:    smtpDelaySeconds,
                 })
             });
             const data = await r.json();
@@ -1197,8 +1454,10 @@ const ExchangeModals = (() => {
                 body: JSON.stringify({ subject: finalSubject, to, cc, bcc,
                                        from_email: fromEmail, html_body: html,
                                        attachments,
-                                       send_at:  sendAtVal || null,
-                                       timezone: -(new Date().getTimezoneOffset() / 60) })
+                                       send_at:     sendAtVal || null,
+                                       timezone:    -(new Date().getTimezoneOffset() / 60),
+                                       importance:  _q('email-importance')?.querySelector('.bm-imp-active')?.dataset.val || 'normal',
+                                       read_receipt: _q('email-read-receipt')?.checked || false })
             });
             const data = await r.json();
             if (data.success) {
@@ -1691,6 +1950,10 @@ const ExchangeModals = (() => {
         saveSettings,
         testConnection,
         _showNtlmFields,
+        _toggleEmailExtra,
+        _switchSettingsChannel,
+        _toggleSmtpImap,
+        _toggleSmtpDelay,
         verifyRepoPath,
         searchRepo,
         createRepo,

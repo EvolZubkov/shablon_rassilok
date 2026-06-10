@@ -415,11 +415,16 @@ def _to_ews_datetime(dt: datetime.datetime, utc_offset: float = 3.0) -> 'EWSDate
                        tzinfo=_EWS_UTC)
 
 
+_IMPORTANCE_MAP = {'low': 'Low', 'normal': 'Normal', 'high': 'High'}
+
+
 def exchange_send_email(account: 'Account', subject: str, html_body: str,
                         to: list, cc: list = None, bcc: list = None,
                         attachments: list = None,
                         send_at: datetime.datetime = None,
-                        timezone: float = 3.0) -> None:
+                        timezone: float = 3.0,
+                        importance: str = 'normal',
+                        read_receipt: bool = False) -> None:
     """
     Отправляет HTML-письмо через Exchange.
 
@@ -452,6 +457,11 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
             cc_recipients=_to_mailboxes(cc, account) if cc else None,
             bcc_recipients=_to_mailboxes(bcc, account) if bcc else None,
         )
+        imp = _IMPORTANCE_MAP.get(str(importance).lower(), 'Normal')
+        if imp != 'Normal':
+            msg.importance = imp
+        if read_receipt:
+            msg.is_read_receipt_requested = True
         if send_at is not None:
             msg.deferred_delivery_time = _DeferredDeliveryTimeProp(
                 value=_to_ews_datetime(send_at, timezone)

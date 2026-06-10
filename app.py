@@ -3417,12 +3417,16 @@ def main():
 try:
     from credentials_manager import (
         get_credentials_path, save_credentials, load_credentials,
-        credentials_exist, validate_credentials_data,
+        credentials_exist, validate_credentials_data, validate_smtp_credentials_data,
     )
     from exchange_sender import (
         connect_exchange, exchange_send_email, exchange_send_meeting,
         exchange_save_draft,
         parse_datetime, parse_recipients, _wrap_exchange_error,
+    )
+    from smtp_sender import (
+        connect_smtp, smtp_send_email, test_smtp_connection,
+        connect_imap, imap_save_sent,
     )
     EXCHANGE_AVAILABLE = True
 except ImportError:
