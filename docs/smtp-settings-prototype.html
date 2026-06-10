@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Прототип — Настройки + Рассылка</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    background: #1a1f2e;
+    color: #c9d1e0;
+    display: flex;
+    align-items: flex-start;
+    justify-content: center;
+    gap: 28px;
+    padding: 32px 24px;
+    flex-wrap: wrap;
+  }
+  h2 {
+    font-size: 10px; font-weight: 700; color: #5a6a88;
+    text-transform: uppercase; letter-spacing: .1em;
+    margin-bottom: 10px; text-align: center;
+  }
+
+  /* ── Общие ── */
+  .panel { background:#242b3d;border:1px solid #2e3a52;border-radius:10px;overflow:hidden;box-shadow:0 8px 32px rgba(0,0,0,.4); }
+  .panel-header { display:flex;align-items:center;justify-content:space-between;padding:13px 18px;border-bottom:1px solid #2e3a52; }
+  .panel-title { font-size:14px;font-weight:600;color:#e2e8f0;display:flex;align-items:center;gap:7px; }
+  .btn-close { background:none;border:none;cursor:pointer;color:#7a8aaa;padding:4px;border-radius:4px; }
+  .btn-close:hover { background:#3a4460;color:#e2e8f0; }
+
+  .modal-tabs { display:flex;border-bottom:1px solid #2e3a52;padding:0 18px;gap:4px; }
+  .modal-tab { padding:10px 14px;font-size:13px;font-weight:500;color:#7a8aaa;cursor:pointer;border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .15s,border-color .15s; }
+  .modal-tab:hover { color:#c9d1e0; }
+  .modal-tab.active { color:#6ea8fe;border-bottom-color:#6ea8fe; }
+
+  .panel-body { padding:18px;display:flex;flex-direction:column;gap:14px;overflow-y:auto;max-height:520px; }
+
+  .field { display:flex;flex-direction:column;gap:5px; }
+  .label { font-size:12px;font-weight:600;color:#9aabc5;letter-spacing:.03em; }
+  .hint { font-size:11px;color:#5a6a88;font-weight:400; }
+  .input,.select {
+    background:#1a1f2e;border:1px solid #2e3a52;border-radius:6px;
+    padding:8px 11px;font-size:13px;color:#c9d1e0;outline:none;
+    transition:border-color .15s;width:100%;
+  }
+  .input:focus,.select:focus { border-color:#6ea8fe; }
+  .input::placeholder { color:#3d4f6e; }
+  select option { background:#242b3d; }
+  .row-2 { display:grid;grid-template-columns:1fr 1fr;gap:10px; }
+  .row-3 { display:grid;grid-template-columns:2fr 1fr;gap:10px; }
+  .divider { height:1px;background:#2e3a52; }
+
+  /* ── Переключатель канала (настройки) ── */
+  .channel-switch-settings {
+    display:flex;background:#1a1f2e;border:1px solid #2e3a52;
+    border-radius:8px;padding:4px;gap:4px;
+  }
+  .cs-btn {
+    flex:1;padding:9px 12px;border:none;border-radius:6px;font-size:13px;
+    font-weight:500;cursor:pointer;transition:background .15s,color .15s;
+    background:none;color:#7a8aaa;display:flex;align-items:center;justify-content:center;gap:6px;
+  }
+  .cs-btn.active { background:#2e3a52;color:#e2e8f0; }
+  .cs-btn:hover:not(.active) { color:#c9d1e0; }
+
+  /* ── Тогл ── */
+  .toggle-row { display:flex;align-items:center;justify-content:space-between;gap:12px; }
+  .toggle { position:relative;width:36px;height:20px;flex-shrink:0; }
+  .toggle input { opacity:0;width:0;height:0; }
+  .toggle-track { position:absolute;inset:0;background:#2e3a52;border-radius:20px;cursor:pointer;transition:background .2s; }
+  .toggle-track::after { content:'';position:absolute;left:3px;top:3px;width:14px;height:14px;border-radius:50%;background:#7a8aaa;transition:transform .2s,background .2s; }
+  .toggle input:checked + .toggle-track { background:#3b5bdb; }
+  .toggle input:checked + .toggle-track::after { transform:translateX(16px);background:#fff; }
+
+  .collapse-area { background:#1a1f2e;border:1px solid #2e3a52;border-radius:8px;padding:14px;display:flex;flex-direction:column;gap:12px;margin-top:4px; }
+
+  /* ── Футер настроек ── */
+  .panel-footer {
+    display:flex;align-items:center;justify-content:space-between;
+    padding:13px 18px;border-top:1px solid #2e3a52;gap:8px;
+  }
+  .active-ch { font-size:12px;color:#5a6a88; }
+  .badge-ex { display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;background:#1e3a5f;color:#6ea8fe; }
+  .badge-sm { display:inline-flex;align-items:center;gap:4px;font-size:12px;font-weight:600;padding:2px 8px;border-radius:4px;background:#1a3a2a;color:#4ade80; }
+
+  .btn { padding:8px 18px;border-radius:6px;font-size:13px;font-weight:500;cursor:pointer;border:none;transition:background .15s; }
+  .btn-ghost { background:none;border:1px solid #2e3a52;color:#9aabc5; }
+  .btn-ghost:hover { background:#2e3a52; }
+  .btn-primary { background:#3b5bdb;color:#fff; }
+  .btn-primary:hover { background:#4c6ef5; }
+  .btn-check { background:#1a3a2a;color:#4ade80;border:1px solid #2d5a3d; }
+  .btn-check:hover { background:#2d5a3d; }
+
+  /* ── Панель рассылки ── */
+  .bm-body { padding:14px;display:flex;flex-direction:column;gap:12px; }
+  .bm-label { font-size:12px;font-weight:600;color:#9aabc5;letter-spacing:.03em; }
+  .bm-section-title { font-size:10px;font-weight:700;color:#5a6a88;text-transform:uppercase;letter-spacing:.08em;margin-bottom:6px; }
+  .bm-select,.bm-input {
+    background:#1a1f2e;border:1px solid #2e3a52;border-radius:6px;
+    padding:8px 11px;font-size:13px;color:#c9d1e0;outline:none;width:100%;
+  }
+  .bm-input::placeholder { color:#3d4f6e; }
+  .bm-divider { height:1px;background:#2e3a52; }
+
+  /* Переключатель канала в рассылке */
+  .channel-switch-bm {
+    display:flex;background:#1a1f2e;border:1px solid #2e3a52;
+    border-radius:8px;padding:3px;gap:3px;
+  }
+  .cb-btn {
+    flex:1;padding:7px 10px;border:none;border-radius:6px;font-size:12px;
+    font-weight:500;cursor:pointer;transition:background .15s,color .15s;
+    background:none;color:#7a8aaa;
+  }
+  .cb-btn.active { background:#2e3a52;color:#e2e8f0; }
+  .cb-btn:hover:not(.active) { color:#c9d1e0; }
+
+  .send-btn {
+    width:100%;padding:10px;border:none;border-radius:7px;
+    background:#3b5bdb;color:#fff;font-size:13px;font-weight:600;cursor:pointer;
+  }
+  .send-btn:hover { background:#4c6ef5; }
+
+  .demo-note {
+    font-size:11px;color:#5a6a88;background:#1a1f2e;border:1px dashed #3a4460;
+    border-radius:6px;padding:8px 10px;display:flex;align-items:center;gap:8px;
+  }
+</style>
+</head>
+<body>
+
+<!-- ══════════ НАСТРОЙКИ ══════════ -->
+<div>
+  <h2>Настройки</h2>
+  <div class="panel" style="width:460px">
+
+    <div class="panel-header">
+      <div class="panel-title">⚙ Настройки</div>
+      <button class="btn-close">✕</button>
+    </div>
+
+    <div class="modal-tabs">
+      <div class="modal-tab active">Отправка</div>
+      <div class="modal-tab">Репозиторий</div>
+    </div>
+
+    <div class="panel-body">
+
+      <!-- Переключатель канала -->
+      <div class="field">
+        <div class="label">Канал отправки</div>
+        <div class="channel-switch-settings">
+          <button class="cs-btn active" id="s-ex" onclick="switchSettingsChannel('exchange')">
+            📧 Exchange EWS
+          </button>
+          <button class="cs-btn" id="s-sm" onclick="switchSettingsChannel('smtp')">
+            📨 SMTP
+          </button>
+        </div>
+      </div>
+
+      <!-- ── EXCHANGE ── -->
+      <div id="s-block-exchange">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="field">
+            <div class="label">Сервер Exchange</div>
+            <input class="input" type="text" value="cas.rt.ru">
+          </div>
+          <div class="row-2">
+            <div class="field">
+              <div class="label">Логин</div>
+              <input class="input" type="text" value="pr\zubkov.evgeniy">
+            </div>
+            <div class="field">
+              <div class="label">Пароль</div>
+              <input class="input" type="password" placeholder="Не менять">
+            </div>
+          </div>
+          <div class="field">
+            <div class="label">Email отправителя</div>
+            <input class="input" type="email" value="zubkov.evgeniy@rt.ru">
+          </div>
+          <div class="field">
+            <div class="label">Дополнительные ящики <span class="hint">(через запятую)</span></div>
+            <input class="input" type="text" value="education.bti@rt.ru">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── SMTP ── -->
+      <div id="s-block-smtp" style="display:none">
+        <div style="display:flex;flex-direction:column;gap:12px">
+          <div class="row-3">
+            <div class="field">
+              <div class="label">Хост</div>
+              <input class="input" type="text" value="10.20.1.50">
+            </div>
+            <div class="field">
+              <div class="label">Порт</div>
+              <select class="select">
+                <option>587 (TLS)</option>
+                <option>25 (Plain)</option>
+              </select>
+            </div>
+          </div>
+          <div class="row-2">
+            <div class="field">
+              <div class="label">Логин</div>
+              <input class="input" type="text" placeholder="smtp_user">
+            </div>
+            <div class="field">
+              <div class="label">Пароль</div>
+              <input class="input" type="password" placeholder="••••••••">
+            </div>
+          </div>
+          <div class="field">
+            <div class="label">Email отправителя</div>
+            <input class="input" type="email" placeholder="noreply@corp.ru">
+          </div>
+          <div class="field">
+            <div class="label">Дополнительные ящики <span class="hint">(через запятую)</span></div>
+            <input class="input" type="text" placeholder="bulk1@rt.ru, bulk2@rt.ru">
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="field">
+            <div class="toggle-row">
+              <div>
+                <div class="label">Сохранять в "Отправленные" (IMAP)</div>
+                <div class="hint" style="margin-top:3px">Копирует письма в папку Sent</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" onchange="document.getElementById('imap-b').style.display=this.checked?'flex':'none'">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+          <div id="imap-b" style="display:none">
+            <div class="collapse-area">
+              <div class="row-3">
+                <div class="field"><div class="label">IMAP Хост</div><input class="input" value="10.20.1.50"></div>
+                <div class="field"><div class="label">Порт</div>
+                  <select class="select"><option>993 (SSL)</option><option>143</option></select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="field">
+            <div class="toggle-row">
+              <div>
+                <div class="label">Задержка между письмами</div>
+                <div class="hint" style="margin-top:3px">Снижает нагрузку при больших рассылках</div>
+              </div>
+              <label class="toggle">
+                <input type="checkbox" onchange="document.getElementById('delay-b').style.display=this.checked?'flex':'none'">
+                <span class="toggle-track"></span>
+              </label>
+            </div>
+          </div>
+          <div id="delay-b" style="display:none">
+            <div class="collapse-area">
+              <div class="field">
+                <div class="label">Секунд между письмами</div>
+                <input class="input" type="number" value="1" min="0" max="60" style="width:100px">
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <div class="panel-footer">
+      <div class="active-ch">
+        Активный канал: <span id="s-badge" class="badge-ex">Exchange EWS</span>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-check">Проверить</button>
+        <button class="btn btn-ghost">Закрыть</button>
+        <button class="btn btn-primary">Сохранить</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══════════ ПАНЕЛЬ РАССЫЛКИ ══════════ -->
+<div>
+  <h2>Панель рассылки</h2>
+
+  <div class="demo-note" style="margin-bottom:8px">
+    <input type="checkbox" id="smtp-configured" onchange="updateBulkPanel()" checked>
+    <label for="smtp-configured">SMTP настроен (демо)</label>
+  </div>
+
+  <div class="panel" style="width:270px">
+    <div class="panel-header" style="padding:11px 14px">
+      <div class="panel-title" style="font-size:13px">✈ Рассылка</div>
+    </div>
+
+    <div class="bm-body">
+
+      <div>
+        <div class="bm-section-title">Получатели</div>
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div>
+            <div class="bm-label" style="margin-bottom:5px">Email-колонка</div>
+            <select class="bm-select"><option>Почта</option></select>
+          </div>
+        </div>
+      </div>
+
+      <div class="bm-divider"></div>
+
+      <!-- Канал — только если SMTP настроен -->
+      <div id="bm-channel-block">
+        <div class="bm-section-title">Канал отправки</div>
+        <div class="channel-switch-bm">
+          <button class="cb-btn active" id="cb-ex" onclick="selectBulkChannel('exchange')">📧 Exchange</button>
+          <button class="cb-btn" id="cb-sm" onclick="selectBulkChannel('smtp')">📨 SMTP</button>
+        </div>
+      </div>
+
+      <div class="bm-divider" id="bm-ch-divider"></div>
+
+      <div>
+        <div class="bm-label" style="margin-bottom:5px">От кого</div>
+        <select class="bm-select" id="bm-from-sel">
+          <option>zubkov.evgeniy@rt.ru</option>
+          <option>education.bti@rt.ru</option>
+        </select>
+      </div>
+
+      <div>
+        <div class="bm-label" style="margin-bottom:5px">Тема письма</div>
+        <input class="bm-input" type="text" placeholder="Уведомление для {{ФИО}}">
+      </div>
+
+      <div class="bm-divider"></div>
+
+      <button class="send-btn">✈ Разослать — 2 письма</button>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Настройки ──
+  function switchSettingsChannel(ch) {
+    const isSmtp = ch === 'smtp';
+    document.getElementById('s-ex').classList.toggle('active', !isSmtp);
+    document.getElementById('s-sm').classList.toggle('active', isSmtp);
+    document.getElementById('s-block-exchange').style.display = isSmtp ? 'none' : 'block';
+    document.getElementById('s-block-smtp').style.display     = isSmtp ? 'block' : 'none';
+    const badge = document.getElementById('s-badge');
+    badge.className = isSmtp ? 'badge-sm' : 'badge-ex';
+    badge.textContent = isSmtp ? 'SMTP' : 'Exchange EWS';
+  }
+
+  // ── Рассылка ──
+  function updateBulkPanel() {
+    const smtpOn = document.getElementById('smtp-configured').checked;
+    document.getElementById('bm-channel-block').style.display = smtpOn ? 'block' : 'none';
+    document.getElementById('bm-ch-divider').style.display    = smtpOn ? 'block' : 'none';
+    if (!smtpOn) selectBulkChannel('exchange');
+  }
+
+  function selectBulkChannel(ch) {
+    const isSmtp = ch === 'smtp';
+    document.getElementById('cb-ex').classList.toggle('active', !isSmtp);
+    document.getElementById('cb-sm').classList.toggle('active', isSmtp);
+    const sel = document.getElementById('bm-from-sel');
+    sel.innerHTML = isSmtp
+      ? '<option>noreply@corp.ru</option><option>bulk1@rt.ru</option>'
+      : '<option>zubkov.evgeniy@rt.ru</option><option>education.bti@rt.ru</option>';
+  }
+</script>
+</body>
+</html>

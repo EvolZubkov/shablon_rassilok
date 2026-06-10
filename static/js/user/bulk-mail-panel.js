@@ -25,6 +25,7 @@ const BulkMailPanel = (() => {
     sending:       false,
     cancelled:     false,
     results:       [],      // { row, email, name, status:'sent'|'error'|'skip', error }
+    channel:       'exchange',  // 'exchange' | 'smtp'
   };
 
   // ── Helpers ────────────────────────────────────────────────────────────────────
@@ -74,22 +75,66 @@ const BulkMailPanel = (() => {
       const data = await resp.json();
       const warn = $('bm-exchange-warn');
       if (warn) warn.style.display = data.exists ? 'none' : 'flex';
-      _populateFromSelect(data);
+      _renderChannelSwitch(data);
+      _populateFromSelectForChannel(data, state.channel);
     } catch (_) { /* сервер недоступен — молчим */ }
   }
 
   function _populateFromSelect(status) {
     const sel = $('bm-from');
     if (!sel) return;
-    const primary = status.from_email || status.username || '';
-    const senders = (status.default_senders || []).filter(e => e && e !== primary);
-    const all     = primary ? [primary, ...senders] : senders;
+    _populateFromSelectForChannel(status, state.channel);
+  }
+
+  function _populateFromSelectForChannel(status, channel) {
+    const sel = $('bm-from');
+    if (!sel) return;
+    let primary, senders;
+    if (channel === 'smtp') {
+      primary = status.smtp_from_email || '';
+      senders = (status.smtp_default_senders || []).filter(e => e && e !== primary);
+    } else {
+      primary = status.from_email || status.username || '';
+      senders = (status.default_senders || []).filter(e => e && e !== primary);
+    }
+    const all = primary ? [primary, ...senders] : senders;
     sel.innerHTML = '';
     all.forEach(email => {
       const opt = document.createElement('option');
       opt.value = opt.textContent = email;
       sel.appendChild(opt);
     });
+  }
+
+  function _renderChannelSwitch(status) {
+    const smtpConfigured = !!(status.smtp_host && status.smtp_username);
+    const block = $('bm-channel-block');
+    if (!block) return;
+    if (!smtpConfigured) {
+      block.style.display = 'none';
+      state.channel = 'exchange';
+      return;
+    }
+    block.style.display = '';
+    // Render switcher if not already rendered
+    if (!$('bm-ch-btn-exchange')) {
+      block.innerHTML = `
+        <div class="bm-section-label">Канал отправки</div>
+        <div class="bm-channel-switch">
+          <button type="button" class="bm-channel-btn active" id="bm-ch-btn-exchange">📧 Exchange</button>
+          <button type="button" class="bm-channel-btn" id="bm-ch-btn-smtp">📨 SMTP</button>
+        </div>`;
+      $('bm-ch-btn-exchange').addEventListener('click', () => _selectChannel('exchange', status));
+      $('bm-ch-btn-smtp').addEventListener('click',    () => _selectChannel('smtp',     status));
+    }
+  }
+
+  function _selectChannel(ch, status) {
+    state.channel = ch;
+    const isSmtp = ch === 'smtp';
+    $('bm-ch-btn-exchange')?.classList.toggle('active', !isSmtp);
+    $('bm-ch-btn-smtp')?.classList.toggle('active',     isSmtp);
+    _populateFromSelectForChannel(status || {}, ch);
   }
   function onPanelClose() {
     hideRowNav();
@@ -662,6 +707,9 @@ const BulkMailPanel = (() => {
           mapping:       state.mapping,
           subject:       $('bm-subject')?.value || '',
           from_email:    $('bm-from')?.value    || '',
+          channel:       state.channel,
+          importance:    document.querySelector('#bm-importance .bm-imp-active')?.dataset.val || 'normal',
+          read_receipt:  $('bm-read-receipt')?.checked || false,
           email_column:  state.emailColumn,
           cc:            $('bm-cc')?.value  || '',
           bcc:           $('bm-bcc')?.value || '',
@@ -805,7 +853,10 @@ const BulkMailPanel = (() => {
           row,
           mapping:     state.mapping,
           subject:     $('bm-subject')?.value || '',
-          from_email:  $('bm-from')?.value    || '',
+          from_email:   $('bm-from')?.value    || '',
+          channel:      state.channel,
+          importance:   document.querySelector('#bm-importance .bm-imp-active')?.dataset.val || 'normal',
+          read_receipt: $('bm-read-receipt')?.checked || false,
         }),
       });
       const data = await resp.json();
@@ -1075,6 +1126,15 @@ const BulkMailPanel = (() => {
         attachContent.style.display = attachToggle.checked ? 'block' : 'none';
       });
     }
+
+    // Важность — клики по кнопкам
+    document.querySelectorAll('#bm-importance .bm-imp-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('#bm-importance .bm-imp-btn')
+          .forEach(b => b.classList.remove('bm-imp-active'));
+        btn.classList.add('bm-imp-active');
+      });
+    });
 
     // Дополнительные настройки collapse
     const advBtn  = $('bm-adv-btn');

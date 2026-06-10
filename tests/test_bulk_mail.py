@@ -523,3 +523,287 @@ class TestBulkSendStart:
                                      headers={'Accept': 'text/event-stream'})
             raw = stream_resp.get_data(as_text=True)
         assert 'Запланировано' in raw
+
+
+# ─── /api/bulk/send-test: SMTP channel + importance ─────────────────────────
+
+class TestBulkSendTestSmtp:
+
+    def _mock_creds(self):
+        return {
+            'server':          'exchange.test.ru',
+            'username':        'user@test.ru',
+            'password':        'pass',
+            'from_email':      'sender@test.ru',
+            'auth_type':       'ntlm',
+            'smtp_host':       'mail.test.ru',
+            'smtp_port':       587,
+            'smtp_username':   'smtp_u',
+            'smtp_password':   'smtp_p',
+            'smtp_from_email': 'noreply@test.ru',
+        }
+
+    def test_smtp_channel_calls_smtp_send_email(self, client):
+        mock_smtp = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=mock_smtp), \
+             patch.object(email_app, 'smtp_send_email') as mock_send, \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send-test', json={
+                'template_html': '<p>Тест</p>', 'row': {}, 'mapping': {},
+                'subject': 'Тест', 'channel': 'smtp',
+            })
+        assert resp.status_code == 200
+        mock_send.assert_called_once()
+
+    def test_smtp_channel_does_not_call_exchange(self, client):
+        mock_smtp = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=mock_smtp), \
+             patch.object(email_app, 'smtp_send_email'), \
+             patch.object(email_app, 'exchange_send_email') as mock_exch, \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {}, 'channel': 'smtp',
+            })
+        mock_exch.assert_not_called()
+
+    def test_smtp_channel_sends_to_from_email(self, client):
+        captured = {}
+        def cap(smtp, from_e, subj, body, to, *args, **kwargs):
+            captured['to'] = to
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'smtp_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {}, 'channel': 'smtp',
+            })
+        assert resp.status_code == 200
+        assert 'noreply@test.ru' in captured.get('to', [])
+
+    def test_smtp_channel_importance_passed(self, client):
+        captured = {}
+        def cap(smtp, from_e, subj, body, to, *args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'smtp_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {},
+                'channel': 'smtp', 'importance': 'high',
+            })
+        assert captured.get('importance') == 'high'
+
+    def test_smtp_channel_read_receipt_passed(self, client):
+        captured = {}
+        def cap(smtp, from_e, subj, body, to, *args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'smtp_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {},
+                'channel': 'smtp', 'read_receipt': True,
+            })
+        assert captured.get('read_receipt') is True
+
+    def test_smtp_connection_error_returns_503(self, client):
+        creds = self._mock_creds()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_smtp',
+                          side_effect=ConnectionError('Недоступен')):
+            resp = client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {}, 'channel': 'smtp',
+            })
+        assert resp.status_code == 503
+
+    def test_smtp_not_configured_returns_401(self, client):
+        creds = dict(self._mock_creds())
+        creds['smtp_host'] = ''
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds):
+            resp = client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {}, 'channel': 'smtp',
+            })
+        assert resp.status_code == 401
+
+
+# ─── /api/bulk/send/start: SMTP channel + importance ────────────────────────
+
+class TestBulkSendStartSmtp:
+
+    def _mock_creds(self):
+        return {
+            'server':            'exchange.test.ru',
+            'username':          'user@test.ru',
+            'password':          'pass',
+            'from_email':        'sender@test.ru',
+            'auth_type':         'ntlm',
+            'smtp_host':         'mail.test.ru',
+            'smtp_port':         587,
+            'smtp_username':     'smtp_u',
+            'smtp_password':     'smtp_p',
+            'smtp_from_email':   'noreply@test.ru',
+            'smtp_imap_enabled': False,
+        }
+
+    def test_smtp_channel_calls_smtp_send_email(self, client):
+        mock_smtp = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=mock_smtp), \
+             patch.object(email_app, 'smtp_send_email', return_value=b'raw') as mock_send, \
+             patch.object(email_app, 'exchange_send_email') as mock_exch, \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>{{ФИО}}</p>',
+                'rows':    [{'ФИО': 'Иван', 'Email': 'ivan@test.ru'}],
+                'mapping': {'{{ФИО}}': 'ФИО'},
+                'subject': 'Тест', 'email_column': 'Email', 'channel': 'smtp',
+            })
+            assert resp.status_code == 200
+            time.sleep(0.3)
+
+        mock_send.assert_called_once()
+        mock_exch.assert_not_called()
+
+    def test_smtp_channel_importance_passed(self, client):
+        captured = {}
+        def cap(smtp, from_e, subj, body, to, *args, **kwargs):
+            captured.update(kwargs)
+            return b'raw'
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'smtp_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {}, 'subject': 'Тест', 'email_column': 'Email',
+                'channel': 'smtp', 'importance': 'high',
+            })
+            assert resp.status_code == 200
+            time.sleep(0.3)
+
+        assert captured.get('importance') == 'high'
+
+    def test_smtp_channel_read_receipt_passed(self, client):
+        captured = {}
+        def cap(smtp, from_e, subj, body, to, *args, **kwargs):
+            captured.update(kwargs)
+            return b'raw'
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'smtp_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {}, 'subject': 'Тест', 'email_column': 'Email',
+                'channel': 'smtp', 'read_receipt': True,
+            })
+            assert resp.status_code == 200
+            time.sleep(0.3)
+
+        assert captured.get('read_receipt') is True
+
+    def test_smtp_quits_after_sending(self, client):
+        mock_smtp = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_smtp', return_value=mock_smtp), \
+             patch.object(email_app, 'smtp_send_email', return_value=b'raw'), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {}, 'subject': 'Тест', 'email_column': 'Email',
+                'channel': 'smtp',
+            })
+            assert resp.status_code == 200
+            time.sleep(0.3)
+
+        mock_smtp.quit.assert_called_once()
+
+    def test_smtp_imap_saves_sent(self, client):
+        creds = dict(self._mock_creds())
+        creds['smtp_imap_enabled'] = True
+        creds['smtp_imap_host']    = 'mail.test.ru'
+        creds['smtp_imap_port']    = 993
+        mock_imap = MagicMock()
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'connect_imap', return_value=mock_imap), \
+             patch.object(email_app, 'smtp_send_email', return_value=b'raw_msg'), \
+             patch.object(email_app, 'imap_save_sent') as mock_imap_save, \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {}, 'subject': 'Тест', 'email_column': 'Email',
+                'channel': 'smtp',
+            })
+            assert resp.status_code == 200
+            time.sleep(0.4)
+
+        mock_imap_save.assert_called_once_with(mock_imap, b'raw_msg')
+
+    def test_exchange_importance_passed(self, client):
+        creds = {
+            'server': 'exchange.test.ru', 'username': 'u', 'password': 'p',
+            'from_email': 'sender@test.ru', 'auth_type': 'ntlm',
+        }
+        captured = {}
+        def cap(account, subject, body, to, *args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {}, 'subject': 'Тест', 'email_column': 'Email',
+                'importance': 'low',
+            })
+            assert resp.status_code == 200
+            time.sleep(0.3)
+
+        assert captured.get('importance') == 'low'
+
+    def test_exchange_read_receipt_passed(self, client):
+        creds = {
+            'server': 'exchange.test.ru', 'username': 'u', 'password': 'p',
+            'from_email': 'sender@test.ru', 'auth_type': 'ntlm',
+        }
+        captured = {}
+        def cap(account, subject, body, to, *args, **kwargs):
+            captured.update(kwargs)
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=cap), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json={
+                'template_html': '<p>test</p>',
+                'rows':    [{'Email': 'ivan@test.ru'}],
+                'mapping': {}, 'subject': 'Тест', 'email_column': 'Email',
+                'read_receipt': True,
+            })
+            assert resp.status_code == 200
+            time.sleep(0.3)
+
+        assert captured.get('read_receipt') is True

@@ -2537,6 +2537,197 @@ dialog.app-dialog::backdrop {
   border: 1px solid rgba(99, 102, 241, 0.3);
 }
 
+/* ── Сегментированный контрол важности (shared: email-modal + bulk-mail) ── */
+.bm-importance-seg {
+  display: flex;
+  background: var(--bg-primary, #1a1f2e);
+  border: 1px solid var(--border-color, #2e3a52);
+  border-radius: 7px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.bm-imp-btn {
+  flex: 1;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  color: var(--text-secondary, #7a8aaa);
+  transition: background 0.15s, color 0.15s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+}
+
+.bm-imp-btn:hover:not(.bm-imp-active) { color: var(--text-primary, #c9d1e0); }
+
+.bm-imp-btn.bm-imp-active[data-val="low"]    { background: #1e3a2a; color: #4ade80; }
+.bm-imp-btn.bm-imp-active[data-val="normal"] { background: var(--bg-elevated, #2e3a52); color: var(--text-primary, #e2e8f0); }
+.bm-imp-btn.bm-imp-active[data-val="high"]   { background: #3a1e1e; color: #f87171; }
+
+/* ── Аккордеон дополнительных настроек (email-modal) ── */
+.exc-extra-accordion {
+  border: 1px solid var(--border-color, #2e3a52);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.exc-extra-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: 9px 12px;
+  background: var(--bg-secondary, #1e2535);
+  border: none;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-secondary, #9aabc5);
+  text-align: left;
+  user-select: none;
+  transition: background 0.15s, color 0.15s;
+}
+
+.exc-extra-trigger:hover { background: var(--bg-elevated, #242b3d); color: var(--text-primary, #c9d1e0); }
+
+.exc-extra-trigger svg {
+  transition: transform 0.2s;
+  flex-shrink: 0;
+}
+
+.exc-extra-trigger.exc-extra-open svg { transform: rotate(180deg); }
+
+.exc-extra-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-secondary, #1e2535);
+  border-top: 1px solid var(--border-color, #2e3a52);
+}
+
+/* ── Тонкий разделитель внутри collapse-блоков (bulk-mail) ── */
+.bm-divider-thin {
+  height: 1px;
+  background: var(--border-color, #1e2a3a);
+  margin: 2px 0;
+}
+
+/* ── Переключатель канала Exchange/SMTP ── */
+.exc-channel-switch {
+  display: flex;
+  background: var(--bg-primary, #1a1f2e);
+  border: 1px solid var(--border-color, #2e3a52);
+  border-radius: 8px;
+  padding: 4px;
+  gap: 4px;
+}
+
+.exc-channel-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border: none;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  color: var(--text-secondary, #7a8aaa);
+  transition: background 0.15s, color 0.15s;
+}
+
+.exc-channel-btn.active {
+  background: var(--bg-elevated, #2e3a52);
+  color: var(--text-primary, #e2e8f0);
+}
+
+.exc-channel-btn:hover:not(.active) {
+  color: var(--text-primary, #c9d1e0);
+}
+
+/* ── SMTP — заголовок секции ── */
+.exc-smtp-section-title {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-secondary, #5a6a88);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 8px 0 4px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color, #2e3a52);
+}
+
+/* ── SMTP — тогл-строка ── */
+.exc-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 0;
+}
+
+.exc-toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  flex-shrink: 0;
+}
+
+.exc-toggle input {
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.exc-toggle-track {
+  position: absolute;
+  inset: 0;
+  background: var(--border-color, #2e3a52);
+  border-radius: 20px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.exc-toggle-track::after {
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 3px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--text-secondary, #7a8aaa);
+  transition: transform 0.2s, background 0.2s;
+}
+
+.exc-toggle input:checked + .exc-toggle-track {
+  background: var(--accent-primary, #3b5bdb);
+}
+
+.exc-toggle input:checked + .exc-toggle-track::after {
+  transform: translateX(16px);
+  background: #fff;
+}
+
+/* ── SMTP — collapse-блок ── */
+.exc-smtp-collapse {
+  background: var(--bg-primary, #1a1f2e);
+  border: 1px solid var(--border-color, #2e3a52);
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+
 /* Футер */
 .exc-footer {
   display: flex;
