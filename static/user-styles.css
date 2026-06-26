@@ -4045,3 +4045,21 @@ body {
 
 /* ── Тонкий разделитель внутри collapse ── */
 .bm-divider-thin { height: 1px; background: var(--border-color, #1e2a3a); margin: 2px 0; }
+
+/* ══════════════════════════════════════════════════════════════════════════
+   FEATURE FLAGS — элементы скрываются когда соответствующий флаг = false.
+   Управляется из app.py → FEATURES → /api/config → configLoader.js.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* bulk_mail = false — дублирует bulk-mail-panel.css на случай загрузки только user-styles */
+.feature-no-bulk-mail #bm-accordion            { display: none !important; }
+.feature-no-bulk-mail #toolbar-btn-field       { display: none !important; }
+.feature-no-bulk-mail #btn-bulk-send           { display: none !important; }
+
+/* exchange_send = false → кнопки «Письмо» / «Встреча» / «Настройки» в тулбаре */
+.feature-no-exchange-send #btn-send-outlook    { display: none !important; }
+.feature-no-exchange-send #btn-send-meeting    { display: none !important; }
+.feature-no-exchange-send #btn-exchange-settings { display: none !important; }
+/* Пункты меню «Отправить письмо» / «Отправить встречу» */
+.feature-no-exchange-send [data-action="create-email"]   { display: none !important; }
+.feature-no-exchange-send [data-action="create-meeting"] { display: none !important; }

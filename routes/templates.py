@@ -146,6 +146,8 @@ def templates_save():
         }
 
         _m._write_template_atomic(filepath, template)
+        if template_type == 'shared':
+            _m._mirror_template_to_network(filepath, template)
 
         _m._invalidate_template_cache(template_type)
         if template_type == 'shared':
@@ -189,6 +191,8 @@ def templates_update():
             template['previewVersion'] = data.get('previewVersion')
 
         _m._write_template_atomic(filepath, template)
+        if template_type == 'shared':
+            _m._mirror_template_to_network(filepath, template)
 
         _m._invalidate_template_cache(template_type)
         if template_type == 'shared':
@@ -226,6 +230,8 @@ def templates_update_preview():
         template['updated'] = datetime.now(timezone.utc).isoformat()
 
         _m._write_template_atomic(filepath, template)
+        if template_type == 'shared':
+            _m._mirror_template_to_network(filepath, template)
 
         _m._invalidate_template_cache(template_type)
         if template_type == 'shared':
@@ -256,6 +262,8 @@ def templates_delete():
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
         os.remove(filepath)
+        if template_type == 'shared':
+            _m._delete_template_from_network(filepath)
         _m._invalidate_template_cache(template_type)
         if template_type == 'shared':
             _m._bump_network_version()
@@ -293,8 +301,9 @@ def templates_rename():
 
         template['name'] = new_name
 
-        with open(filepath, 'w', encoding='utf-8') as f:
-            json.dump(template, f, ensure_ascii=False, indent=2)
+        _m._write_template_atomic(filepath, template)
+        if template_type == 'shared':
+            _m._mirror_template_to_network(filepath, template)
 
         _m._invalidate_template_cache(template_type)
         if template_type == 'shared':

@@ -347,12 +347,16 @@ function adaptColorForWhiteBackground(originalColor) {
  * (matching blockPreview logic). Otherwise falls back to adaptColorForWhiteBackground.
  */
 function resolveBlockTextColor(s, ctx, colorField) {
+    // 1. Блок имеет собственный фон — высший приоритет
     if (s.bgEnabled !== false && s.bgColor) {
         return isLightColorPreview(s.bgColor) ? DEFAULT_COLORS.TEXT : '#ffffff';
     }
+    // 2. Блок находится внутри контейнера с фоном — средний приоритет
+    if (ctx && ctx.parentBgColor) {
+        return isLightColorPreview(ctx.parentBgColor) ? DEFAULT_COLORS.TEXT : '#ffffff';
+    }
+    // 3. Общий фон письма — базовый приоритет
     const savedColor = s[colorField || 'color'] || ctx.textColor;
-    // Dark-theme emails have a dark body background — light colors are already correct,
-    // applying adaptColorForWhiteBackground would wrongly darken them.
     if (ctx.previewTheme === 'dark') {
         return savedColor;
     }
@@ -436,8 +440,20 @@ ${buildEmailThemeStyles()}
 `;
 
     // Генерируем HTML блоков
+    const _cp = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getContentPadding() : 27;
     AppState.blocks.forEach(block => {
-        html += generateBlockHTML(block);
+        const blockHtml = generateBlockHTML(block);
+        // Баннер — без отступа (полная ширина). Остальные — обёртка с отступом.
+        if (block.type === 'banner' || _cp === 0) {
+            html += blockHtml;
+        } else {
+            html += `<tr><td style="padding:0 0 0 ${_cp}px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    ${blockHtml}
+  </table>
+</td></tr>`;
+        }
     });
 
     html += `
@@ -711,8 +727,9 @@ function generateListHTML(s) {
                 : `<span class="email-bullet-dot" style="display:inline-block; width:${bulletSize}px; height:${bulletSize}px; border-radius:999px; background-color:${ctx.bulletColor};"></span>`;
 
             if (isNumbered) {
-                const num = index + 1;
-                const numLabel = num < 10 ? '0' + num : String(num);
+                const startN = s.startNumber != null ? s.startNumber : 1;
+                const num = index + startN;
+                const numLabel = (s.numberFormat === 'plain') ? String(num) : (num < 10 ? '0' + num : String(num));
 
                 bulletHTML = `
                     <div style="position:relative; width:${bulletSize}px; height:${bulletSize}px; display:flex; align-items:center; justify-content:center;">
@@ -937,6 +954,19 @@ function generateColumnsHTML(block) {
 
     const columnGap = 10; // Отступ между колонками (px)
     const totalColumns = block.columns.length;
+    const s = block.settings || {};
+
+    // Vertical alignment of content within the row
+    const valign = s.colValign || 'top';
+
+    // Передаём фон контейнера дочерним блокам через контекст рендера
+    const containerBgColor = (s.bgEnabled !== false && s.bgColor) ? s.bgColor : null;
+    const savedCtx = CURRENT_EMAIL_RENDER_CONTEXT;
+    if (containerBgColor) {
+        CURRENT_EMAIL_RENDER_CONTEXT = Object.assign(
+            {}, savedCtx || buildEmailRenderContext(), { parentBgColor: containerBgColor }
+        );
+    }
 
     const columnsContent = block.columns.map((column, index) => {
         const columnBlocks = column.blocks.map(childBlock => generateBlockHTML(childBlock)).join('');
@@ -963,7 +993,7 @@ function generateColumnsHTML(block) {
         }
 
         return `
-            <td valign="top" width="${width}" style="padding:0 ${paddingRight}px 0 ${paddingLeft}px;">
+            <td valign="${valign}" width="${width}" style="padding:0 ${paddingRight}px 0 ${paddingLeft}px;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     ${columnBlocks}
                 </table>
@@ -971,7 +1001,10 @@ function generateColumnsHTML(block) {
         `;
     }).join('');
 
-    return `
+    // Восстанавливаем контекст после рендера детей
+    CURRENT_EMAIL_RENDER_CONTEXT = savedCtx;
+
+    const innerRow = `
         <tr>
             <td style="padding:0;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
@@ -982,6 +1015,9 @@ function generateColumnsHTML(block) {
             </td>
         </tr>
     `;
+    const bgCap = typeof CapabilityRegistry !== 'undefined' ? CapabilityRegistry.get('background') : null;
+    if (bgCap && bgCap.wrapEmail) return bgCap.wrapEmail(innerRow, block.settings || {});
+    return innerRow;
 }
 
 window.EmailPreviewTheme = EmailPreviewTheme;

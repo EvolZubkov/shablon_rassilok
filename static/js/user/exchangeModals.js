@@ -1,6 +1,26 @@
 // exchangeModals.js — модальные окна отправки через Exchange EWS
 // Заменяет Outlook COM. Подключается в index-user.html после userApp.js.
 
+// ── Kerberos lock ──────────────────────────────────────────────────────────
+// Kerberos hidden by default to avoid confusing users.
+// Press Ctrl+Alt+K to reveal it (state persists in localStorage).
+(function _initKerberosLock() {
+    window._kerberosUnlocked = localStorage.getItem('krb_unlocked') === '1';
+
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.altKey && (e.key === 'k' || e.key === 'K')) {
+            window._kerberosUnlocked = !window._kerberosUnlocked;
+            localStorage.setItem('krb_unlocked', window._kerberosUnlocked ? '1' : '0');
+            const msg = window._kerberosUnlocked
+                ? 'Kerberos разблокирован — откройте настройки подключения'
+                : 'Kerberos скрыт';
+            if (typeof Toast !== 'undefined') Toast.info(msg);
+            else alert(msg);
+        }
+    });
+}());
+// ──────────────────────────────────────────────────────────────────────────
+
 const ExchangeModals = (() => {
 
     // ─── Состояние ───────────────────────────────────────────────────────────
@@ -620,6 +640,9 @@ const ExchangeModals = (() => {
     }
 
     function _applyAuthTypeUI(isKerberos) {
+        // Force NTLM when Kerberos has not been unlocked via Ctrl+Alt+K
+        if (!window._kerberosUnlocked) isKerberos = false;
+
         const ntlmFields = _q('exc-ntlm-fields');
         const badge      = _q('exc-kerberos-badge');
         const authInput  = _q('exc-auth-type');
@@ -744,10 +767,13 @@ const ExchangeModals = (() => {
                 : '••••••••';
         }
 
-        // Auto-detect: respect saved preference; only auto-switch to Kerberos if no preference saved yet
+        // Kerberos is hidden unless the user has unlocked it (Ctrl+Alt+K).
+        // When locked, always show NTLM fields regardless of saved preference or auto-detection.
         const savedIsKerberos = (status.auth_type || 'ntlm') === 'kerberos';
         const kerberosAvailable = authDetect && authDetect.kerberos === true;
-        _applyAuthTypeUI(savedIsKerberos || (!status.auth_type && kerberosAvailable));
+        const wantKerberos = window._kerberosUnlocked
+            && (savedIsKerberos || (!status.auth_type && kerberosAvailable));
+        _applyAuthTypeUI(wantKerberos);
 
         // Restore saved Kerberos realm
         const realmInput = _q('exc-krb-realm');

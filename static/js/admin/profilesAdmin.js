@@ -122,7 +122,7 @@ const ProfilesAdmin = (() => {
                     { value: '4:3', label: '4:3' }, { value: '3:2', label: '3:2' }, { value: '1:1', label: '1:1' },
                 ]},
             ],
-            hideable: ['align', 'borderRadiusAll', 'aspectRatio'],
+            hideable: ['align', 'borderRadiusAll', 'aspectRatio', 'presets'],
             caps: ['background', 'border', 'clickable'],
         },
         {
@@ -287,6 +287,28 @@ const ProfilesAdmin = (() => {
         `;
         editor.appendChild(nameGroup);
 
+        // Макет
+        const layoutTitle = document.createElement('div');
+        layoutTitle.style.cssText = 'font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;margin-top:4px';
+        layoutTitle.textContent = 'Макет письма';
+        editor.appendChild(layoutTitle);
+
+        const layoutCard = document.createElement('div');
+        layoutCard.style.cssText = 'border:1px solid var(--border-primary);border-radius:8px;padding:14px 16px;margin-bottom:16px;display:flex;align-items:center;gap:12px;';
+        layoutCard.innerHTML = `
+            <label style="font-size:13px;color:var(--text-secondary);flex:1;">
+                Отступ контента (px)
+                <span style="font-size:11px;color:var(--text-muted);display:block;margin-top:2px;">
+                    Все блоки кроме баннера сдвигаются на это значение слева и справа
+                </span>
+            </label>
+            <input id="pa-content-padding" type="number" min="0" max="80" value="${_data.contentPadding ?? 27}"
+                   style="width:64px;padding:6px 8px;border-radius:6px;border:1px solid var(--border-primary);
+                          background:var(--bg-secondary);color:var(--text-primary);font-size:13px;text-align:center;">
+            <span style="font-size:12px;color:var(--text-muted);">px</span>
+        `;
+        editor.appendChild(layoutCard);
+
         // Блоки
         const blocksTitle = document.createElement('div');
         blocksTitle.style.cssText = 'font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px';
@@ -434,6 +456,7 @@ const ProfilesAdmin = (() => {
                 colors: 'Цвета (осн.)', rightImage: 'Картинка справа',
                 logo: 'Логотип', textElements: 'Текстовые эл.',
                 bgImage: 'Фоновое фото',
+                presets: 'Готовые изображения',
             };
 
             schema.hideable.forEach(key => {
@@ -637,6 +660,8 @@ const ProfilesAdmin = (() => {
     async function _save() {
         if (!_current) return;
         _data.name = document.getElementById('pa-profile-label')?.value || _data.name;
+        const cpInput = document.getElementById('pa-content-padding');
+        if (cpInput) _data.contentPadding = Math.max(0, Math.min(80, parseInt(cpInput.value, 10) || 0));
         const resp = await fetch(`/api/admin/profiles/${_current}`, {
             method:  'POST',
             headers: { 'Content-Type': 'application/json' },

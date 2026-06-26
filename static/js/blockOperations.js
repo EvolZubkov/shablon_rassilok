@@ -359,7 +359,7 @@ function updateBlockSetting(blockId, key, value) {
 
     // Специальная обработка для списков
     if (block.type === 'list' &&
-        ['items', 'bulletType', 'bulletCustom', 'bulletSize', 'listStyle'].includes(key)) {
+        ['items', 'bulletType', 'bulletCustom', 'bulletSize', 'listStyle', 'numberFormat', 'startNumber'].includes(key)) {
 
         renderListBulletsToDataUrls(block, () => {
             renderCanvas();

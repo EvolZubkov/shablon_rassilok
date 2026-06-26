@@ -42,22 +42,52 @@ def _job_id() -> str:
 
 # ── Placeholder substitution ─────────────────────────────────────────────────
 
+_URL_RE = re.compile(r'^https?://', re.I)
+_LINK_COLOR = '#7700ff'
+
+
 def _substitute(template: str, mapping: dict, row: dict) -> str:
     """Replace {{ColName}} with row values (HTML-escaped).
 
     Handles both plain ``{{X}}`` text and spans inserted by the {{}} toolbar:
     ``<span class="bm-inline-ph" ...>{{X}}</span>``
+
+    URL values in text content are wrapped in <a> with the brand link colour so
+    that all clients (including Evolution on Linux) render them as styled links
+    instead of auto-linking them in the default client blue.
+    Attribute contexts (href="{{X}}", src="{{X}}") receive the plain value.
     """
     result = template
     for ph, col in mapping.items():
-        value = _html.escape(str(row.get(col) or ''))
-        # Remove wrapper span, keep substituted value
+        raw = str(row.get(col) or '')
+        value = _html.escape(raw)
+
+        if _URL_RE.match(raw):
+            linked = (
+                f'<a href="{value}" '
+                f'style="color:{_LINK_COLOR}; text-decoration:underline;">'
+                f'{value}</a>'
+            )
+        else:
+            linked = value
+
+        # 1. Span wrapper inserted by {{}} toolbar → text context → linked value
         result = re.sub(
             r'<span[^>]+class="[^"]*bm-inline-ph[^"]*"[^>]*>' + re.escape(ph) + r'</span>',
-            value,
+            linked,
             result,
         )
-        result = result.replace(ph, value)
+
+        # 2. Inside href/src/action attributes → plain value (no <a> wrapping)
+        result = re.sub(
+            r'((?:href|src|action)=")' + re.escape(ph) + r'(")',
+            lambda m, v=value: m.group(1) + v + m.group(2),
+            result,
+        )
+
+        # 3. Any remaining occurrence is text content → linked value
+        result = result.replace(ph, linked)
+
     return result
 
 

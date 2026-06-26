@@ -312,15 +312,17 @@ def api_send_email():
         html_body = _m.prepare_html_for_email(data.get('html_body', ''))
         attachments = data.get('attachments', [])
 
+        timezone = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
+
         send_at = None
         send_at_raw = str(data.get('send_at') or '').strip()
         if send_at_raw:
             send_at = _m.parse_datetime(send_at_raw)
-            if send_at <= datetime.datetime.now():
+            send_at_utc = send_at - datetime.timedelta(hours=timezone)
+            if send_at_utc <= datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None):
                 return jsonify({'success': False,
                                 'error': 'Дата отложенной отправки должна быть в будущем'}), 400
 
-        timezone     = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
         importance   = str(data.get('importance')   or 'normal').lower()
         read_receipt = bool(data.get('read_receipt'))
 
@@ -332,8 +334,16 @@ def api_send_email():
             importance=importance,
             read_receipt=read_receipt,
         )
-        msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
-               if send_at else 'Письмо отправлено')
+        if send_at:
+            send_at_utc = send_at - datetime.timedelta(hours=timezone)
+            current_app.logger.info(
+                'send scheduled: local=%s tz=UTC+%s utc=%s',
+                send_at.strftime('%H:%M'), timezone, send_at_utc.strftime('%H:%M'),
+            )
+            msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
+                   f' (tz=UTC+{timezone:.0f}, UTC: {send_at_utc.strftime("%H:%M")})')
+        else:
+            msg = 'Письмо отправлено'
         return jsonify({'success': True, 'message': msg})
 
     except ExchangeAuthError as e:

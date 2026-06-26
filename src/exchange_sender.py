@@ -25,18 +25,21 @@ except ImportError:
 
 _logger = logging.getLogger(__name__)
 
-# DeferredDeliveryTime отсутствует в Message.FIELDS по умолчанию —
-# регистрируем как MAPI extended property.
-# PR_DEFERRED_DELIVERY_TIME = tag 0x000F, type PT_SYSTIME (0x0040)
+# PidTagDeferredSendTime — тег, который Exchange transport использует для
+# серверной очереди отложенной доставки. Exchange удерживает письмо и
+# отправляет в указанное время без участия клиента.
+# Тег 0x3FEF (PidTagDeferredSendTime), тип PT_SYSTIME (0x0040).
+# Не путать с 0x000F (PR_DEFERRED_DELIVERY_TIME) — это клиентское свойство
+# Outlook, Exchange transport его игнорирует при EWS-отправке.
 if EXCHANGELIB_AVAILABLE:
     class _DeferredDeliveryTimeProp(ExtendedProperty):
-        property_tag  = 0x000F
+        property_tag  = 0x3FEF
         property_type = 'SystemTime'
 
     try:
         Message.register('deferred_delivery_time', _DeferredDeliveryTimeProp)
     except Exception:
-        pass  # уже зарегистрировано при повторной загрузке модуля
+        pass
 
 
 # ─── Утилиты ─────────────────────────────────────────────────────────────────
@@ -391,24 +394,13 @@ def _convert_data_images_to_cid(html_body: str):
 
 
 def _to_ews_datetime(dt: datetime.datetime, utc_offset: float = 3.0) -> 'EWSDateTime':
-    """Конвертирует naive datetime пользователя в EWSDateTime (UTC).
-
-    Args:
-        dt:         naive datetime — время как ввёл пользователь
-        utc_offset: числовой UTC-сдвиг часов, например 3 для UTC+3, 4 для UTC+4.
-                    Берётся напрямую из браузера (-(getTimezoneOffset()/60)),
-                    поэтому не зависит от версии pytz и актуальности IANA-базы.
-    """
-    # Вычитаем сдвиг — получаем UTC, затем оборачиваем в EWSDateTime UTC
+    """Converts user's local datetime to UTC EWSDateTime for PidTagDeferredSendTime."""
     try:
         utc_offset_h = float(utc_offset)
     except (TypeError, ValueError):
-        _logger.warning('_to_ews_datetime: invalid utc_offset %r, falling back to UTC+3', utc_offset)
         utc_offset_h = 3.0
-
     aware = dt.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=utc_offset_h)))
     utc   = aware.astimezone(datetime.timezone.utc)
-
     from exchangelib import UTC as _EWS_UTC
     return EWSDateTime(utc.year, utc.month, utc.day,
                        utc.hour, utc.minute, utc.second,
@@ -425,19 +417,7 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                         timezone: float = 3.0,
                         importance: str = 'normal',
                         read_receipt: bool = False) -> None:
-    """
-    Отправляет HTML-письмо через Exchange.
-
-    Args:
-        account   — объект Account из connect_exchange()
-        subject   — тема письма
-        html_body — HTML содержимое (наш сгенерированный шаблон)
-        to        — список адресов получателей
-        cc        — копия (необязательно)
-        bcc       — скрытая копия (необязательно)
-        send_at   — если задан, письмо откладывается до указанного времени
-                    (Exchange держит его в Outbox и отправляет сам)
-    """
+    """Отправляет HTML-письмо через Exchange."""
     if not to and not cc and not bcc:
         raise ValueError('Не указаны получатели')
     if to:  validate_recipients(to)
@@ -463,10 +443,8 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
         if read_receipt:
             msg.is_read_receipt_requested = True
         if send_at is not None:
-            msg.deferred_delivery_time = _DeferredDeliveryTimeProp(
-                value=_to_ews_datetime(send_at, timezone)
-            )
-            _logger.info('send_email: deferred until %s (%s)', send_at, timezone)
+            msg.deferred_delivery_time = _to_ews_datetime(send_at, timezone)
+            _logger.info('send_email: deferred until %s (tz UTC+%s)', send_at, timezone)
         for att in attachments:
             msg.attach(att)
         # Прикрепляем пользовательские файлы
@@ -481,13 +459,22 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                 msg.attach(file_att)
             except Exception as e:
                 _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
-        _logger.debug('send_email: calling msg.send()')
-        msg.send()
-        _logger.info('send_email: success subject=%r', subject)
+        if send_at is not None:
+            # Save to Outbox (SaveOnly). Exchange store transport driver watches
+            # the Outbox folder and honors PidTagDeferredSendTime — this is exactly
+            # what Outlook does for deferred delivery. Do NOT call SendItem after.
+            msg.folder = account.outbox
+            msg.save()
+            _logger.info('send_email: saved to Outbox (deferred), scheduled=%s utc=%s',
+                         send_at, _to_ews_datetime(send_at, timezone))
+        else:
+            _logger.debug('send_email: calling msg.send()')
+            msg.send()
+            _logger.info('send_email: success subject=%r', subject)
     except (ValueError, ConnectionError):
         raise
     except Exception as e:
-        _logger.error('send_email failed at msg.send(): %s: %s',
+        _logger.error('send_email failed: %s: %s',
                       type(e).__name__, e, exc_info=True)
         _wrap_exchange_error(e)
 

@@ -312,7 +312,7 @@ function loadAllImages(imagesToLoad, callback) {
             settle(null, null);
         };
 
-        img.src = item.src;
+        img.src = new URL(item.src, window.location.origin).href;
     });
 }
 
@@ -1289,9 +1289,9 @@ function renderListBulletsToDataUrls(block, callback) {
         }
 
         // номер
-        const startNumber = s.startNumber || 1;
+        const startNumber = s.startNumber != null ? s.startNumber : 1;
         const num = index + startNumber;
-        const numLabel = num < 10 ? '0' + num : String(num);
+        const numLabel = (s.numberFormat === 'plain') ? String(num) : (num < 10 ? '0' + num : String(num));
 
         ctx.font = `${numberFontSize}px RostelecomBasis-Light, sans-serif`;
         ctx.fillStyle = textColor;
