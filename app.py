@@ -274,7 +274,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 #   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
 #
 FEATURES: dict = {
-    'bulk_mail':     False,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'bulk_mail':     True,   # Панель «Рассылка», кнопка {{}} в тулбаре
     'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
 }
 
