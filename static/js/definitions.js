@@ -36,10 +36,8 @@ let EXPERT_BADGE_ICONS = [
 ];
 
 let BULLET_TYPES = [
-    { id: 'circle',  src: 'bullets/Буллет.png',   label: 'Буллет' },
-    { id: 'circle2', src: 'bullets/Буллет 2.png', label: 'Буллет 2' },
-    { id: 'circle3', src: 'bullets/Буллет 3.png', label: 'Буллет 3' },
-    { id: 'circle4', src: 'bullets/Буллет 4.png', label: 'Буллет 4' },
+    { id: 'circle',  src: 'bullets/Ellipse_1.png', label: 'Эллипс 1' },
+    { id: 'circle2', src: 'bullets/Ellipse_2.png', label: 'Эллипс 2' },
 ];
 
 let BUTTON_ICONS = [
@@ -245,7 +243,8 @@ const DEFAULT_SETTINGS = {
         bulletSize: 20,
         bulletGap: 10,
         itemSpacing: 8,
-        listStyle: 'bullets'
+        listStyle: 'bullets',
+        numberFormat: 'padded'
     },
 
     expert: {

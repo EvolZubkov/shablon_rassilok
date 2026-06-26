@@ -1084,3 +1084,16 @@
   color: var(--text-muted, #64748b);
   white-space: nowrap;
 }
+
+/* ── Feature flag: bulk_mail = false ────────────────────────────────────────
+   Скрывает всё что связано с рассылкой в обоих режимах (admin + user).
+   Класс feature-no-bulk-mail вешается на <body> через configLoader.js.
+   ─────────────────────────────────────────────────────────────────────────── */
+/* User: accordion #bm-accordion */
+.feature-no-bulk-mail #bm-accordion          { display: none !important; }
+/* Admin: accordion .accordion-item[data-panel="bulk-mail"] */
+.feature-no-bulk-mail .accordion-item[data-panel="bulk-mail"] { display: none !important; }
+/* Кнопка «Отправить рассылку» в тулбаре (оба режима) */
+.feature-no-bulk-mail #btn-bulk-send         { display: none !important; }
+/* Кнопка {{}} вставки плейсхолдера в тексте */
+.feature-no-bulk-mail #toolbar-btn-field     { display: none !important; }

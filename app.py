@@ -263,6 +263,22 @@ os.makedirs(CACHE_BASE, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # ============================================================================
+# FEATURE FLAGS — управление функциональностью при сборке
+# ============================================================================
+# Меняй эти значения перед PyInstaller-упаковкой чтобы получить нужную версию.
+# True  = функция включена (полная версия)
+# False = функция скрыта в UI (код остаётся, просто не отображается)
+#
+# Пример для «упрощённой» сборки:
+#   FEATURES['bulk_mail']      = False   # убирает панель «Рассылка»
+#   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
+#
+FEATURES: dict = {
+    'bulk_mail':     False,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
+}
+
+# ============================================================================
 # ЛОГИРОВАНИЕ В ФАЙЛ (protocol.log)
 # ============================================================================
 
@@ -1397,6 +1413,34 @@ def _initialize_cache_locked():
                 )
         print("✓ Профили скопированы")
 
+    # 1b. Синхронизируем shared-шаблоны (только изменившиеся файлы)
+    network_shared = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'shared')
+    cache_shared   = os.path.join(CACHE_DIR, 'templates', 'shared')
+    if os.path.exists(network_shared) and os.path.normcase(os.path.abspath(network_shared)) != os.path.normcase(os.path.abspath(cache_shared)):
+        print("\n📥 Загрузка templates/shared/...")
+        os.makedirs(cache_shared, exist_ok=True)
+        changed = _sync_dir_quiet(network_shared, cache_shared)
+        # Удаляем из кеша файлы, которых больше нет в сети
+        net_names = set(os.listdir(network_shared))
+        for fname in os.listdir(cache_shared):
+            if fname.endswith('.json') and fname not in net_names:
+                try:
+                    os.remove(os.path.join(cache_shared, fname))
+                except OSError:
+                    pass
+        print(f"✓ Шаблоны синхронизированы ({changed} изменено)")
+
+    # 1c. Копируем categories.json
+    network_cat = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+    cache_cat   = os.path.join(CACHE_DIR, 'templates', 'categories.json')
+    if os.path.isfile(network_cat) and os.path.normcase(os.path.abspath(network_cat)) != os.path.normcase(os.path.abspath(cache_cat)):
+        os.makedirs(os.path.dirname(cache_cat), exist_ok=True)
+        shutil.copy2(network_cat, cache_cat)
+        print("✓ Категории скопированы")
+
+    _invalidate_template_cache('shared')
+    _invalidate_categories_cache()
+
     # 2. Копируем только папки с картинками
     folders_to_cache = ['icons', 'expert-badges', 'bullets', 'button-icons',
                         'images', 'dividers', 'banner-backgrounds', 'banner-logos', 'banner-icons', 'fonts']
@@ -1727,6 +1771,31 @@ def _sync_cache_quiet() -> bool:
                 os.path.join(static_src, folder),
                 os.path.join(CACHE_DIR, folder),
             )
+
+        # Sync shared templates (new/changed files + deletions).
+        net_shared   = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'shared')
+        cache_shared = os.path.join(CACHE_DIR, 'templates', 'shared')
+        tpl_changed  = _sync_dir_quiet(net_shared, cache_shared)
+        if os.path.isdir(net_shared) and os.path.isdir(cache_shared):
+            net_names = set(os.listdir(net_shared))
+            for fname in list(os.listdir(cache_shared)):
+                if fname.endswith('.json') and fname not in net_names:
+                    try:
+                        os.remove(os.path.join(cache_shared, fname))
+                        tpl_changed += 1
+                    except OSError:
+                        pass
+        if tpl_changed:
+            _invalidate_template_cache('shared')
+        total += tpl_changed
+
+        # Sync categories.json.
+        net_cat   = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+        cache_cat = os.path.join(CACHE_DIR, 'templates', 'categories.json')
+        if os.path.isfile(net_cat):
+            if _copy_if_changed(net_cat, cache_cat):
+                _invalidate_categories_cache()
+                total += 1
 
         # config.json is updated last: the UI always sees a config that is
         # consistent with the already-cached assets.
@@ -2562,8 +2631,63 @@ def _remove_from_config_json(category: str, pub_url: str) -> None:
 
 
 def get_templates_dir():
-    """Returns the path to the shared templates directory (network resource)."""
+    """Returns the LOCAL CACHE path for shared templates (fast disk reads).
+
+    Shared templates are synced from the network at startup and on every
+    version update, so reads always hit local disk — never the network share.
+    Admin write routes mirror changes back to the network via
+    :func:`_mirror_template_to_network`.
+    """
+    path = os.path.join(CACHE_DIR, 'templates')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _network_templates_dir() -> str:
+    """Authoritative NETWORK path for shared templates (admin writes + sync source)."""
     return os.path.join(NETWORK_RESOURCES_PATH, 'templates')
+
+
+def _network_categories_file() -> str:
+    """Authoritative NETWORK path for categories.json."""
+    return os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+
+
+def _mirror_template_to_network(cache_filepath: str, data: dict) -> None:
+    """Replicate a template written to local cache to the authoritative network path.
+
+    Called by admin routes after every write so that other clients' background
+    sync can pick up the change.  Failures are logged and swallowed — the
+    local cache write has already succeeded.
+    """
+    try:
+        cache_base = os.path.join(CACHE_DIR, 'templates')
+        net_base   = _network_templates_dir()
+        if os.path.normcase(os.path.abspath(cache_base)) == os.path.normcase(os.path.abspath(net_base)):
+            return  # dev mode: cache and network are the same directory
+        rel      = os.path.relpath(cache_filepath, cache_base)
+        net_path = os.path.join(net_base, rel)
+        _write_template_atomic(net_path, data)
+    except Exception as exc:
+        _logger.warning('Ошибка репликации шаблона в сеть: %s', exc)
+
+
+def _delete_template_from_network(cache_filepath: str) -> None:
+    """Delete a template from the authoritative network path after removing from cache.
+
+    Failures are logged and swallowed.
+    """
+    try:
+        cache_base = os.path.join(CACHE_DIR, 'templates')
+        net_base   = _network_templates_dir()
+        if os.path.normcase(os.path.abspath(cache_base)) == os.path.normcase(os.path.abspath(net_base)):
+            return
+        rel      = os.path.relpath(cache_filepath, cache_base)
+        net_path = os.path.join(net_base, rel)
+        if os.path.isfile(net_path):
+            os.remove(net_path)
+    except Exception as exc:
+        _logger.warning('Ошибка удаления шаблона из сети: %s', exc)
 
 
 def get_personal_templates_dir():
@@ -2956,6 +3080,26 @@ def save_categories(categories: list) -> None:
             pass
         raise
     _invalidate_categories_cache()
+
+    # Replicate to network so other clients' background sync picks up the change.
+    try:
+        net_cat = _network_categories_file()
+        net_dir = os.path.dirname(net_cat)
+        if os.path.normcase(os.path.abspath(net_dir)) != os.path.normcase(os.path.abspath(os.path.dirname(categories_file))):
+            os.makedirs(net_dir, exist_ok=True)
+            fd2, tmp2 = tempfile.mkstemp(dir=net_dir, suffix='.tmp')
+            try:
+                with os.fdopen(fd2, 'w', encoding='utf-8') as f2:
+                    json.dump({'categories': categories}, f2, ensure_ascii=False, indent=2)
+                os.replace(tmp2, net_cat)
+            except Exception:
+                try:
+                    os.unlink(tmp2)
+                except OSError:
+                    pass
+                raise
+    except Exception as exc:
+        _logger.warning('Ошибка репликации категорий в сеть: %s', exc)
 
 
 # ============================================================================

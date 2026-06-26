@@ -354,6 +354,8 @@ function makeAttentionBadge(block) {
     const badge = document.createElement('div');
     badge.className = 'block-attention-badge';
     badge.dataset.tooltip = _attentionMessage(block);
+    badge.title = 'Нажмите, чтобы настроить';
+    badge.style.cursor = 'pointer';
     badge.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m10.29 3.86-8.18 14.14A2 2 0 0 0 3.84 21h16.32a2 2 0 0 0 1.73-3l-8.18-14.14a2 2 0 0 0-3.42 0z"></path>
@@ -361,6 +363,22 @@ function makeAttentionBadge(block) {
             <path d="M12 17h.01"></path>
         </svg>
     `;
+
+    badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = block.id;
+        switch (block.type) {
+            case 'button':  openButtonEditor(id);  break;
+            case 'banner':  openBannerEditor(id);  break;
+            case 'image':   openImagePicker(id);   break;
+            case 'list':    openListEditor(id);    break;
+            case 'divider': openDividerEditor(id); break;
+            case 'expert':  openExpertEditor(id);  break;
+            case 'canvas':  openCanvasEditor(id);  break;
+            default: break;
+        }
+    });
+
     return badge;
 }
 
@@ -1013,7 +1031,7 @@ function initInlineEditing() {
     });
 
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.editable-text') && !e.target.closest('.text-toolbar')) {
+        if (!e.target.closest('.editable-text') && !e.target.closest('.text-toolbar') && !e.target.closest('#toolbar-field-dropdown')) {
             hideTextToolbar();
         }
     });
@@ -1230,6 +1248,51 @@ function openImagePicker(blockId) {
 
     const s = block.settings;
 
+    // Вкладки
+    const tabBtns = modal.querySelectorAll('#image-tab-buttons .toggle-btn');
+    const tabUpload = document.getElementById('image-tab-upload');
+    const tabPresets = document.getElementById('image-tab-presets');
+    const presets = window.PRESET_IMAGES || [];
+
+    // Скрыть вкладку "Готовые" если пресетов нет
+    const presetTabBtn = document.getElementById('image-tab-presets-btn');
+    if (presetTabBtn) presetTabBtn.style.display = presets.length > 0 ? '' : 'none';
+
+    function switchImageTab(tab) {
+        tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+        tabUpload.style.display = tab === 'upload' ? '' : 'none';
+        tabPresets.style.display = tab === 'presets' ? '' : 'none';
+    }
+    tabBtns.forEach(b => { b.onclick = () => switchImageTab(b.dataset.tab); });
+    switchImageTab('upload');
+
+    // Сетка пресетов
+    const grid = document.getElementById('image-presets-grid');
+    if (grid) {
+        grid.innerHTML = '';
+        presets.forEach(item => {
+            const src = item.src.startsWith('/') || item.src.startsWith('http') ? item.src : '/' + item.src;
+            const cell = document.createElement('div');
+            cell.style.cssText = `aspect-ratio:1;overflow:hidden;border-radius:8px;cursor:pointer;border:2px solid ${s.src === src ? 'var(--accent)' : 'transparent'};`;
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = item.label || '';
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+            cell.appendChild(img);
+            cell.onclick = () => {
+                s.src = src;
+                const thumbImg = document.getElementById('image-thumb-img');
+                const thumb = document.getElementById('image-preview-thumb');
+                if (thumbImg) thumbImg.src = src;
+                if (thumb) thumb.style.display = 'block';
+                grid.querySelectorAll('div').forEach(d => d.style.borderColor = 'transparent');
+                cell.style.borderColor = 'var(--accent)';
+                switchImageTab('upload');
+            };
+            grid.appendChild(cell);
+        });
+    }
+
     // Превью если картинка уже есть
     const thumb = document.getElementById('image-preview-thumb');
     const thumbImg = document.getElementById('image-thumb-img');
@@ -1319,12 +1382,14 @@ function openListEditor(blockId) {
             toggleBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
-            // Показываем/скрываем номер начала и иконки
+            // Показываем/скрываем номер начала, формат и иконки
             const startGroup = document.getElementById('start-number-group');
+            const formatGroup = document.getElementById('number-format-group');
             const iconGroup = document.getElementById('bullet-icon-group');
             const isNumbered = btn.dataset.value === 'numbered';
 
             if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
+            if (formatGroup) formatGroup.style.display = isNumbered ? 'block' : 'none';
             if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
             s.listStyle = isNumbered ? 'numbered' : 'bullets';
             s.bulletSize = isNumbered ? 40 : 20;
@@ -1334,14 +1399,28 @@ function openListEditor(blockId) {
     // Показываем/скрываем в зависимости от текущего типа
     const isNumbered = s.listStyle === 'numbered';
     const startGroup = document.getElementById('start-number-group');
+    const formatGroup = document.getElementById('number-format-group');
     const iconGroup = document.getElementById('bullet-icon-group');
     if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
+    if (formatGroup) formatGroup.style.display = isNumbered ? 'block' : 'none';
     if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
+
+    // === Формат номера ===
+    const formatBtns = document.querySelectorAll('#number-format-group .toggle-btn');
+    const currentFormat = s.numberFormat || 'padded';
+    formatBtns.forEach(fb => {
+        fb.classList.toggle('active', fb.dataset.format === currentFormat);
+        fb.onclick = () => {
+            formatBtns.forEach(b => b.classList.remove('active'));
+            fb.classList.add('active');
+            s.numberFormat = fb.dataset.format;
+        };
+    });
 
     // === Номер начала ===
     const startInput = document.getElementById('list-start-number');
     if (startInput) {
-        startInput.value = s.startNumber || 1;
+        startInput.value = s.startNumber != null ? s.startNumber : 1;
     }
 
     // === Иконки буллетов ===
@@ -1365,7 +1444,10 @@ function openListEditor(blockId) {
         const activeType = modal.querySelector('.toggle-buttons .toggle-btn.active');
         s.listStyle = activeType ? activeType.dataset.value : 'bullets';
         s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
-        s.startNumber = parseInt(document.getElementById('list-start-number').value) || 1;
+        const startRaw = parseInt(document.getElementById('list-start-number').value);
+        s.startNumber = isNaN(startRaw) ? 1 : startRaw;
+        const activeFormat = document.querySelector('#number-format-group .toggle-btn.active');
+        s.numberFormat = activeFormat ? activeFormat.dataset.format : 'padded';
 
         // Собираем элементы — plain text из <input>, проводим через TextSanitizer
         const editor = document.getElementById('list-items-editor');

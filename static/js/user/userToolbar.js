@@ -600,7 +600,7 @@ function initBulkMailFieldButton() {
             opt.addEventListener('mousedown', (ev) => {
                 ev.preventDefault();
                 insertField(opt.dataset.col);
-                hideFieldDropdown();
+                // Keep dropdown open so the user can insert multiple fields in a row
             });
         });
 
@@ -648,6 +648,15 @@ function insertField(columnName) {
     newRange.collapse(true);
     selection.removeAllRanges();
     selection.addRange(newRange);
+
+    // Update savedSelection so the next field insertion from the open dropdown
+    // lands at the current cursor position (right after the span just inserted)
+    savedSelection = newRange.cloneRange();
+
+    // Re-scan the canvas so the bulk-mail panel picks up the newly inserted placeholder
+    if (typeof BulkMailPanel !== 'undefined' && typeof BulkMailPanel.detectPlaceholders === 'function') {
+        BulkMailPanel.detectPlaceholders();
+    }
 }
 
 function setBulkMailColumnsAvailable(available) {

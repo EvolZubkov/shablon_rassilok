@@ -324,6 +324,8 @@ const TextSanitizer = (() => {
                 t = _nbspHanging(t);
                 child.textContent = t;
             } else if (child.nodeType === 1) {
+                // Don't touch placeholder spans — typography must not alter {{ColName}} text
+                if (child.classList && child.classList.contains('bm-inline-ph')) continue;
                 _walkForTypography(child);
             }
         }

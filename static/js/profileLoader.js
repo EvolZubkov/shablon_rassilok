@@ -39,5 +39,10 @@ const ProfileLoader = {
         return this.profile?.blocks?.[type]?.hidden || [];
     },
 
+    // Горизонтальный отступ контента (px) — для всех блоков кроме banner
+    getContentPadding() {
+        return this.profile?.contentPadding ?? 27;
+    },
+
     getProfile() { return this.profile; },
 };

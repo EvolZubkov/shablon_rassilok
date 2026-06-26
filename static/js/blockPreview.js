@@ -34,7 +34,17 @@ function resolveTextFontFamily(s) {
 // ⚠️ formatTextWithLinks УДАЛЕНА — используем TextSanitizer.render()
 
 function renderBlockPreviewReal(block) {
-    const s = block.settings;
+    let s = block.settings;
+
+    // Слой 2: контейнер имеет фон, блок собственного не имеет — адаптируем цвет текста
+    const ownBg = s && s.bgEnabled !== false && s.bgColor;
+    if (!ownBg && window._previewParentBg && s &&
+        (block.type === 'text' || block.type === 'heading' || block.type === 'list')) {
+        const contrast = typeof isLightColorPreview === 'function'
+            ? (isLightColorPreview(window._previewParentBg) ? '#1D2533' : '#ffffff')
+            : '#ffffff';
+        s = Object.assign({}, s, { color: contrast });
+    }
 
     let html;
     switch (block.type) {
@@ -108,8 +118,9 @@ function renderListPreview(s) {
                             : `<span style="display:inline-block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;border-radius:999px;background-color:#a855f7;"></span>`;
 
                         if (isNumbered) {
-                            const num = index + 1;
-                            const numLabel = num < 10 ? '0' + num : String(num);
+                            const startN = s.startNumber != null ? s.startNumber : 1;
+                            const num = index + startN;
+                            const numLabel = (s.numberFormat === 'plain') ? String(num) : (num < 10 ? '0' + num : String(num));
                             bulletHTML = `
                                 <div style="position:relative;width:${bulletSizePrev}px;height:${bulletSizePrev}px;display:flex;align-items:center;justify-content:center;">
                                     ${baseBullet}

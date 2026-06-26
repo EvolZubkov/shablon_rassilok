@@ -239,16 +239,40 @@ function renderListSettings(container, block) {
         startInput.className = 'setting-input';
         startInput.style.width = '80px';
         startInput.addEventListener('change', (e) => {
-            let val = parseInt(e.target.value) || 1;
-            if (val < 1) val = 1;
-            if (val > 99) val = 99;
-            s.startNumber = val;
-            renderListBulletsToDataUrls(block, () => {
-                renderCanvas();
-            });
+            const val = parseInt(e.target.value);
+            s.startNumber = isNaN(val) ? 1 : Math.min(99, val);
+            e.target.value = s.startNumber;
+            renderListBulletsToDataUrls(block, () => { renderCanvas(); });
         });
         startGroup.appendChild(startInput);
         container.appendChild(startGroup);
+
+        // Формат номера
+        const fmtGroup = document.createElement('div');
+        fmtGroup.className = 'setting-group';
+        const fmtLabel = document.createElement('label');
+        fmtLabel.className = 'setting-label';
+        fmtLabel.textContent = 'Формат номера';
+        fmtGroup.appendChild(fmtLabel);
+
+        const fmtWrap = document.createElement('div');
+        fmtWrap.style.cssText = 'display:flex;gap:6px;';
+        [['padded','01 02 03'], ['plain','1 2 3']].forEach(([val, txt]) => {
+            const btn = document.createElement('button');
+            btn.className = 'setting-btn' + ((s.numberFormat || 'padded') === val ? ' active' : '');
+            btn.textContent = txt;
+            btn.style.cssText = 'flex:1;padding:5px 8px;font-size:12px;cursor:pointer;border-radius:6px;border:1px solid var(--border-primary);background:var(--surface-secondary);color:var(--text-primary);';
+            if ((s.numberFormat || 'padded') === val) btn.style.background = 'var(--accent)';
+            btn.onclick = () => {
+                fmtWrap.querySelectorAll('button').forEach(b => b.style.background = 'var(--surface-secondary)');
+                btn.style.background = 'var(--accent)';
+                s.numberFormat = val;
+                renderListBulletsToDataUrls(block, () => { renderCanvas(); });
+            };
+            fmtWrap.appendChild(btn);
+        });
+        fmtGroup.appendChild(fmtWrap);
+        container.appendChild(fmtGroup);
     }
     if (!hiddenSettings.includes('itemSpacing')) {
         container.appendChild(createSettingRange('Расстояние между пунктами', s.itemSpacing ?? 8, block.id, 'itemSpacing', 0, 40, 1, 'px'));

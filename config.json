@@ -59,50 +59,120 @@
   ],
   "bannerBackgrounds": [
     {
-        "id": "bg1",
-        "src": "banner-backgrounds/плашки (не трогать).png",
-        "label": "Иллюстрация 1"
+      "id": "bg1",
+      "src": "banner-backgrounds/vacan.png",
+      "label": "Вакансии"
     },
     {
-        "id": "bg2",
-        "src": "banner-backgrounds/ou1.jpg",
-        "label": "Иллюстрация 2"
+      "id": "bg2",
+      "src": "banner-backgrounds/vatrush.png",
+      "label": "Ватрушка"
+    },
+    {
+      "id": "bg3",
+      "src": "banner-backgrounds/dialog.png",
+      "label": "Диалог"
+    },
+    {
+      "id": "bg4",
+      "src": "banner-backgrounds/info_1.png",
+      "label": "Инфо 1"
+    },
+    {
+      "id": "bg5",
+      "src": "banner-backgrounds/info_2.png",
+      "label": "Инфо 2"
+    },
+    {
+      "id": "bg6",
+      "src": "banner-backgrounds/calendar.png",
+      "label": "Календарь"
+    },
+    {
+      "id": "bg7",
+      "src": "banner-backgrounds/list_osnack.png",
+      "label": "Лист"
+    },
+    {
+      "id": "bg8",
+      "src": "banner-backgrounds/merop_1.png",
+      "label": "Мероприятие 1"
+    },
+    {
+      "id": "bg9",
+      "src": "banner-backgrounds/merop_2.png",
+      "label": "Мероприятие 2"
+    },
+    {
+      "id": "bg10",
+      "src": "banner-backgrounds/opoveschen.png",
+      "label": "Оповещение"
+    },
+    {
+      "id": "bg11",
+      "src": "banner-backgrounds/happy.png",
+      "label": "Поздравление"
+    },
+    {
+      "id": "bg12",
+      "src": "banner-backgrounds/rupor.png",
+      "label": "Рупор"
+    },
+    {
+      "id": "bg13",
+      "src": "banner-backgrounds/sam.png",
+      "label": "Самолёт"
+    },
+    {
+      "id": "bg14",
+      "src": "banner-backgrounds/sport_1.png",
+      "label": "Спорт 1"
+    },
+    {
+      "id": "bg15",
+      "src": "banner-backgrounds/sport_2.png",
+      "label": "Спорт 2"
+    },
+    {
+      "id": "bg16",
+      "src": "banner-backgrounds/hlopushka.png",
+      "label": "Хлопушка"
     }
-],
-"bannerLogos": [
+  ],
+  "bannerLogos": [
     {
-        "id": "logo1",
-        "src": "banner-logos/Лого О-у темное.png",
-        "label": "О-у темное"
+      "id": "logo1",
+      "src": "banner-logos/Лого О-у темное.png",
+      "label": "О-у темное"
     },
     {
-        "id": "logo2",
-        "src": "banner-logos/Лого О-у светлое.png",
-        "label": "О-у светлое"
+      "id": "logo2",
+      "src": "banner-logos/Лого О-у светлое.png",
+      "label": "О-у светлое"
     },
     {
-        "id": "logo3",
-        "src": "banner-logos/Лого+B2B_01.png",
-        "label": "Лого+B2B светлое"
+      "id": "logo3",
+      "src": "banner-logos/Лого+B2B_01.png",
+      "label": "Лого+B2B светлое"
     },
     {
-        "id": "logo4",
-        "src": "banner-logos/Лого+B2B_01-1.png",
-        "label": "Лого+B2B темное"
+      "id": "logo4",
+      "src": "banner-logos/Лого+B2B_01-1.png",
+      "label": "Лого+B2B темное"
     }
-],
-"bannerIcons": [
+  ],
+  "bannerIcons": [
     {
-        "id": "calendar",
-        "src": "banner-icons/people-outline.png",
-        "label": "Люди"
+      "id": "calendar",
+      "src": "banner-icons/people-outline.png",
+      "label": "Люди"
     },
     {
-        "id": "people",
-        "src": "banner-icons/calendar-outline.png",
-        "label": "Календарь"
+      "id": "people",
+      "src": "banner-icons/calendar-outline.png",
+      "label": "Календарь"
     }
-],
+  ],
   "icons": {
     "important": [
       {
@@ -227,23 +297,13 @@
   "bullets": [
     {
       "id": "circle",
-      "src": "bullets/Буллет.png",
-      "label": "Буллет"
+      "src": "bullets/Ellipse_1.png",
+      "label": "Эллипс_1"
     },
     {
       "id": "circle2",
-      "src": "bullets/Буллет 2.png",
-      "label": "Буллет"
-    },
-    {
-      "id": "circle3",
-      "src": "bullets/Буллет 3.png",
-      "label": "Буллет"
-    },
-    {
-      "id": "circle4",
-      "src": "bullets/Буллет 4.png",
-      "label": "Буллет"
+      "src": "bullets/Ellipse_2.png",
+      "label": "Эллипс_2"
     }
   ],
   "buttonIcons": [
@@ -268,10 +328,517 @@
     }
   ],
   "dividers": [
-  { 
-    "id": "d1", 
-    "src": "dividers/Дивайдер.png", 
-    "label": "Дивайдер" 
-  }
-]
+    {
+      "id": "d1",
+      "src": "dividers/Дивайдер.png",
+      "label": "Дивайдер"
+    }
+  ],
+  "images": [
+    {
+      "id": "bg1",
+      "src": "images/analitika.png",
+      "label": "Аналитика"
+    },
+    {
+      "id": "bg2",
+      "src": "images/basketbol.png",
+      "label": "Баскетбол"
+    },
+    {
+      "id": "bg3",
+      "src": "images/beg.png",
+      "label": "Бег"
+    },
+    {
+      "id": "bg4",
+      "src": "images/biznes-analitika.png",
+      "label": "Бизнес-аналитика"
+    },
+    {
+      "id": "bg5",
+      "src": "images/blagotvoritelnost.png",
+      "label": "Благотворительность"
+    },
+    {
+      "id": "bg6",
+      "src": "images/blagotvoritelnost2.png",
+      "label": "Благотворительность 2"
+    },
+    {
+      "id": "bg7",
+      "src": "images/vaktsinatsiya.png",
+      "label": "Вакцинация"
+    },
+    {
+      "id": "bg8",
+      "src": "images/vnimanie.png",
+      "label": "Внимание"
+    },
+    {
+      "id": "bg9",
+      "src": "images/volebol.png",
+      "label": "Волейбол"
+    },
+    {
+      "id": "bg10",
+      "src": "images/volonterstvo.png",
+      "label": "Волонтерство"
+    },
+    {
+      "id": "bg11",
+      "src": "images/vstrecha.png",
+      "label": "Встреча"
+    },
+    {
+      "id": "bg12",
+      "src": "images/vykhodnye_dni.png",
+      "label": "Выходные дни"
+    },
+    {
+      "id": "bg13",
+      "src": "images/golovolomki,_zadachi.png",
+      "label": "Головоломки, задачи"
+    },
+    {
+      "id": "bg14",
+      "src": "images/golosovanie.png",
+      "label": "Голосование"
+    },
+    {
+      "id": "bg15",
+      "src": "images/gonka.png",
+      "label": "Гонка"
+    },
+    {
+      "id": "bg16",
+      "src": "images/grafik_raboty.png",
+      "label": "График работы"
+    },
+    {
+      "id": "bg17",
+      "src": "images/2raf.png",
+      "label": "График, планы"
+    },
+    {
+      "id": "bg18",
+      "src": "images/devushka_v_ochkakh_(raznoe).png",
+      "label": "Девушка в очках (разное)"
+    },
+    {
+      "id": "bg19",
+      "src": "images/dizayn_myshlenie.png",
+      "label": "Дизайн мышление"
+    },
+    {
+      "id": "bg20",
+      "src": "images/dinastiya.png",
+      "label": "Династия"
+    },
+    {
+      "id": "bg21",
+      "src": "images/dms.png",
+      "label": "ДМС"
+    },
+    {
+      "id": "bg22",
+      "src": "images/dokumenty.png",
+      "label": "Документы"
+    },
+    {
+      "id": "bg23",
+      "src": "images/donorstvo.png",
+      "label": "Донорство"
+    },
+    {
+      "id": "bg24",
+      "src": "images/zagruzka_foto.png",
+      "label": "Загрузка фото"
+    },
+    {
+      "id": "bg25",
+      "src": "images/znachok_preduprezhdeniya.png",
+      "label": "Значок предупреждения"
+    },
+    {
+      "id": "bg26",
+      "src": "images/ĭoga.png",
+      "label": "Йога"
+    },
+    {
+      "id": "bg27",
+      "src": "images/inzhener.png",
+      "label": "Инженер"
+    },
+    {
+      "id": "bg28",
+      "src": "images/it-raboty.png",
+      "label": "ИТ-работы"
+    },
+    {
+      "id": "bg29",
+      "src": "images/it.png",
+      "label": "ИТ"
+    },
+    {
+      "id": "bg30",
+      "src": "images/kiberataka.png",
+      "label": "Кибератака"
+    },
+    {
+      "id": "bg31",
+      "src": "images/kiberbezopasnost.png",
+      "label": "Кибербезопасность"
+    },
+    {
+      "id": "bg32",
+      "src": "images/kiberturnir.png",
+      "label": "Кибертурнир"
+    },
+    {
+      "id": "bg33",
+      "src": "images/knigoobmen.png",
+      "label": "Книгообмен"
+    },
+    {
+      "id": "bg34",
+      "src": "images/koll-tsentr.png",
+      "label": "Колл-центр"
+    },
+    {
+      "id": "bg35",
+      "src": "images/kollaboratsiya.png",
+      "label": "Коллаборация"
+    },
+    {
+      "id": "bg36",
+      "src": "images/komanda.png",
+      "label": "Команда"
+    },
+    {
+      "id": "bg37",
+      "src": "images/komfortnyy_ofis.png",
+      "label": "Комфортный офис"
+    },
+    {
+      "id": "bg38",
+      "src": "images/konkurs_foto.png",
+      "label": "Конкурс фото"
+    },
+    {
+      "id": "bg39",
+      "src": "images/konsultatsiya_po_bankovskim_produktam.png",
+      "label": "Консультация по банковским продуктам"
+    },
+    {
+      "id": "bg40",
+      "src": "images/konsultatsiya.png",
+      "label": "Консультация"
+    },
+    {
+      "id": "bg41",
+      "src": "images/korobka_khrabrosti.png",
+      "label": "Коробка храбрости"
+    },
+    {
+      "id": "bg42",
+      "src": "images/kurenie.png",
+      "label": "Курение"
+    },
+    {
+      "id": "bg43",
+      "src": "images/kedo.png",
+      "label": "КЭДО"
+    },
+    {
+      "id": "bg44",
+      "src": "images/leto,_vesna.png",
+      "label": "Лето, весна"
+    },
+    {
+      "id": "bg45",
+      "src": "images/lyzhi.png",
+      "label": "Лыжи"
+    },
+    {
+      "id": "bg46",
+      "src": "images/mnogozadachnost.png",
+      "label": "Многозадачность"
+    },
+    {
+      "id": "bg47",
+      "src": "images/molodaya_semya.png",
+      "label": "Молодая семья"
+    },
+    {
+      "id": "bg48",
+      "src": "images/molodezhnyĭ_sovet.png",
+      "label": "Молодежный совет"
+    },
+    {
+      "id": "bg49",
+      "src": "images/moshennik-khaker.png",
+      "label": "Мошенник-хакер"
+    },
+    {
+      "id": "bg50",
+      "src": "images/moshenniki.png",
+      "label": "Мошенники"
+    },
+    {
+      "id": "bg51",
+      "src": "images/muzyka.png",
+      "label": "Музыка"
+    },
+    {
+      "id": "bg52",
+      "src": "images/muzyka2.png",
+      "label": "Музыка 2"
+    },
+    {
+      "id": "bg53",
+      "src": "images/nabor_na_trenirovki.png",
+      "label": "Набор на тренировки"
+    },
+    {
+      "id": "bg54",
+      "src": "images/nagrazhdenie.png",
+      "label": "Награждение"
+    },
+    {
+      "id": "bg55",
+      "src": "images/nastavnik.png",
+      "label": "Наставник"
+    },
+    {
+      "id": "bg56",
+      "src": "images/novyy_god_elka.png",
+      "label": "Новый год елка"
+    },
+    {
+      "id": "bg57",
+      "src": "images/novyy_god.png",
+      "label": "Новый год"
+    },
+    {
+      "id": "bg58",
+      "src": "images/obnovleniya.png",
+      "label": "Обновления"
+    },
+    {
+      "id": "bg59",
+      "src": "images/obuchenie,_stratsessiya.png",
+      "label": "Обучение, стратсессия"
+    },
+    {
+      "id": "bg60",
+      "src": "images/obuchenie.png",
+      "label": "Обучение"
+    },
+    {
+      "id": "bg61",
+      "src": "images/onlaĭn-vstrecha.png",
+      "label": "Онлайн-встреча"
+    },
+    {
+      "id": "bg62",
+      "src": "images/opoveshchenie.png",
+      "label": "Оповещение"
+    },
+    {
+      "id": "bg63",
+      "src": "images/otklyuchenie_vody.png",
+      "label": "Отключение воды"
+    },
+    {
+      "id": "bg64",
+      "src": "images/otklyuchenie_elektroenergii.png",
+      "label": "Отключение электроэнергии"
+    },
+    {
+      "id": "bg65",
+      "src": "images/parkovka_avtomobileĭ.png",
+      "label": "Парковка автомобилей"
+    },
+    {
+      "id": "bg66",
+      "src": "images/pensiya.png",
+      "label": "Пенсия"
+    },
+    {
+      "id": "bg67",
+      "src": "images/pobediteli.png",
+      "label": "Победители"
+    },
+    {
+      "id": "bg68",
+      "src": "images/podarki_zhenshchinam.png",
+      "label": "Подарки женщинам"
+    },
+    {
+      "id": "bg69",
+      "src": "images/pokhod_v_kino.png",
+      "label": "Поход в кино"
+    },
+    {
+      "id": "bg70",
+      "src": "images/pokhod_v_les.png",
+      "label": "Поход в лес"
+    },
+    {
+      "id": "bg71",
+      "src": "images/privedi_druga.png",
+      "label": "Приведи друга"
+    },
+    {
+      "id": "bg72",
+      "src": "images/priglashaem_bolelshchikov.png",
+      "label": "Приглашаем болельщиков"
+    },
+    {
+      "id": "bg73",
+      "src": "images/printer.png",
+      "label": "Принтер"
+    },
+    {
+      "id": "bg74",
+      "src": "images/priyut_dlya_zhivotnykh.png",
+      "label": "Приют для животных"
+    },
+    {
+      "id": "bg75",
+      "src": "images/proezd_zakryt.png",
+      "label": "Проезд закрыт"
+    },
+    {
+      "id": "bg76",
+      "src": "images/protsess.png",
+      "label": "Процесс"
+    },
+    {
+      "id": "bg77",
+      "src": "images/radioefir.png",
+      "label": "Радиоэфир"
+    },
+    {
+      "id": "bg78",
+      "src": "images/radost.png",
+      "label": "Радость"
+    },
+    {
+      "id": "bg79",
+      "src": "images/remontnye_raboty.png",
+      "label": "Ремонтные работы"
+    },
+    {
+      "id": "bg80",
+      "src": "images/rozygrysh_kolonki.png",
+      "label": "Розыгрыш колонки"
+    },
+    {
+      "id": "bg81",
+      "src": "images/rost_dannye.png",
+      "label": "Рост данные"
+    },
+    {
+      "id": "bg82",
+      "src": "images/rost.png",
+      "label": "Рост"
+    },
+    {
+      "id": "bg83",
+      "src": "images/sbor_veshchey.png",
+      "label": "Сбор вещей"
+    },
+    {
+      "id": "bg84",
+      "src": "images/sirena.png",
+      "label": "Сирена"
+    },
+    {
+      "id": "bg85",
+      "src": "images/skidki.png",
+      "label": "Скидки"
+    },
+    {
+      "id": "bg86",
+      "src": "images/sobesedovanie.png",
+      "label": "Собеседование"
+    },
+    {
+      "id": "bg87",
+      "src": "images/sotsseti.png",
+      "label": "Соцсети"
+    },
+    {
+      "id": "bg88",
+      "src": "images/sport.png",
+      "label": "Спорт"
+    },
+    {
+      "id": "bg89",
+      "src": "images/telefon.png",
+      "label": "Телефон"
+    },
+    {
+      "id": "bg90",
+      "src": "images/telefon2.png",
+      "label": "Телефон 2"
+    },
+    {
+      "id": "bg91",
+      "src": "images/telefon3.png",
+      "label": "Телефон 3"
+    },
+    {
+      "id": "bg92",
+      "src": "images/tennis.png",
+      "label": "Теннис"
+    },
+    {
+      "id": "bg93",
+      "src": "images/tekhnar.png",
+      "label": "Технарь"
+    },
+    {
+      "id": "bg94",
+      "src": "images/finansovaya_analitika.png",
+      "label": "Финансовая аналитика"
+    },
+    {
+      "id": "bg95",
+      "src": "images/futbol.png",
+      "label": "Футбол"
+    },
+    {
+      "id": "bg96",
+      "src": "images/tsvety.png",
+      "label": "Цветы"
+    },
+    {
+      "id": "bg97",
+      "src": "images/evakuatsiya.png",
+      "label": "Эвакуация"
+    },
+    {
+      "id": "bg98",
+      "src": "images/ekologicheskaya_aktsiya.png",
+      "label": "Экологическая акция"
+    },
+    {
+      "id": "bg99",
+      "src": "images/ekologiyasbor_musora.png",
+      "label": "Экология сбор мусора"
+    },
+    {
+      "id": "bg100",
+      "src": "images/ekskursiya.png",
+      "label": "Экскурсия"
+    },
+    {
+      "id": "bg101",
+      "src": "images/elektronnoe_golosovanie.png",
+      "label": "Электронное голосование"
+    }
+  ]
 }
