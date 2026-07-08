@@ -125,7 +125,8 @@ const ExchangeModals = (() => {
                     <button type="button" class="exc-channel-btn active" id="exc-ch-btn-exchange"
                             onclick="ExchangeModals._switchSettingsChannel('exchange')">📧 Exchange EWS</button>
                     <button type="button" class="exc-channel-btn" id="exc-ch-btn-smtp"
-                            onclick="ExchangeModals._switchSettingsChannel('smtp')">📨 SMTP</button>
+                            onclick="ExchangeModals._switchSettingsChannel('smtp')"
+                            style="display:none">📨 SMTP</button>
                   </div>
                 </div>
 
@@ -1719,6 +1720,15 @@ const ExchangeModals = (() => {
         _renderEmailModal();
         _renderMeetingModal();
         _initDropTargets();
+
+        // Ctrl+Alt+P — показать/скрыть кнопку SMTP-канала в настройках
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'p') {
+                e.preventDefault();
+                const btn = document.getElementById('exc-ch-btn-smtp');
+                if (btn) btn.style.display = btn.style.display === 'none' ? '' : 'none';
+            }
+        });
 
         // Attach autocomplete to all recipient fields once the modals are in the DOM.
         if (typeof EmailAutocomplete !== 'undefined') {

@@ -6,13 +6,14 @@
 const UserAppState = {
     currentScreen: 'start', // 'start' | 'editor'
     templates: [],
+    personalTemplates: [],
     categories: [],
     currentCategory: 'all',
     currentTemplate: null,
     blocks: [],
     originalBlocks: [],
     selectedBlockId: null,
-    allowSavePersonal: false, // Флаг разрешения сохранения (можно быстро отключить)
+    allowSavePersonal: true,
     showAttentionHints: true,
     isDirty: false, // Есть ли несохранённые изменения
     previewBlocks: null,
@@ -104,12 +105,34 @@ const UserThemeUI = {
 };
 
 /**
+ * Resolve the current user's identity key from Exchange credentials and
+ * store it on TemplatesAPI so that personal template requests are routed
+ * to the correct per-user directory on the server.
+ */
+async function _initUserKey() {
+    try {
+        const r = await fetch('/api/credentials/status');
+        const status = await r.json();
+        const email = (status.from_email || status.username || '').trim().toLowerCase();
+        if (email) {
+            TemplatesAPI.userKey = email;
+            console.log('[USER APP] User key set:', email);
+        }
+    } catch (e) {
+        console.warn('[USER APP] Could not resolve user key:', e);
+    }
+}
+
+/**
  * Инициализация приложения
  */
 async function initUserApp() {
     console.log('[USER APP] Initializing...');
 
     UserThemeUI.init();
+
+    // Resolve user key before loading templates so personal namespace is correct.
+    await _initUserKey();
 
     // Загружаем конфиг и список шаблонов параллельно.
     // Профиль и конфиг грузятся параллельно с шаблонами.
@@ -149,6 +172,7 @@ async function loadTemplatesAndCategories() {
 
         // Берём только общие шаблоны (не пресеты)
         UserAppState.templates = (templatesData?.shared || []).filter(t => !t.isPreset);
+        UserAppState.personalTemplates = (templatesData?.personal || []);
         _previewHtmlCache.clear();
 
         // Derive categories from template data: only categories that have at least one
@@ -315,9 +339,14 @@ function renderCategoryTabs() {
     if (!tabsContainer) return;
 
     const hasFavorites = UserAppState.templates.some(t => FavoritesStore.isFavorite(t.id));
+    const hasPersonal = UserAppState.personalTemplates.length > 0;
 
     // If the favorites tab is active but there are no favorites, fall back to 'all'.
     if (!hasFavorites && UserAppState.currentCategory === '__favorites__') {
+        UserAppState.currentCategory = 'all';
+    }
+    // If the personal tab is active but there are no personal templates, fall back to 'all'.
+    if (!hasPersonal && UserAppState.currentCategory === '__personal__') {
         UserAppState.currentCategory = 'all';
     }
 
@@ -327,6 +356,9 @@ function renderCategoryTabs() {
         <button class="category-tab${isActive('all') ? ' active' : ''}" data-category="all">Все шаблоны</button>
         ${hasFavorites
             ? `<button class="category-tab category-tab--favorites${isActive('__favorites__') ? ' active' : ''}" data-category="__favorites__">Избранные</button>`
+            : ''}
+        ${hasPersonal
+            ? `<button class="category-tab category-tab--personal${isActive('__personal__') ? ' active' : ''}" data-category="__personal__">Личные</button>`
             : ''}
     `;
 
@@ -360,11 +392,17 @@ function renderTemplateCards() {
     if (!grid) return;
 
     // Фильтруем по категории
-    let filtered = UserAppState.templates;
-    if (UserAppState.currentCategory === '__favorites__') {
-        filtered = filtered.filter(t => FavoritesStore.isFavorite(t.id));
-    } else if (UserAppState.currentCategory !== 'all') {
-        filtered = filtered.filter(t => t.category === UserAppState.currentCategory);
+    const isPersonalTab = UserAppState.currentCategory === '__personal__';
+    let filtered;
+    if (isPersonalTab) {
+        filtered = UserAppState.personalTemplates;
+    } else {
+        filtered = UserAppState.templates;
+        if (UserAppState.currentCategory === '__favorites__') {
+            filtered = filtered.filter(t => FavoritesStore.isFavorite(t.id));
+        } else if (UserAppState.currentCategory !== 'all') {
+            filtered = filtered.filter(t => t.category === UserAppState.currentCategory);
+        }
     }
 
     // Фильтруем по поиску
@@ -388,10 +426,22 @@ function renderTemplateCards() {
         const id    = TextSanitizer.escapeHTML(template.id);
         const type  = TextSanitizer.escapeHTML(template.type);
         const name  = TextSanitizer.escapeHTML(template.name);
-        const cat   = TextSanitizer.escapeHTML(template.category || 'Без категории');
+        const cat   = isPersonalTab
+            ? 'Личный шаблон'
+            : TextSanitizer.escapeHTML(template.category || 'Без категории');
         const isFav = FavoritesStore.isFavorite(template.id);
         const favCls   = isFav ? ' btn-favorite--active' : '';
         const favTitle = isFav ? 'Убрать из избранного' : 'В избранное';
+        const trashBtn = isPersonalTab
+            ? `<button type="button" class="btn-delete-personal"
+                    data-id="${id}"
+                    title="Удалить личный шаблон" aria-label="Удалить личный шаблон">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <polyline points="3 6 5 6 21 6"></polyline>
+                    <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"></path>
+                </svg>
+            </button>`
+            : '';
         return `
         <div class="template-card" data-id="${id}" data-type="${type}">
             <div class="template-card-preview" data-id="${id}" data-type="${type}">
@@ -408,6 +458,7 @@ function renderTemplateCards() {
                     </button>
                 </div>
             </div>
+            ${trashBtn}
             <button type="button" class="btn-favorite${favCls}"
                     data-id="${id}" data-type="${type}"
                     title="${favTitle}" aria-label="${favTitle}">
@@ -432,6 +483,7 @@ function renderTemplateCards() {
         card.addEventListener('click', (e) => {
             if (e.target.closest('.btn-template-preview')) return;
             if (e.target.closest('.btn-favorite')) return;
+            if (e.target.closest('.btn-delete-personal')) return;
             openTemplate(card.dataset.id, card.dataset.type);
         });
     });
@@ -440,6 +492,13 @@ function renderTemplateCards() {
         btn.addEventListener('click', (e) => {
             e.stopPropagation();
             previewTemplate(btn.dataset.id, btn.dataset.type);
+        });
+    });
+
+    grid.querySelectorAll('.btn-delete-personal').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            deletePersonalTemplate(btn.dataset.id);
         });
     });
 
@@ -772,25 +831,71 @@ async function showUserPreview() {
 }
 
 /**
- * Сохранить как личный шаблон
+ * Сохранить как личный шаблон (авто-нумерация: BaseName_01, BaseName_02, …)
  */
 async function saveAsPersonal() {
     if (!UserAppState.allowSavePersonal) return;
 
-    const name = prompt('Название шаблона:', UserAppState.currentTemplate?.name || 'Мой шаблон');
-    if (!name) return;
+    const baseName = UserAppState.currentTemplate?.name || 'Шаблон';
+    const prefix = baseName + '_';
+    const existing = UserAppState.personalTemplates
+        .map(t => t.name)
+        .filter(n => n.startsWith(prefix))
+        .map(n => parseInt(n.slice(prefix.length), 10))
+        .filter(n => !isNaN(n));
+    const nextNum = existing.length > 0 ? Math.max(...existing) + 1 : 1;
+    const finalName = `${baseName}_${String(nextNum).padStart(2, '0')}`;
 
+    const toaster = Toast.loading('Сохранение…');
     try {
-        const savedId = await TemplatesAPI.save(name, UserAppState.blocks, 'personal', '', null);
-
+        const savedId = await TemplatesAPI.save(finalName, UserAppState.blocks, 'personal', '', null);
         if (savedId) {
             UserAppState.isDirty = false;
             updateUserEditorMeta();
-            alert('✅ Шаблон сохранён!');
+            toaster.resolve('success', `Сохранено как «${finalName}»`);
+            await loadPersonalTemplates();
+            renderCategoryTabs();
+        } else {
+            toaster.resolve('error', 'Ошибка сохранения');
         }
     } catch (error) {
-        console.error('[USER APP] Error saving template:', error);
-        alert('Ошибка сохранения');
+        console.error('[USER APP] Error saving personal template:', error);
+        toaster.resolve('error', 'Ошибка сохранения');
+    }
+}
+
+/**
+ * Удалить личный шаблон с подтверждением
+ */
+async function deletePersonalTemplate(id) {
+    if (!confirm('Удалить личный шаблон? Это действие нельзя отменить.')) return;
+
+    const toaster = Toast.loading('Удаление…');
+    try {
+        const ok = await TemplatesAPI.delete(id, 'personal');
+        if (ok) {
+            toaster.resolve('success', 'Шаблон удалён');
+            await loadPersonalTemplates();
+            renderCategoryTabs();
+            renderTemplateCards();
+        } else {
+            toaster.resolve('error', 'Ошибка удаления');
+        }
+    } catch (e) {
+        console.error('[USER APP] Error deleting personal template:', e);
+        toaster.resolve('error', 'Ошибка удаления');
+    }
+}
+
+/**
+ * Перезагрузить список личных шаблонов с сервера
+ */
+async function loadPersonalTemplates() {
+    try {
+        const { templates: data } = await TemplatesAPI.getList(null);
+        UserAppState.personalTemplates = (data?.personal || []);
+    } catch (e) {
+        console.warn('[USER APP] Failed to reload personal templates', e);
     }
 }
 
