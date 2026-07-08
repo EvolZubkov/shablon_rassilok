@@ -665,6 +665,10 @@ function setBulkMailColumnsAvailable(available) {
     if (!available) hideFieldDropdown();
     const sendBtn = document.getElementById('btn-bulk-send');
     if (sendBtn) sendBtn.style.display = available ? '' : 'none';
+    // Скрываем кнопки одиночной отправки когда активна рассылка
+    const display = available ? 'none' : '';
+    document.getElementById('btn-send-outlook')?.style.setProperty('display', display, available ? 'important' : '');
+    document.getElementById('btn-send-meeting')?.style.setProperty('display', display, available ? 'important' : '');
 }
 
 // ============================================================================

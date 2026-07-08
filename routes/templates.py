@@ -31,6 +31,17 @@ import app as _m  # module reference — gives live access to all app.py globals
 bp = Blueprint('templates', __name__)
 
 
+def _get_user_key() -> str:
+    """Extract the user identifier from the ``X-User-Key`` request header.
+
+    The header is set by the user-facing frontend so that each user's
+    personal templates are stored in a separate subdirectory.  Returns an
+    empty string when the header is absent (falls back to the 'default'
+    slug in :func:`app.get_personal_templates_dir`).
+    """
+    return (request.headers.get('X-User-Key') or '').strip()[:200]
+
+
 @bp.route('/api/templates/list', methods=['GET'])
 def templates_list():
     """
@@ -44,7 +55,7 @@ def templates_list():
     """
     try:
         shared_dir = os.path.join(_m.get_templates_dir(), 'shared')
-        user_dir = _m.get_personal_templates_dir()
+        user_dir = _m.get_personal_templates_dir(_get_user_key())
 
         shared_meta, _, shared_fp = _m._get_template_index('shared', shared_dir)
         personal_meta, _, personal_fp = _m._get_template_index('personal', user_dir)
@@ -84,7 +95,7 @@ def templates_load():
         if _m.get_app_mode() == 'user' and template_type == 'shared':
             pass  # reading shared is allowed in user mode
 
-        base_dir = _m._template_base_dir(template_type)
+        base_dir = _m._template_base_dir(template_type, _get_user_key())
         filepath, template = _m._find_template_by_id(base_dir, template_id, template_type)
 
         if filepath is None:
@@ -122,7 +133,7 @@ def templates_save():
         if template_type == 'shared':
             save_dir = os.path.join(templates_dir, 'shared')
         else:
-            save_dir = _m.get_personal_templates_dir()
+            save_dir = _m.get_personal_templates_dir(_get_user_key())
 
         os.makedirs(save_dir, exist_ok=True)
 
@@ -179,7 +190,7 @@ def templates_update():
         if _m.get_app_mode() == 'user' and template_type == 'shared':
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
-        base_dir = _m._template_base_dir(template_type)
+        base_dir = _m._template_base_dir(template_type, _get_user_key())
         filepath, template = _m._find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
@@ -220,7 +231,7 @@ def templates_update_preview():
         if _m.get_app_mode() == 'user' and template_type == 'shared':
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
-        base_dir = _m._template_base_dir(template_type)
+        base_dir = _m._template_base_dir(template_type, _get_user_key())
         filepath, template = _m._find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
@@ -256,7 +267,7 @@ def templates_delete():
         if _m.get_app_mode() == 'user' and template_type == 'shared':
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
-        base_dir = _m._template_base_dir(template_type)
+        base_dir = _m._template_base_dir(template_type, _get_user_key())
         filepath, _ = _m._find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
@@ -294,7 +305,7 @@ def templates_rename():
         if _m.get_app_mode() == 'user' and template_type == 'shared':
             return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
 
-        base_dir = _m._template_base_dir(template_type)
+        base_dir = _m._template_base_dir(template_type, _get_user_key())
         filepath, template = _m._find_template_by_id(base_dir, template_id, template_type)
         if filepath is None:
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404

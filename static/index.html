@@ -748,6 +748,9 @@
   function setBulkMailColumnsAvailable(available) {
     const btn = document.getElementById('btn-bulk-send');
     if (btn) btn.style.display = available ? '' : 'none';
+    const display = available ? 'none' : '';
+    document.getElementById('btn-create-outlook')?.style.setProperty('display', display, available ? 'important' : '');
+    document.getElementById('btn-create-meeting')?.style.setProperty('display', display, available ? 'important' : '');
   }
 </script>
 </body>

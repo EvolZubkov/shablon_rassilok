@@ -2690,18 +2690,36 @@ def _delete_template_from_network(cache_filepath: str) -> None:
         _logger.warning('Ошибка удаления шаблона из сети: %s', exc)
 
 
-def get_personal_templates_dir():
-    """
-    Returns the path to the personal templates directory (local, per-user).
+def _personal_user_slug(user_key: str) -> str:
+    """Return a filesystem-safe slug from a user key (email or login name).
 
-    Personal templates are stored locally so they are:
-    * available offline (no network required)
-    * private to the OS user account
-    * never written to the shared network resource
-
-    Path: ``CACHE_BASE/templates/``
+    Rules:
+    * If it looks like an email, take the local part (before @).
+    * Replace any non-alphanumeric/dash/dot/underscore characters with ``_``.
+    * Truncate to 64 characters.
+    * Fall back to ``'default'`` when the result would be empty.
     """
-    path = os.path.join(CACHE_BASE, 'templates')
+    key = (user_key or '').strip().lower()
+    if '@' in key:
+        key = key.split('@')[0]
+    # Strip AD "domain\user" prefix if present
+    if '\\' in key:
+        key = key.split('\\')[-1]
+    slug = re.sub(r'[^\w.\-]', '_', key)[:64].strip('_')
+    return slug or 'default'
+
+
+def get_personal_templates_dir(user_key: str = '') -> str:
+    """Return the personal templates directory for *user_key*.
+
+    Each unique user key gets its own subdirectory under
+    ``CACHE_BASE/templates/``, so that different users' personal
+    templates never mix.
+
+    Falls back to the ``'default'`` subdirectory when no key is supplied.
+    """
+    slug = _personal_user_slug(user_key)
+    path = os.path.join(CACHE_BASE, 'templates', slug)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -2713,12 +2731,12 @@ def get_user_from_system():
     return os.environ.get('USER', os.environ.get('LOGNAME', 'unknown')).lower()
 
 
-def _template_base_dir(template_type):
+def _template_base_dir(template_type, user_key: str = ''):
     """Return the filesystem directory for a given template type."""
     templates_dir = get_templates_dir()
     if template_type == 'shared':
         return os.path.join(templates_dir, 'shared')
-    return get_personal_templates_dir()
+    return get_personal_templates_dir(user_key)
 
 
 def _validate_template_id(tid):
@@ -2818,12 +2836,21 @@ def _invalidate_template_cache(template_type=None):
     After invalidation the next :func:`_get_template_index` call will rebuild
     synchronously (cold-cache path) rather than serving stale data.
     Thread-safe.
+
+    The cache is keyed by *base_dir* (filesystem path), so invalidating
+    ``'personal'`` removes all user-specific personal template caches.
     """
+    shared_dir = os.path.join(get_templates_dir(), 'shared')
     with _template_cache_lock:
-        if template_type:
-            _template_cache.pop(template_type, None)
-        else:
+        if template_type is None:
             _template_cache.clear()
+        elif template_type == 'shared':
+            _template_cache.pop(shared_dir, None)
+        else:
+            # Remove every personal-templates entry (keyed by their base_dir).
+            for k in list(_template_cache.keys()):
+                if k != shared_dir:
+                    del _template_cache[k]
 
 
 def _build_index_from_dir(base_dir, template_type):
@@ -2901,10 +2928,10 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     try:
         meta, index, fp = _build_index_from_dir(base_dir, template_type)
         with _template_cache_lock:
-            existing = _template_cache.get(template_type)
+            existing = _template_cache.get(base_dir)
             if existing is None or existing.get('ts', 0) <= started_at:
                 # No fresher entry — safe to store our result.
-                _template_cache[template_type] = {
+                _template_cache[base_dir] = {
                     'meta': meta, 'index': index, 'fp': fp,
                     'ts': time.time(), '_rebuilding': False,
                 }
@@ -2915,7 +2942,7 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     except Exception as exc:
         _logger.warning('Фоновый rebuild индекса [%s] упал: %s', template_type, exc)
         with _template_cache_lock:
-            entry = _template_cache.get(template_type)
+            entry = _template_cache.get(base_dir)
             if entry:
                 entry['_rebuilding'] = False
 
@@ -2941,8 +2968,10 @@ def _get_template_index(template_type: str, base_dir: str):
     now = time.time()
     ttl = _TEMPLATE_CACHE_TTL.get(template_type, 10.0)
 
+    # Cache is keyed by base_dir so that different personal-templates
+    # directories (one per user) each get their own independent cache entry.
     with _template_cache_lock:
-        cached = _template_cache.get(template_type)
+        cached = _template_cache.get(base_dir)
 
         if cached:
             if (now - cached['ts']) < ttl:
@@ -2963,7 +2992,7 @@ def _get_template_index(template_type: str, base_dir: str):
     # Cold cache — synchronous rebuild (first request only).
     meta, index, fp = _build_index_from_dir(base_dir, template_type)
     with _template_cache_lock:
-        _template_cache[template_type] = {
+        _template_cache[base_dir] = {
             'meta': meta, 'index': index, 'fp': fp,
             'ts': time.time(), '_rebuilding': False,
         }

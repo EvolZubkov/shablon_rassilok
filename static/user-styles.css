@@ -2623,6 +2623,38 @@ body {
   pointer-events: none;
 }
 
+/* Delete (trash) button on personal template cards */
+.btn-delete-personal {
+  position: absolute;
+  top: 6px;
+  right: 38px;
+  z-index: 2;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: none;
+  background: rgba(0, 0, 0, 0.45);
+  color: rgba(255, 255, 255, 0.7);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s, background 0.15s, transform 0.15s;
+  padding: 0;
+}
+.template-card:hover .btn-delete-personal {
+  opacity: 1;
+}
+.btn-delete-personal:hover {
+  background: rgba(220, 38, 38, 0.85);
+  color: #fff;
+  transform: scale(1.15);
+}
+.btn-delete-personal svg {
+  pointer-events: none;
+}
+
 /* Favorites category tab highlight */
 .category-tab--favorites {
   border-color: #fbbf24;
