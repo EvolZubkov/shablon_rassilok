@@ -1,6 +1,26 @@
 // exchangeModals.js — модальные окна отправки через Exchange EWS
 // Заменяет Outlook COM. Подключается в index-user.html после userApp.js.
 
+// ── Kerberos lock ──────────────────────────────────────────────────────────
+// Kerberos hidden by default to avoid confusing users.
+// Press Ctrl+Alt+K to reveal it (state persists in localStorage).
+(function _initKerberosLock() {
+    window._kerberosUnlocked = localStorage.getItem('krb_unlocked') === '1';
+
+    document.addEventListener('keydown', (e) => {
+        if (e.ctrlKey && e.altKey && (e.key === 'k' || e.key === 'K')) {
+            window._kerberosUnlocked = !window._kerberosUnlocked;
+            localStorage.setItem('krb_unlocked', window._kerberosUnlocked ? '1' : '0');
+            const msg = window._kerberosUnlocked
+                ? 'Kerberos разблокирован — откройте настройки подключения'
+                : 'Kerberos скрыт';
+            if (typeof Toast !== 'undefined') Toast.info(msg);
+            else alert(msg);
+        }
+    });
+}());
+// ──────────────────────────────────────────────────────────────────────────
+
 const ExchangeModals = (() => {
 
     // ─── Состояние ───────────────────────────────────────────────────────────
@@ -72,6 +92,10 @@ const ExchangeModals = (() => {
         return _credentialsStatus;
     }
 
+    // ─── Кастомный пикер даты/времени → см. js/dateTimePicker.js ─────────────
+
+    let _emailDtp = null;   // экземпляр пикера для модалки письма
+
     // ─── HTML: Credentials Modal ─────────────────────────────────────────────
 
     function _renderCredentialsModal() {
@@ -87,42 +111,177 @@ const ExchangeModals = (() => {
             </div>
             <div class="exc-body">
               <div class="exchange-settings-tabs library-subtabs">
-                <button id="settings-tab-exchange" type="button" class="library-subtab active">Exchange</button>
+                <button id="settings-tab-exchange" type="button" class="library-subtab active">Отправка</button>
                 <button id="settings-tab-repository" type="button" class="library-subtab">Репозиторий</button>
               </div>
 
               <div id="settings-pane-exchange" class="exchange-settings-pane is-active">
+                <input type="hidden" id="exc-auth-type" value="ntlm">
+
+                <!-- Переключатель канала -->
                 <div class="exc-field">
-                  <label class="exc-label">Сервер Exchange</label>
-                  <input id="exc-server" type="text" class="exc-input"
-                         placeholder="mail.company.ru" autocomplete="off">
+                  <label class="exc-label">Канал отправки</label>
+                  <div class="exc-channel-switch">
+                    <button type="button" class="exc-channel-btn active" id="exc-ch-btn-exchange"
+                            onclick="ExchangeModals._switchSettingsChannel('exchange')">📧 Exchange EWS</button>
+                    <button type="button" class="exc-channel-btn" id="exc-ch-btn-smtp"
+                            onclick="ExchangeModals._switchSettingsChannel('smtp')"
+                            style="display:none">📨 SMTP</button>
+                  </div>
                 </div>
 
-                <div class="exc-field">
-                  <label class="exc-label">Логин</label>
-                  <input id="exc-username" type="text" class="exc-input"
-                         placeholder="domain\\user_name" autocomplete="username">
+                <!-- ── Exchange ── -->
+                <div id="exc-channel-block-exchange">
+                  <div class="exc-field">
+                    <label class="exc-label">Сервер Exchange</label>
+                    <input id="exc-server" type="text" class="exc-input"
+                           placeholder="mail.company.ru" autocomplete="off">
+                  </div>
+
+                  <div id="exc-kerberos-badge" class="exc-kerberos-badge" style="display:none;">
+                    <span>🔒 Kerberos-тикет обнаружен — логин и пароль не требуются</span>
+                    <button type="button" class="exc-link-btn"
+                            onclick="ExchangeModals._showNtlmFields()">Использовать NTLM</button>
+                  </div>
+
+                  <div id="exc-krb-realm-field" class="exc-field" style="display:none;">
+                    <label class="exc-label">
+                      Kerberos Realm
+                      <span class="exc-hint"> (например: RT.RU)</span>
+                    </label>
+                    <div style="display:flex;gap:6px;align-items:center">
+                      <input id="exc-krb-realm" type="text" class="exc-input"
+                             placeholder="RT.RU" autocomplete="off"
+                             style="flex:1;min-width:0;text-transform:uppercase">
+                      <button type="button" class="exc-btn exc-btn--secondary"
+                              style="white-space:nowrap;flex-shrink:0"
+                              onclick="ExchangeModals._detectRealm()">
+                        Определить
+                      </button>
+                    </div>
+                  </div>
+
+                  <div id="exc-ntlm-fields">
+                    <div class="exc-field">
+                      <label class="exc-label">Логин</label>
+                      <input id="exc-username" type="text" class="exc-input"
+                             placeholder="domain\\user_name" autocomplete="username">
+                    </div>
+                    <div class="exc-field">
+                      <label class="exc-label">Пароль</label>
+                      <input id="exc-password" type="password" class="exc-input"
+                             placeholder="••••••••" autocomplete="current-password">
+                    </div>
+                  </div>
+
+                  <div class="exc-field">
+                    <label class="exc-label">Email отправителя по умолчанию</label>
+                    <input id="exc-from-email" type="text" class="exc-input"
+                           placeholder="user_name@company.ru" autocomplete="email">
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">
+                      Дополнительные ящики
+                      <span class="exc-hint"> (через запятую, необязательно)</span>
+                    </label>
+                    <input id="exc-senders" type="text" class="exc-input"
+                           placeholder="sender1@rt.ru, sender2@rt.ru">
+                  </div>
                 </div>
 
-                <div class="exc-field">
-                  <label class="exc-label">Пароль</label>
-                  <input id="exc-password" type="password" class="exc-input"
-                         placeholder="••••••••" autocomplete="current-password">
-                </div>
+                <!-- ── SMTP ── -->
+                <div id="exc-channel-block-smtp" style="display:none">
+                  <div style="display:flex;gap:10px">
+                    <div class="exc-field" style="flex:2">
+                      <label class="exc-label">Хост</label>
+                      <input id="smtp-host" type="text" class="exc-input"
+                             placeholder="10.20.1.50" autocomplete="off">
+                    </div>
+                    <div class="exc-field" style="flex:1">
+                      <label class="exc-label">Порт</label>
+                      <select id="smtp-port" class="exc-input">
+                        <option value="587">587 (TLS)</option>
+                        <option value="25">25 (Plain)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">Логин</label>
+                    <input id="smtp-username" type="text" class="exc-input"
+                           placeholder="smtp_user" autocomplete="off">
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">Пароль</label>
+                    <input id="smtp-password" type="password" class="exc-input"
+                           placeholder="••••••••" autocomplete="new-password">
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">Email отправителя</label>
+                    <input id="smtp-from-email" type="text" class="exc-input"
+                           placeholder="noreply@corp.ru" autocomplete="email">
+                  </div>
+                  <div class="exc-field">
+                    <label class="exc-label">
+                      Дополнительные ящики
+                      <span class="exc-hint"> (через запятую, необязательно)</span>
+                    </label>
+                    <input id="smtp-senders" type="text" class="exc-input"
+                           placeholder="bulk1@rt.ru, bulk2@rt.ru">
+                  </div>
 
-                <div class="exc-field">
-                  <label class="exc-label">Email отправителя по умолчанию</label>
-                  <input id="exc-from-email" type="text" class="exc-input"
-                         placeholder="user_name@company.ru" autocomplete="email">
-                </div>
+                  <div class="exc-smtp-section-title">Дополнительно</div>
 
-                <div class="exc-field">
-                  <label class="exc-label">
-                    Дополнительные ящики
-                    <span class="exc-hint"> (через запятую, необязательно)</span>
-                  </label>
-                  <input id="exc-senders" type="text" class="exc-input"
-                         placeholder="sender1@rt.ru, sender2@rt.ru">
+                  <!-- IMAP -->
+                  <div class="exc-toggle-row">
+                    <div>
+                      <div class="exc-label">Сохранять в "Отправленные" (IMAP)</div>
+                      <div class="exc-hint">Копирует письма в папку Sent на сервере</div>
+                    </div>
+                    <label class="exc-toggle">
+                      <input type="checkbox" id="smtp-imap-enabled"
+                             onchange="ExchangeModals._toggleSmtpImap()">
+                      <span class="exc-toggle-track"></span>
+                    </label>
+                  </div>
+                  <div id="smtp-imap-block" style="display:none">
+                    <div class="exc-smtp-collapse">
+                      <div style="display:flex;gap:10px">
+                        <div class="exc-field" style="flex:2">
+                          <label class="exc-label">IMAP Хост</label>
+                          <input id="smtp-imap-host" type="text" class="exc-input" placeholder="10.20.1.50">
+                        </div>
+                        <div class="exc-field" style="flex:1">
+                          <label class="exc-label">Порт</label>
+                          <select id="smtp-imap-port" class="exc-input">
+                            <option value="993">993 (SSL)</option>
+                            <option value="143">143 (TLS)</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Задержка -->
+                  <div class="exc-toggle-row">
+                    <div>
+                      <div class="exc-label">Задержка между письмами</div>
+                      <div class="exc-hint">Снижает нагрузку при больших рассылках</div>
+                    </div>
+                    <label class="exc-toggle">
+                      <input type="checkbox" id="smtp-delay-enabled"
+                             onchange="ExchangeModals._toggleSmtpDelay()">
+                      <span class="exc-toggle-track"></span>
+                    </label>
+                  </div>
+                  <div id="smtp-delay-block" style="display:none">
+                    <div class="exc-smtp-collapse">
+                      <div class="exc-field">
+                        <label class="exc-label">Секунд между письмами</label>
+                        <input id="smtp-delay-seconds" type="number" class="exc-input"
+                               value="1" min="0" max="60" style="width:100px">
+                      </div>
+                    </div>
+                  </div>
                 </div>
 
                 <div id="exc-test-result" class="exc-test-result"></div>
@@ -200,13 +359,26 @@ const ExchangeModals = (() => {
 
               <div class="exc-field">
                 <label class="exc-label">Кому <span class="exc-hint">(или Копия / Скрытая копия)</span></label>
-                <textarea id="email-to" class="exc-input exc-input--textarea"
-                          placeholder="a@rt.ru, b@rt.ru"></textarea>
+                <div class="exc-drop-wrap" style="position:relative;display:flex;align-items:center;gap:6px">
+                  <textarea id="email-to" class="exc-input exc-input--textarea exc-drop-target"
+                            data-drop-target="email-to" style="flex:1;min-width:0;width:auto"
+                            placeholder="a@rt.ru, b@rt.ru — или перетащите .xlsx / .ods"></textarea>
+                  <div class="exc-drag-hint" style="display:none;position:absolute;top:0;right:40px;bottom:0;left:0;border-radius:8px;background:rgba(167,139,250,.07);border:1.5px dashed #a78bfa;pointer-events:none;align-items:center;justify-content:center;gap:6px;color:#c4b5fd;font-size:12px"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Отпустите файл</div>
+                  <button type="button" class="exc-pick-btn" title="Выбрать файл" onclick="ExchangeModals._pickXlsx('email-to')" style="flex-shrink:0;width:34px;height:34px;align-self:center;background:var(--exchange-field-bg,#0f1e38);border:1.5px solid var(--exchange-modal-border,#2a3f5f);border-radius:8px;color:#8ba3c7;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <input type="file" id="xlsx-pick-email-to" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                </div>
               </div>
 
               <div class="exc-field">
                 <label class="exc-label">Копия</label>
-                <input id="email-cc" type="text" class="exc-input" placeholder="cc@rt.ru">
+                <div class="exc-drop-wrap" style="position:relative;display:flex;align-items:center;gap:6px">
+                  <input id="email-cc" type="text" class="exc-input exc-drop-target" data-drop-target="email-cc"
+                         style="flex:1;min-width:0;width:auto"
+                         placeholder="cc@rt.ru — или перетащите .xlsx / .ods">
+                  <div class="exc-drag-hint" style="display:none;position:absolute;top:0;right:40px;bottom:0;left:0;border-radius:8px;background:rgba(167,139,250,.07);border:1.5px dashed #a78bfa;pointer-events:none;align-items:center;justify-content:center;gap:6px;color:#c4b5fd;font-size:12px"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Отпустите файл</div>
+                  <button type="button" class="exc-pick-btn" title="Выбрать файл" onclick="ExchangeModals._pickXlsx('email-cc')" style="flex-shrink:0;width:34px;height:34px;align-self:center;background:var(--exchange-field-bg,#0f1e38);border:1.5px solid var(--exchange-modal-border,#2a3f5f);border-radius:8px;color:#8ba3c7;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <input type="file" id="xlsx-pick-email-cc" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                </div>
               </div>
 
               <div class="exc-field">
@@ -214,7 +386,14 @@ const ExchangeModals = (() => {
                   Скрытая копия
                   <span class="exc-hint"> (адреса скрыты от получателей)</span>
                 </label>
-                <input id="email-bcc" type="text" class="exc-input" placeholder="bcc@rt.ru">
+                <div class="exc-drop-wrap" style="position:relative;display:flex;align-items:center;gap:6px">
+                  <input id="email-bcc" type="text" class="exc-input exc-drop-target" data-drop-target="email-bcc"
+                         style="flex:1;min-width:0;width:auto"
+                         placeholder="bcc@rt.ru — или перетащите .xlsx / .ods">
+                  <div class="exc-drag-hint" style="display:none;position:absolute;top:0;right:40px;bottom:0;left:0;border-radius:8px;background:rgba(167,139,250,.07);border:1.5px dashed #a78bfa;pointer-events:none;align-items:center;justify-content:center;gap:6px;color:#c4b5fd;font-size:12px"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Отпустите файл</div>
+                  <button type="button" class="exc-pick-btn" title="Выбрать файл" onclick="ExchangeModals._pickXlsx('email-bcc')" style="flex-shrink:0;width:34px;height:34px;align-self:center;background:var(--exchange-field-bg,#0f1e38);border:1.5px solid var(--exchange-modal-border,#2a3f5f);border-radius:8px;color:#8ba3c7;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <input type="file" id="xlsx-pick-email-bcc" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                </div>
               </div>
 
               <div class="exc-field">
@@ -231,6 +410,43 @@ const ExchangeModals = (() => {
                 </div>
               </div>
 
+              <!-- Дополнительные настройки -->
+              <div class="exc-extra-accordion" id="email-extra-accordion">
+                <button type="button" class="exc-extra-trigger" id="email-extra-trigger"
+                        onclick="ExchangeModals._toggleEmailExtra()">
+                  <span>⚙ Дополнительные настройки</span>
+                  <svg class="exc-extra-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                </button>
+                <div class="exc-extra-body" id="email-extra-body" style="display:none">
+
+                  <div class="exc-field">
+                    <label class="exc-label">Важность письма</label>
+                    <div class="bm-importance-seg" id="email-importance">
+                      <button type="button" class="bm-imp-btn" data-val="low">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg> Низкая
+                      </button>
+                      <button type="button" class="bm-imp-btn bm-imp-active" data-val="normal">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/></svg> Обычная
+                      </button>
+                      <button type="button" class="bm-imp-btn" data-val="high">
+                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg> Высокая
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="exc-toggle-row">
+                    <div>
+                      <div class="exc-label">Уведомление о прочтении</div>
+                      <div class="exc-hint">Получатель может отклонить запрос</div>
+                    </div>
+                    <label class="exc-toggle">
+                      <input type="checkbox" id="email-read-receipt">
+                      <span class="exc-toggle-track"></span>
+                    </label>
+                  </div>
+
+                  <hr style="border:none;border-top:1px solid var(--border-color,#2e3a52);margin:4px 0">
+
               <div class="exc-field exc-field--comment">
                 <label class="exc-comment-toggle">
                   <input type="checkbox" id="email-comment-toggle"
@@ -244,6 +460,33 @@ const ExchangeModals = (() => {
                 </div>
               </div>
 
+              <div class="exc-field exc-field--comment">
+                <label class="exc-comment-toggle">
+                  <input type="checkbox" id="email-review-toggle">
+                  <span class="exc-comment-toggle__label">На согласование</span>
+                </label>
+                <div id="email-review-hint" style="display:none;margin-top:6px;padding:6px 10px;
+                     border-radius:6px;background:rgba(139,92,246,.1);border:1px solid rgba(139,92,246,.25);
+                     font-size:11px;color:var(--text-muted,#9ca3af);line-height:1.5">
+                  К письму будет приложен файл <strong>template_review.json</strong>.
+                  Получатель сможет открыть его в приложении для редактирования.
+                </div>
+              </div>
+
+              <div class="exc-field exc-field--comment">
+                <label class="exc-comment-toggle">
+                  <input type="checkbox" id="email-schedule-toggle">
+                  <span class="exc-comment-toggle__label">Отложенная отправка</span>
+                </label>
+                <div id="email-dtp-wrapper" style="display:none;margin-top:8px">
+                  <!-- кастомный пикер вставляется сюда при инициализации -->
+                </div>
+                <input type="hidden" id="email-send-at">
+              </div>
+
+                </div><!-- /exc-extra-body -->
+              </div><!-- /exc-extra-accordion -->
+
             </div>
             <div class="exc-footer">
               <button class="exc-btn exc-btn--secondary" onclick="ExchangeModals.closeEmail()">Отмена</button>
@@ -252,6 +495,26 @@ const ExchangeModals = (() => {
             </div>
           </div>
         </div>`);
+
+        // Важность — клики
+        _q('email-importance')?.querySelectorAll('.bm-imp-btn').forEach(btn => {
+            btn.addEventListener('click', () => {
+                _q('email-importance').querySelectorAll('.bm-imp-btn')
+                    .forEach(b => b.classList.remove('bm-imp-active'));
+                btn.classList.add('bm-imp-active');
+            });
+        });
+
+        // Слушатель «На согласование»
+        _q('email-review-toggle')?.addEventListener('change', function () {
+            const hint = _q('email-review-hint');
+            if (hint) hint.style.display = this.checked ? 'block' : 'none';
+        });
+
+        // Слушатель «Отложенная отправка» — программно, без inline-хандлера
+        _q('email-schedule-toggle')?.addEventListener('change', function () {
+            _onScheduleToggle(this.checked);
+        });
     }
 
     // ─── HTML: Send Meeting Modal ─────────────────────────────────────────────
@@ -288,8 +551,14 @@ const ExchangeModals = (() => {
 
               <div class="exc-field">
                 <label class="exc-label">Участники <span class="exc-hint">(или Скрытая копия)</span></label>
-                <textarea id="meeting-to" class="exc-input exc-input--textarea"
-                          placeholder="a@rt.ru, b@rt.ru"></textarea>
+                <div class="exc-drop-wrap" style="position:relative;display:flex;align-items:center;gap:6px">
+                  <textarea id="meeting-to" class="exc-input exc-input--textarea exc-drop-target"
+                            data-drop-target="meeting-to" style="flex:1;min-width:0;width:auto"
+                            placeholder="a@rt.ru, b@rt.ru — или перетащите .xlsx / .ods"></textarea>
+                  <div class="exc-drag-hint" style="display:none;position:absolute;top:0;right:40px;bottom:0;left:0;border-radius:8px;background:rgba(167,139,250,.07);border:1.5px dashed #a78bfa;pointer-events:none;align-items:center;justify-content:center;gap:6px;color:#c4b5fd;font-size:12px"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Отпустите файл</div>
+                  <button type="button" class="exc-pick-btn" title="Выбрать файл" onclick="ExchangeModals._pickXlsx('meeting-to')" style="flex-shrink:0;width:34px;height:34px;align-self:center;background:var(--exchange-field-bg,#0f1e38);border:1.5px solid var(--exchange-modal-border,#2a3f5f);border-radius:8px;color:#8ba3c7;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <input type="file" id="xlsx-pick-meeting-to" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                </div>
               </div>
 
               <div class="exc-field">
@@ -297,7 +566,14 @@ const ExchangeModals = (() => {
                   Скрытая копия
                   <span class="exc-hint"> (адреса скрыты)</span>
                 </label>
-                <input id="meeting-bcc" type="text" class="exc-input" placeholder="bcc@rt.ru">
+                <div class="exc-drop-wrap" style="position:relative;display:flex;align-items:center;gap:6px">
+                  <input id="meeting-bcc" type="text" class="exc-input exc-drop-target" data-drop-target="meeting-bcc"
+                         style="flex:1;min-width:0;width:auto"
+                         placeholder="bcc@rt.ru — или перетащите .xlsx / .ods">
+                  <div class="exc-drag-hint" style="display:none;position:absolute;top:0;right:40px;bottom:0;left:0;border-radius:8px;background:rgba(167,139,250,.07);border:1.5px dashed #a78bfa;pointer-events:none;align-items:center;justify-content:center;gap:6px;color:#c4b5fd;font-size:12px"><svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg> Отпустите файл</div>
+                  <button type="button" class="exc-pick-btn" title="Выбрать файл" onclick="ExchangeModals._pickXlsx('meeting-bcc')" style="flex-shrink:0;width:34px;height:34px;align-self:center;background:var(--exchange-field-bg,#0f1e38);border:1.5px solid var(--exchange-modal-border,#2a3f5f);border-radius:8px;color:#8ba3c7;cursor:pointer;display:flex;align-items:center;justify-content:center"><svg width="15" height="15" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg></button>
+                  <input type="file" id="xlsx-pick-meeting-bcc" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                </div>
               </div>
 
               <div class="exc-field">
@@ -364,15 +640,98 @@ const ExchangeModals = (() => {
         }
     }
 
+    function _applyAuthTypeUI(isKerberos) {
+        // Force NTLM when Kerberos has not been unlocked via Ctrl+Alt+K
+        if (!window._kerberosUnlocked) isKerberos = false;
+
+        const ntlmFields = _q('exc-ntlm-fields');
+        const badge      = _q('exc-kerberos-badge');
+        const authInput  = _q('exc-auth-type');
+        const realmField = _q('exc-krb-realm-field');
+        if (ntlmFields)  ntlmFields.style.display  = isKerberos ? 'none' : '';
+        if (badge)       badge.style.display        = isKerberos ? ''     : 'none';
+        if (authInput)   authInput.value            = isKerberos ? 'kerberos' : 'ntlm';
+        if (realmField)  realmField.style.display   = isKerberos ? ''     : 'none';
+    }
+
+    function _toggleEmailExtra() {
+        const body    = _q('email-extra-body');
+        const trigger = _q('email-extra-trigger');
+        if (!body) return;
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        trigger?.classList.toggle('exc-extra-open', !open);
+    }
+
+    function _switchSettingsChannel(ch) {
+        const isSmtp = ch === 'smtp';
+        const btnEx  = _q('exc-ch-btn-exchange');
+        const btnSm  = _q('exc-ch-btn-smtp');
+        const blkEx  = _q('exc-channel-block-exchange');
+        const blkSm  = _q('exc-channel-block-smtp');
+        if (btnEx)  btnEx.classList.toggle('active', !isSmtp);
+        if (btnSm)  btnSm.classList.toggle('active', isSmtp);
+        if (blkEx)  blkEx.style.display = isSmtp ? 'none' : '';
+        if (blkSm)  blkSm.style.display = isSmtp ? '' : 'none';
+    }
+
+    function _toggleSmtpImap() {
+        const on = _q('smtp-imap-enabled') && _q('smtp-imap-enabled').checked;
+        const block = _q('smtp-imap-block');
+        if (block) block.style.display = on ? '' : 'none';
+    }
+
+    function _toggleSmtpDelay() {
+        const on = _q('smtp-delay-enabled') && _q('smtp-delay-enabled').checked;
+        const block = _q('smtp-delay-block');
+        if (block) block.style.display = on ? '' : 'none';
+    }
+
+    function _showNtlmFields() {
+        _applyAuthTypeUI(false);
+        _updateSettingsDirtyState();
+    }
+
+    async function _detectRealm() {
+        const server = (_q('exc-server').value || '').trim();
+        if (!server) {
+            if (typeof Toast !== 'undefined') Toast.warning('Сначала укажите сервер Exchange');
+            return;
+        }
+        const btn = document.querySelector('#exc-krb-realm-field button');
+        const orig = btn ? btn.textContent : '';
+        if (btn) btn.textContent = '…';
+        try {
+            const resp = await fetch(`/api/credentials/detect-realm?server=${encodeURIComponent(server)}`);
+            const data = await resp.json();
+            if (data.realm) {
+                _q('exc-krb-realm').value = data.realm;
+                const src = data.source === 'klist' ? 'из klist' : 'по имени хоста';
+                if (typeof Toast !== 'undefined') Toast.success(`Realm определён ${src}: ${data.realm}`);
+            } else {
+                if (typeof Toast !== 'undefined') Toast.warning('Не удалось определить realm');
+            }
+        } catch (e) {
+            if (typeof Toast !== 'undefined') Toast.error('Ошибка: ' + e.message);
+        } finally {
+            if (btn) btn.textContent = orig;
+        }
+    }
+
     async function openCredentials() {
         _open('exchange-credentials-modal');
         _setActiveSettingsTab('exchange');
-        const status = await _loadCredentialsStatus(true);
-        try {
-            await _loadAppSettings(true);
-        } catch (error) {
-            _showRepoResult(error.message || 'Не удалось загрузить настройки репозитория', 'error');
-        }
+
+        const [status, authDetect] = await Promise.all([
+            _loadCredentialsStatus(true),
+            fetch('/api/credentials/detect-auth')
+                .then(r => r.json())
+                .catch(() => ({ kerberos: false })),
+            _loadAppSettings(true).catch(error => {
+                _showRepoResult(error.message || 'Не удалось загрузить настройки репозитория', 'error');
+            }),
+        ]);
+
         if (status.exists) {
             if (status.server)     _q('exc-server').value     = status.server;
             if (status.username)   _q('exc-username').value   = status.username;
@@ -380,6 +739,24 @@ const ExchangeModals = (() => {
             else                   _q('exc-from-email').value = '';
             const senders = status.default_senders || [];
             _q('exc-senders').value = senders.join(', ');
+
+            // SMTP fields
+            if (_q('smtp-host')) _q('smtp-host').value = status.smtp_host || '';
+            if (_q('smtp-port')) _q('smtp-port').value = String(status.smtp_port || 587);
+            if (_q('smtp-username')) _q('smtp-username').value = status.smtp_username || '';
+            if (_q('smtp-from-email')) _q('smtp-from-email').value = status.smtp_from_email || '';
+            if (_q('smtp-senders')) _q('smtp-senders').value = (status.smtp_default_senders || []).join(', ');
+            if (_q('smtp-imap-enabled')) {
+                _q('smtp-imap-enabled').checked = !!status.smtp_imap_enabled;
+                ExchangeModals._toggleSmtpImap();
+            }
+            if (_q('smtp-imap-host')) _q('smtp-imap-host').value = status.smtp_imap_host || '';
+            if (_q('smtp-imap-port')) _q('smtp-imap-port').value = String(status.smtp_imap_port || 993);
+            if (_q('smtp-delay-enabled')) {
+                _q('smtp-delay-enabled').checked = !!status.smtp_delay_enabled;
+                ExchangeModals._toggleSmtpDelay();
+            }
+            if (_q('smtp-delay-seconds')) _q('smtp-delay-seconds').value = status.smtp_delay_seconds || 1;
         } else if (status.default_server) {
             _q('exc-server').value = status.default_server;
         }
@@ -390,27 +767,65 @@ const ExchangeModals = (() => {
                 ? 'Оставьте пустым, чтобы не менять'
                 : '••••••••';
         }
+
+        // Kerberos is hidden unless the user has unlocked it (Ctrl+Alt+K).
+        // When locked, always show NTLM fields regardless of saved preference or auto-detection.
+        const savedIsKerberos = (status.auth_type || 'ntlm') === 'kerberos';
+        const kerberosAvailable = authDetect && authDetect.kerberos === true;
+        const wantKerberos = window._kerberosUnlocked
+            && (savedIsKerberos || (!status.auth_type && kerberosAvailable));
+        _applyAuthTypeUI(wantKerberos);
+
+        // Restore saved Kerberos realm
+        const realmInput = _q('exc-krb-realm');
+        if (realmInput) realmInput.value = status.krb_realm || '';
+
         _q('exc-test-result').style.display = 'none';
 
         // Track changes to toggle Save ↔ Close button label.
-        const watchedIds = ['exc-server', 'exc-username', 'exc-password', 'exc-from-email', 'exc-senders'];
+        const watchedIds = ['exc-server', 'exc-username', 'exc-password', 'exc-from-email', 'exc-senders', 'exc-krb-realm',
+                            'smtp-host', 'smtp-port', 'smtp-username', 'smtp-password', 'smtp-from-email', 'smtp-senders',
+                            'smtp-imap-host', 'smtp-imap-port', 'smtp-delay-seconds'];
         watchedIds.forEach(id => {
             const el = _q(id);
             if (el) el.addEventListener('input', _updateSettingsDirtyState);
+        });
+        // Чекбоксы/select тоже должны триггерить dirty
+        ['smtp-imap-enabled', 'smtp-delay-enabled', 'smtp-port', 'smtp-imap-port'].forEach(id => {
+            const el = _q(id);
+            if (el) el.addEventListener('change', _updateSettingsDirtyState);
         });
         _updateSettingsDirtyState();
     }
 
     function _getExchangeFormData() {
         const sendersRaw = _q('exc-senders').value.trim();
+        const authTypeEl = _q('exc-auth-type');
+        const smtpSendersRaw = (_q('smtp-senders') ? _q('smtp-senders').value.trim() : '');
         return {
             server: _q('exc-server').value.trim(),
             username: _q('exc-username').value.trim(),
             password: _q('exc-password').value,
             fromEmail: _q('exc-from-email').value.trim(),
+            authType: authTypeEl ? authTypeEl.value : 'ntlm',
+            krbRealm: (_q('exc-krb-realm') ? _q('exc-krb-realm').value.trim().toUpperCase() : ''),
             defaultSenders: sendersRaw
                 ? sendersRaw.split(',').map(s => s.trim()).filter(Boolean)
                 : [],
+            // SMTP
+            smtpHost:         _q('smtp-host')         ? _q('smtp-host').value.trim() : '',
+            smtpPort:         _q('smtp-port')         ? parseInt(_q('smtp-port').value) : 587,
+            smtpUsername:     _q('smtp-username')     ? _q('smtp-username').value.trim() : '',
+            smtpPassword:     _q('smtp-password')     ? _q('smtp-password').value : '',
+            smtpFromEmail:    _q('smtp-from-email')   ? _q('smtp-from-email').value.trim() : '',
+            smtpDefaultSenders: smtpSendersRaw
+                ? smtpSendersRaw.split(',').map(s => s.trim()).filter(Boolean)
+                : [],
+            smtpImapEnabled:  _q('smtp-imap-enabled') ? _q('smtp-imap-enabled').checked : false,
+            smtpImapHost:     _q('smtp-imap-host')    ? _q('smtp-imap-host').value.trim() : '',
+            smtpImapPort:     _q('smtp-imap-port')    ? parseInt(_q('smtp-imap-port').value) : 993,
+            smtpDelayEnabled: _q('smtp-delay-enabled') ? _q('smtp-delay-enabled').checked : false,
+            smtpDelaySeconds: _q('smtp-delay-seconds') ? parseFloat(_q('smtp-delay-seconds').value) : 1,
         };
     }
 
@@ -423,8 +838,27 @@ const ExchangeModals = (() => {
         if ((status.server || '') !== data.server) return true;
         if ((status.username || '') !== data.username) return true;
         if ((status.from_email || '') !== data.fromEmail) return true;
+        if ((status.auth_type || 'ntlm') !== (data.authType || 'ntlm')) return true;
         if (currentSenders.length !== nextSenders.length) return true;
-        return currentSenders.some((value, index) => value !== nextSenders[index]);
+        if (currentSenders.some((v, i) => v !== nextSenders[i])) return true;
+
+        // SMTP fields
+        if ((status.smtp_host     || '') !== (data.smtpHost     || '')) return true;
+        if ((status.smtp_port     || 587) !== (data.smtpPort    || 587)) return true;
+        if ((status.smtp_username || '') !== (data.smtpUsername || '')) return true;
+        if ((status.smtp_from_email || '') !== (data.smtpFromEmail || '')) return true;
+        if (data.smtpPassword) return true;
+        if (!!status.smtp_imap_enabled  !== !!data.smtpImapEnabled)  return true;
+        if (!!status.smtp_delay_enabled !== !!data.smtpDelayEnabled) return true;
+        if ((status.smtp_imap_host  || '') !== (data.smtpImapHost  || '')) return true;
+        if ((status.smtp_imap_port  || 993) !== (data.smtpImapPort || 993)) return true;
+        if ((status.smtp_delay_seconds || 1) !== (data.smtpDelaySeconds || 1)) return true;
+        const curSmtpSenders = Array.isArray(status.smtp_default_senders) ? status.smtp_default_senders : [];
+        const nxtSmtpSenders = Array.isArray(data.smtpDefaultSenders)     ? data.smtpDefaultSenders     : [];
+        if (curSmtpSenders.length !== nxtSmtpSenders.length) return true;
+        if (curSmtpSenders.some((v, i) => v !== nxtSmtpSenders[i])) return true;
+
+        return false;
     }
 
     function _isRepoFormDirty() {
@@ -442,9 +876,15 @@ const ExchangeModals = (() => {
         const username = _q('exc-username').value.trim();
         const password = _q('exc-password').value;
         const fromEmail = _q('exc-from-email').value.trim();
+        const authTypeEl = _q('exc-auth-type');
+        const authType = authTypeEl ? authTypeEl.value : 'ntlm';
 
-        if (!server || !username || !fromEmail) {
-            _showTestResult('Заполните поля: сервер, логин, адрес отправителя', 'error');
+        if (!server || !fromEmail) {
+            _showTestResult('Заполните поля: сервер, адрес отправителя', 'error');
+            return;
+        }
+        if (authType !== 'kerberos' && !username) {
+            _showTestResult('Заполните поле: логин', 'error');
             return;
         }
 
@@ -455,7 +895,7 @@ const ExchangeModals = (() => {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ server, username, password,
-                                       from_email: fromEmail }),
+                                       from_email: fromEmail, auth_type: authType }),
             });
             const data = await r.json();
             if (data.success) {
@@ -684,15 +1124,15 @@ const ExchangeModals = (() => {
 
     async function saveCredentials(options = {}) {
         const { closeOnSuccess = true } = options;
+        const data = _getExchangeFormData();
         const {
-            server,
-            username,
-            password,
-            fromEmail,
-            defaultSenders,
-        } = _getExchangeFormData();
+            server, username, password, fromEmail, authType, krbRealm, defaultSenders,
+            smtpHost, smtpPort, smtpUsername, smtpPassword, smtpFromEmail,
+            smtpDefaultSenders, smtpImapEnabled, smtpImapHost, smtpImapPort,
+            smtpDelayEnabled, smtpDelaySeconds,
+        } = data;
 
-        const isDirty = _isExchangeFormDirty({ server, username, password, fromEmail, defaultSenders });
+        const isDirty = _isExchangeFormDirty(data);
 
         if (!isDirty) {
             return true;
@@ -710,7 +1150,21 @@ const ExchangeModals = (() => {
                 body: JSON.stringify({
                     server, username, password,
                     from_email: fromEmail,
-                    default_senders: defaultSenders
+                    default_senders: defaultSenders,
+                    auth_type: authType,
+                    krb_realm: krbRealm,
+                    // SMTP
+                    smtp_host:             smtpHost,
+                    smtp_port:             smtpPort,
+                    smtp_username:         smtpUsername,
+                    smtp_password:         smtpPassword,
+                    smtp_from_email:       smtpFromEmail,
+                    smtp_default_senders:  smtpDefaultSenders,
+                    smtp_imap_enabled:     smtpImapEnabled,
+                    smtp_imap_host:        smtpImapHost,
+                    smtp_imap_port:        smtpImapPort,
+                    smtp_delay_enabled:    smtpDelayEnabled,
+                    smtp_delay_seconds:    smtpDelaySeconds,
                 })
             });
             const data = await r.json();
@@ -777,6 +1231,17 @@ const ExchangeModals = (() => {
         if (tpl?.name) _q('email-subject').value = tpl.name;
 
         _open('exchange-email-modal');
+
+        // Инициализируем кастомный пикер при первом открытии
+        if (!_emailDtp) {
+            _emailDtp = initDateTimePicker('email-dtp-wrapper', 'email-send-at');
+        }
+    }
+
+    function _onScheduleToggle(checked) {
+        const wrapper = _q('email-dtp-wrapper');
+        if (wrapper) wrapper.style.display = checked ? 'block' : 'none';
+        if (!checked && _emailDtp) _emailDtp.clear();
     }
 
     function closeEmail() {
@@ -788,6 +1253,17 @@ const ExchangeModals = (() => {
         const toggle = _q('email-comment-toggle');
         if (toggle) toggle.checked = false;
         toggleEmailComment(false);
+        // Reset review toggle
+        const reviewTgl  = _q('email-review-toggle');
+        const reviewHint = _q('email-review-hint');
+        if (reviewTgl)  reviewTgl.checked = false;
+        if (reviewHint) reviewHint.style.display = 'none';
+        // Reset schedule toggle and picker
+        const schedTgl = _q('email-schedule-toggle');
+        if (schedTgl) schedTgl.checked = false;
+        _onScheduleToggle(false);
+        // При следующем открытии пикер пересоздастся — убираем старый дропдаун с body
+        if (_emailDtp) { _emailDtp.destroy(); _emailDtp = null; }
     }
 
     // ─── Send Meeting: открыть ────────────────────────────────────────────────
@@ -860,6 +1336,92 @@ const ExchangeModals = (() => {
 
     // ─── Отправка письма ─────────────────────────────────────────────────────
 
+    // ─── Вспомогательные функции для «На согласование» ───────────────────────
+
+    /** Конвертирует строку в base64 с поддержкой UTF-8 / кириллицы */
+    function _utf8ToBase64(str) {
+        const bytes = new TextEncoder().encode(str);
+        let binary = '';
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+        return btoa(binary);
+    }
+
+    /**
+     * Рекурсивно обходит блоки и заменяет localhost-URL изображений на data:base64.
+     * Нужно чтобы согласующий видел картинки на своей машине.
+     */
+    async function _resolveBlockImages(blocks) {
+        const localhostRe = /^https?:\/\/(localhost|127\.0\.0\.1):\d+\//;
+
+        async function toDataUrl(url) {
+            try {
+                const resp = await fetch(url);
+                if (!resp.ok) return url;
+                const blob = await resp.blob();
+                return await new Promise((res, rej) => {
+                    const reader = new FileReader();
+                    reader.onload  = () => res(reader.result);
+                    reader.onerror = () => res(url);
+                    reader.readAsDataURL(blob);
+                });
+            } catch { return url; }
+        }
+
+        async function walk(node) {
+            if (!node || typeof node !== 'object') return;
+            for (const key of Object.keys(node)) {
+                const val = node[key];
+                if (typeof val === 'string' && localhostRe.test(val)) {
+                    node[key] = await toDataUrl(val);
+                } else if (val && typeof val === 'object') {
+                    await walk(val);
+                }
+            }
+        }
+
+        for (const block of blocks) await walk(block);
+    }
+
+    /** Собирает JSON-вложение для согласования. Возвращает объект { name, content, mime_type } */
+    async function _buildReviewAttachment(subject) {
+        // Берём блоки из текущего состояния редактора
+        let blocks;
+        if (typeof UserAppState !== 'undefined' && UserAppState.blocks?.length) {
+            blocks = JSON.parse(JSON.stringify(UserAppState.blocks));
+        } else if (typeof AppState !== 'undefined' && AppState.blocks?.length) {
+            blocks = JSON.parse(JSON.stringify(AppState.blocks));
+        }
+        if (!blocks?.length) return null;
+
+        await _resolveBlockImages(blocks);
+
+        const payload = {
+            version:     '1.0',
+            source:      'review',
+            subject:     subject,
+            exported_at: new Date().toISOString(),
+            blocks,
+        };
+
+        const jsonStr = JSON.stringify(payload);
+        const b64     = _utf8ToBase64(jsonStr);
+
+        // Предупреждение если вложение тяжёлое (>4 МБ)
+        const sizeMb = (b64.length * 0.75 / 1024 / 1024).toFixed(1);
+        if (parseFloat(sizeMb) > 4) {
+            Toast.warning(`Файл согласования весит ~${sizeMb} МБ — убедитесь что Exchange не режет вложения`);
+        }
+
+        const safeName = (subject || 'letter').replace(/[^\wа-яёА-ЯЁ]/gi, '_').slice(0, 40);
+        return {
+            name:      `review_${safeName}.json`,
+            content:   b64,
+            mime_type: 'application/json',
+        };
+    }
+
+    // ─── Отправка письма ─────────────────────────────────────────────────────
+
     async function sendEmail() {
         const subject = _q('email-subject').value.trim();
         const toRaw   = _q('email-to').value.trim();
@@ -879,27 +1441,56 @@ const ExchangeModals = (() => {
         const cc  = ccRaw  ? _parseRecipients(ccRaw)  : [];
         const bcc = bccRaw ? _parseRecipients(bccRaw) : [];
 
-        const badAddr = [...to, ...cc, ...bcc].find(e => !_validateEmail(e));
-        if (badAddr) { Toast.warning(`Некорректный адрес: ${badAddr}`); return; }
-
         const commentOn   = _q('email-comment-toggle')?.checked;
         const commentText = commentOn ? (_q('email-comment-text')?.value || '') : '';
 
-        _setLoading('email-send-btn', true, 'Отправить');
+        const isReview   = _q('email-review-toggle')?.checked || false;
+
+        const scheduleOn = _q('email-schedule-toggle')?.checked || false;
+        const sendAtVal  = scheduleOn ? (_emailDtp?.getValue() || '') : '';
+        if (scheduleOn) {
+            if (!sendAtVal) {
+                Toast.warning('Выберите дату и время отложенной отправки');
+                return;
+            }
+            if (new Date(sendAtVal) <= new Date()) {
+                Toast.warning('Дата отложенной отправки должна быть в будущем');
+                return;
+            }
+        }
+
+        const finalSubject = isReview ? `[На согласование] ${subject}` : subject;
+        const loadingText  = isReview ? 'Отправка на согласование…'
+                           : scheduleOn ? 'Планирование…' : 'Отправить';
+
+        _setLoading('email-send-btn', true, loadingText);
         try {
             const rawHtml = await _generateHtml();
             const html = _injectPreamble(rawHtml, commentText);
             const attachments = await _filesToBase64(_attachments.email);
+
+            // Если «На согласование» — добавляем JSON-вложение с блоками
+            if (isReview) {
+                const reviewAtt = await _buildReviewAttachment(subject);
+                if (reviewAtt) attachments.push(reviewAtt);
+            }
+
             const r = await fetch('/api/send/email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ subject, to, cc, bcc,
+                body: JSON.stringify({ subject: finalSubject, to, cc, bcc,
                                        from_email: fromEmail, html_body: html,
-                                       attachments })
+                                       attachments,
+                                       send_at:     sendAtVal || null,
+                                       timezone:    -(new Date().getTimezoneOffset() / 60),
+                                       importance:  _q('email-importance')?.querySelector('.bm-imp-active')?.dataset.val || 'normal',
+                                       read_receipt: _q('email-read-receipt')?.checked || false })
             });
             const data = await r.json();
             if (data.success) {
-                Toast.success('Письмо отправлено');
+                const successMsg = isReview ? 'Письмо отправлено на согласование'
+                                 : (data.message || 'Письмо отправлено');
+                Toast.success(successMsg);
                 if (typeof EmailHistoryStore !== 'undefined') {
                     EmailHistoryStore.addMany([...to, ...cc, ...bcc]);
                 }
@@ -914,7 +1505,8 @@ const ExchangeModals = (() => {
         } catch {
             Toast.error('Нет связи с сервером');
         } finally {
-            _setLoading('email-send-btn', false, 'Отправить');
+            const idleText = isReview ? 'Отправить' : scheduleOn ? 'Запланировать' : 'Отправить';
+            _setLoading('email-send-btn', false, idleText);
         }
     }
 
@@ -952,9 +1544,6 @@ const ExchangeModals = (() => {
         const to  = toRaw  ? _parseRecipients(toRaw)  : [];
         const bcc = bccRaw ? _parseRecipients(bccRaw) : [];
 
-        const badAddr = [...to, ...bcc].find(e => !_validateEmail(e));
-        if (badAddr) { Toast.warning(`Некорректный адрес: ${badAddr}`); return; }
-
         _setLoading('meeting-send-btn', true, 'Отправить встречу');
         try {
             const html = await _generateHtml();
@@ -965,7 +1554,8 @@ const ExchangeModals = (() => {
                 body: JSON.stringify({
                     subject, to, bcc, from_email: fromEmail,
                     location, start_dt: startDt, end_dt: endDt,
-                    html_body: html, attachments
+                    html_body: html, attachments,
+                    timezone: -(new Date().getTimezoneOffset() / 60)
                 })
             });
             const data = await r.json();
@@ -1045,6 +1635,10 @@ const ExchangeModals = (() => {
         if (typeof generateEmailHTML === 'undefined') return '';
         // В user-версии блоки хранятся в UserAppState, в admin — в AppState напрямую
         if (typeof UserAppState !== 'undefined' && UserAppState.blocks) {
+            // Дожидаемся рендера canvas-блоков перед генерацией HTML
+            if (typeof _ensureCanvasBlocksRendered === 'function') {
+                await _ensureCanvasBlocksRendered(UserAppState.blocks);
+            }
             const originalBlocks = AppState.blocks;
             AppState.blocks = UserAppState.blocks;
             try {
@@ -1125,6 +1719,16 @@ const ExchangeModals = (() => {
         _renderCredentialsModal();
         _renderEmailModal();
         _renderMeetingModal();
+        _initDropTargets();
+
+        // Ctrl+Alt+P — показать/скрыть кнопку SMTP-канала в настройках
+        document.addEventListener('keydown', (e) => {
+            if (e.ctrlKey && e.altKey && e.key.toLowerCase() === 'p') {
+                e.preventDefault();
+                const btn = document.getElementById('exc-ch-btn-smtp');
+                if (btn) btn.style.display = btn.style.display === 'none' ? '' : 'none';
+            }
+        });
 
         // Attach autocomplete to all recipient fields once the modals are in the DOM.
         if (typeof EmailAutocomplete !== 'undefined') {
@@ -1172,6 +1776,205 @@ const ExchangeModals = (() => {
         _loadCredentialsStatus();
     }
 
+    // ─── Импорт получателей: drag-and-drop на textarea ───────────────────────
+
+    function _initDropTargets() {
+        document.querySelectorAll('.exc-drop-wrap').forEach(wrap => {
+            const el = wrap.querySelector('.exc-drop-target');
+            if (!el) return;
+            let dragCounter = 0;
+
+            const hint = wrap.querySelector('.exc-drag-hint');
+            const btn  = wrap.querySelector('.exc-pick-btn');
+
+            function _setOver(on) {
+                el.classList.toggle('exc-drop-target--over', on);
+                if (hint) hint.style.display = on ? 'flex' : 'none';
+                if (btn)  btn.style.borderColor = on ? '#a78bfa' : '';
+            }
+
+            wrap.addEventListener('dragenter', e => {
+                if (![...e.dataTransfer.items].some(i => i.kind === 'file')) return;
+                e.preventDefault();
+                dragCounter++;
+                _setOver(true);
+            });
+            wrap.addEventListener('dragover', e => {
+                if (![...e.dataTransfer.items].some(i => i.kind === 'file')) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = 'copy';
+            });
+            wrap.addEventListener('dragleave', () => {
+                dragCounter--;
+                if (dragCounter <= 0) { dragCounter = 0; _setOver(false); }
+            });
+            wrap.addEventListener('drop', e => {
+                e.preventDefault();
+                dragCounter = 0;
+                _setOver(false);
+                const file = e.dataTransfer.files[0];
+                if (file) _xlsxProcessFile(file, el.id);
+            });
+        });
+    }
+
+    function _pickXlsx(targetId) {
+        const inp = document.getElementById('xlsx-pick-' + targetId);
+        if (!inp) return;
+        inp.onchange = function () {
+            if (inp.files[0]) _xlsxProcessFile(inp.files[0], targetId);
+            inp.value = '';
+        };
+        inp.click();
+    }
+
+    async function _xlsxProcessFile(file, targetId) {
+        const fd = new FormData();
+        fd.append('file', file);
+        let data;
+        try {
+            const resp = await fetch('/api/bulk/parse', { method: 'POST', body: fd });
+            data = await resp.json();
+            if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+        } catch (e) {
+            if (typeof Toast !== 'undefined') Toast.error('Не удалось прочитать файл: ' + e.message);
+            return;
+        }
+        _xlsxProcessParsed(data, targetId);
+    }
+
+    // Called from Python (Qt drop) with already-parsed data
+    function _xlsxProcessParsed(data, targetId) {
+        console.log('[xlsx] _xlsxProcessParsed targetId=', targetId, 'data=', data);
+        const headers = data.headers || [];
+        const rows    = data.rows   || [];
+        if (!headers.length) {
+            console.warn('[xlsx] no headers in parsed data');
+            if (typeof Toast !== 'undefined') Toast.warning('В файле не найдены столбцы');
+            return;
+        }
+        console.log('[xlsx] headers=', headers, 'rows=', rows.length);
+        const emailIdx = headers.findIndex(h => /email|почт|адрес|mail/i.test(h));
+        if (headers.length === 1 || emailIdx >= 0) {
+            console.log('[xlsx] auto-insert col=', emailIdx >= 0 ? emailIdx : 0);
+            _xlsxInsert(rows, headers, emailIdx >= 0 ? emailIdx : 0, targetId, false);
+        } else {
+            console.log('[xlsx] showing picker');
+            _xlsxShowPicker(headers, rows, targetId);
+        }
+    }
+
+    function _xlsxInsert(rows, headers, colIdx, targetId, append) {
+        const header = headers[colIdx];
+        const values = rows
+            .map(r => (r[header] !== undefined ? r[header] : Object.values(r)[colIdx]) ?? '')
+            .map(v => String(v).trim())
+            .filter(Boolean);
+        if (!values.length) { if (typeof Toast !== 'undefined') Toast.warning('Нет значений в столбце «' + header + '»'); return; }
+        const field = document.getElementById(targetId);
+        const existing = field.value.trim();
+        field.value = append && existing ? existing + ', ' + values.join(', ') : values.join(', ');
+        if (typeof Toast !== 'undefined') Toast.success(`Добавлено получателей: ${values.length}`);
+    }
+
+    function _xlsxShowPicker(headers, rows, targetId) {
+        let popup = document.getElementById('xlsx-picker-popup');
+        if (!popup) {
+            popup = document.createElement('div');
+            popup.id = 'xlsx-picker-popup';
+            popup.style.cssText = 'position:fixed;top:0;right:0;bottom:0;left:0;z-index:99999;display:flex;align-items:center;justify-content:center;background:rgba(0,0,0,.5)';
+            document.body.appendChild(popup);
+            // defer click-to-close so the drop's mouseup doesn't immediately close the popup
+            popup.addEventListener('click', e => {
+                if (e.target === popup && popup._ready) popup.style.display = 'none';
+            });
+        }
+
+        // Build DOM without inline handlers (Electron CSP blocks them)
+        popup.innerHTML = '';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'background:var(--bg-secondary,#1e293b);border:1px solid var(--border-color,#334155);border-radius:12px;padding:20px;width:360px;max-width:95vw;box-shadow:0 16px 48px rgba(0,0,0,.6)';
+
+        const title = document.createElement('div');
+        title.style.cssText = 'font-weight:600;font-size:14px;color:var(--text-primary,#f9fafb);margin-bottom:12px';
+        title.textContent = 'Выберите столбец с адресами';
+        box.appendChild(title);
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto;margin-bottom:14px';
+
+        headers.forEach((h, i) => {
+            const preview = rows.slice(0, 2).map(r => r[h] ?? '').filter(Boolean).join(', ');
+            const lbl = document.createElement('label');
+            lbl.style.cssText = 'display:flex;align-items:flex-start;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;border:1px solid var(--border-color,#334155);transition:background .1s;background:var(--bg-primary,#0f172a)';
+            lbl.addEventListener('mouseenter', () => { lbl.style.background = 'var(--bg-hover,#334155)'; });
+            lbl.addEventListener('mouseleave', () => { lbl.style.background = 'var(--bg-primary,#0f172a)'; });
+
+            const radio = document.createElement('input');
+            radio.type = 'radio'; radio.name = 'xlsx-col'; radio.value = i;
+            radio.checked = i === 0;
+            radio.style.cssText = 'margin-top:2px;accent-color:var(--accent-primary,#f97316);cursor:pointer';
+
+            const textWrap = document.createElement('span');
+            const nameEl = document.createElement('div');
+            nameEl.style.cssText = 'font-size:13px;color:var(--text-primary,#f9fafb)';
+            nameEl.textContent = h;
+            textWrap.appendChild(nameEl);
+            if (preview) {
+                const prevEl = document.createElement('div');
+                prevEl.style.cssText = 'font-size:11px;color:var(--text-muted,#6b7280);margin-top:2px';
+                prevEl.textContent = preview;
+                textWrap.appendChild(prevEl);
+            }
+            lbl.appendChild(radio); lbl.appendChild(textWrap);
+            list.appendChild(lbl);
+        });
+        box.appendChild(list);
+
+        const appendRow = document.createElement('div');
+        appendRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:14px';
+        const appendChk = document.createElement('input');
+        appendChk.type = 'checkbox'; appendChk.id = 'xlsx-picker-append';
+        appendChk.style.cssText = 'cursor:pointer;accent-color:var(--accent-primary,#f97316)';
+        const appendLbl = document.createElement('label');
+        appendLbl.htmlFor = 'xlsx-picker-append';
+        appendLbl.style.cssText = 'font-size:12px;color:var(--text-muted,#9ca3af);cursor:pointer';
+        appendLbl.textContent = 'Добавить к существующим';
+        appendRow.appendChild(appendChk); appendRow.appendChild(appendLbl);
+        box.appendChild(appendRow);
+
+        const btnRow = document.createElement('div');
+        btnRow.style.cssText = 'display:flex;gap:8px;justify-content:flex-end';
+        const cancelBtn = document.createElement('button');
+        cancelBtn.type = 'button'; cancelBtn.className = 'exc-btn exc-btn--secondary';
+        cancelBtn.textContent = 'Отмена';
+        cancelBtn.addEventListener('click', () => { popup.style.display = 'none'; });
+        const applyBtn = document.createElement('button');
+        applyBtn.type = 'button'; applyBtn.className = 'exc-btn exc-btn--primary';
+        applyBtn.textContent = 'Применить';
+        applyBtn.addEventListener('click', () => _xlsxPickerApply());
+        btnRow.appendChild(cancelBtn); btnRow.appendChild(applyBtn);
+        box.appendChild(btnRow);
+
+        popup.appendChild(box);
+        popup._headers  = headers;
+        popup._rows     = rows;
+        popup._targetId = targetId;
+        popup._ready    = false;
+        popup.style.display = 'flex';
+        // allow click-to-close only after 300ms so drop's mouseup doesn't close immediately
+        setTimeout(() => { popup._ready = true; }, 300);
+    }
+
+    function _xlsxPickerApply() {
+        const popup  = document.getElementById('xlsx-picker-popup');
+        const colIdx = parseInt(popup.querySelector('input[name="xlsx-col"]:checked')?.value ?? '0', 10);
+        const append = popup.querySelector('#xlsx-picker-append')?.checked ?? false;
+        _xlsxInsert(popup._rows, popup._headers, colIdx, popup._targetId, append);
+        popup.style.display = 'none';
+    }
+
     // ─── Публичный API ────────────────────────────────────────────────────────
 
     return {
@@ -1182,6 +1985,11 @@ const ExchangeModals = (() => {
         saveCredentials,
         saveSettings,
         testConnection,
+        _showNtlmFields,
+        _toggleEmailExtra,
+        _switchSettingsChannel,
+        _toggleSmtpImap,
+        _toggleSmtpDelay,
         verifyRepoPath,
         searchRepo,
         createRepo,
@@ -1190,9 +1998,13 @@ const ExchangeModals = (() => {
         sendEmail,
         sendMeeting,
         toggleEmailComment,
-        pickAttachments,        
-        onAttachmentsChange,    
+        pickAttachments,
+        onAttachmentsChange,
         removeAttachment,
+        _xlsxPickerApply,
+        _xlsxProcessParsed,
+        _pickXlsx,
+        _detectRealm,
     };
 
 })();

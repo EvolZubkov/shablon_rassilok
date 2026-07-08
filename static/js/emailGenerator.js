@@ -174,15 +174,18 @@ function buildEmailThemeStyles() {
 }
 
 .email-text,
+.email-heading {
+    color:${DEFAULT_COLORS.TEXT};
+}
+
 .email-text p,
 .email-text span,
 .email-text strong,
 .email-text b,
 .email-text em,
 .email-text i,
-.email-text u,
-.email-heading {
-    color:${DEFAULT_COLORS.TEXT};
+.email-text u {
+    color:inherit;
 }
 
 .email-text a,
@@ -338,6 +341,28 @@ function adaptColorForWhiteBackground(originalColor) {
     return originalColor || DEFAULT_COLORS.TEXT;
 }
 
+/**
+ * Resolves text color for a block, honoring its own background when active.
+ * When bgEnabled + bgColor are set, auto-contrast is computed from the background
+ * (matching blockPreview logic). Otherwise falls back to adaptColorForWhiteBackground.
+ */
+function resolveBlockTextColor(s, ctx, colorField) {
+    // 1. Блок имеет собственный фон — высший приоритет
+    if (s.bgEnabled !== false && s.bgColor) {
+        return isLightColorPreview(s.bgColor) ? DEFAULT_COLORS.TEXT : '#ffffff';
+    }
+    // 2. Блок находится внутри контейнера с фоном — средний приоритет
+    if (ctx && ctx.parentBgColor) {
+        return isLightColorPreview(ctx.parentBgColor) ? DEFAULT_COLORS.TEXT : '#ffffff';
+    }
+    // 3. Общий фон письма — базовый приоритет
+    const savedColor = s[colorField || 'color'] || ctx.textColor;
+    if (ctx.previewTheme === 'dark') {
+        return savedColor;
+    }
+    return adaptColorForWhiteBackground(savedColor);
+}
+
 // ===== РАБОТА СО ШРИФТАМИ =====
 
 /**
@@ -415,8 +440,20 @@ ${buildEmailThemeStyles()}
 `;
 
     // Генерируем HTML блоков
+    const _cp = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getContentPadding() : 27;
     AppState.blocks.forEach(block => {
-        html += generateBlockHTML(block);
+        const blockHtml = generateBlockHTML(block);
+        // Баннер — без отступа (полная ширина). Остальные — обёртка с отступом.
+        if (block.type === 'banner' || _cp === 0) {
+            html += blockHtml;
+        } else {
+            html += `<tr><td style="padding:0 0 0 ${_cp}px;">
+  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
+    ${blockHtml}
+  </table>
+</td></tr>`;
+        }
     });
 
     html += `
@@ -500,30 +537,22 @@ function generateBlockHTML(block) {
     const s = block.settings;
     if (!s) return '';
 
+    let html;
     switch (block.type) {
-        case 'banner':
-            return generateBannerHTML(s);
-        case 'text':
-            return generateTextHTML(s);
-        case 'heading':
-            return generateHeadingHTML(s);
-        case 'button':
-            return generateButtonHTML(s);
-        case 'list':
-            return generateListHTML(s);
-        case 'expert':
-            return generateExpertHTML(s);
-        case 'important':
-            return generateImportantHTML(s);
-        case 'divider':
-            return generateDividerHTML(s);
-        case 'image':
-            return generateImageHTML(s);
-        case 'spacer':
-            return generateSpacerHTML(s);
-        default:
-            return '';
+        case 'banner':    html = generateBannerHTML(s);    break;
+        case 'text':      html = generateTextHTML(s);      break;
+        case 'heading':   html = generateHeadingHTML(s);   break;
+        case 'button':    html = generateButtonHTML(s);    break;
+        case 'list':      html = generateListHTML(s);      break;
+        case 'expert':    html = generateExpertHTML(s);    break;
+        case 'important': html = generateImportantHTML(s); break;
+        case 'divider':   html = generateDividerHTML(s);   break;
+        case 'image':     html = generateImageHTML(s);     break;
+        case 'spacer':    html = generateSpacerHTML(s);    break;
+        case 'canvas':    html = generateCanvasBlockHTML(s); break;
+        default:          html = '';
     }
+    return CapabilityRegistry.applyWrappers(html, block, 'email');
 }
 
 // ===== ГЕНЕРАТОРЫ БЛОКОВ =====
@@ -558,7 +587,7 @@ function generateTextHTML(s) {
     const ctx = getCurrentEmailRenderContext();
     const textHTML = TextSanitizer.render(s.content || '', ctx.linkColor);
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.color || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx);
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
     const lineHeightValue = typeof lineHeight === 'number' ? `${lineHeight * 100}%` : lineHeight;
@@ -581,7 +610,7 @@ function generateHeadingHTML(s) {
 
     const ctx = getCurrentEmailRenderContext();
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.color || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx);
     const size = s.size || 24;
     const weight = s.weight || 'bold';
     const align = s.align || 'left';
@@ -672,7 +701,7 @@ function generateListHTML(s) {
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
     const cellWidth = bulletSize + bulletGap + 2;
     const fontFamily = resolveTextFontFamily(s);
-    const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const itemSpacing = s.itemSpacing ?? 8;
 
     const isNumbered = s.listStyle === 'numbered';
@@ -698,8 +727,9 @@ function generateListHTML(s) {
                 : `<span class="email-bullet-dot" style="display:inline-block; width:${bulletSize}px; height:${bulletSize}px; border-radius:999px; background-color:${ctx.bulletColor};"></span>`;
 
             if (isNumbered) {
-                const num = index + 1;
-                const numLabel = num < 10 ? '0' + num : String(num);
+                const startN = s.startNumber != null ? s.startNumber : 1;
+                const num = index + startN;
+                const numLabel = (s.numberFormat === 'plain') ? String(num) : (num < 10 ? '0' + num : String(num));
 
                 bulletHTML = `
                     <div style="position:relative; width:${bulletSize}px; height:${bulletSize}px; display:flex; align-items:center; justify-content:center;">
@@ -784,7 +814,7 @@ function generateImportantHTML(s) {
     const fontSize = s.fontSize ?? 14;
     const lineHeight = s.lineHeight ?? 1;
     const borderColor = s.borderColor || ctx.borderColor;
-    const adaptedColor = adaptColorForWhiteBackground(s.textColor || ctx.textColor);
+    const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const textContent = TextSanitizer.render(TextSanitizer.sanitize(s.text || '', true), ctx.linkColor);
     const textCellAccent = iconSrc
         ? 'padding-left:0;'
@@ -893,6 +923,29 @@ function generateSpacerHTML(s) {
 }
 
 /**
+ * Генерирует HTML свободного блока (PNG из canvas)
+ */
+function generateCanvasBlockHTML(s) {
+    if (!s) return '';
+    if (s.renderedCanvas) {
+        return `
+        <tr>
+            <td style="padding:0;font-size:0;line-height:0;">
+                <img src="${s.renderedCanvas}" width="600" style="display:block;max-width:100%;height:auto;border:0;" alt="">
+            </td>
+        </tr>`;
+    }
+    // Заглушка если ещё не отрендерен
+    const h = s.height || 250;
+    const bgEnabled = s.bgEnabled !== false;
+    const bgStyle = bgEnabled ? `background-color:${s.bgColor || '#1D2533'};` : '';
+    return `
+        <tr>
+            <td style="padding:0;height:${h}px;${bgStyle}"></td>
+        </tr>`;
+}
+
+/**
  * Генерирует HTML для колонок
  * Gap только между колонками (первая без левого отступа, последняя без правого)
  */
@@ -901,6 +954,19 @@ function generateColumnsHTML(block) {
 
     const columnGap = 10; // Отступ между колонками (px)
     const totalColumns = block.columns.length;
+    const s = block.settings || {};
+
+    // Vertical alignment of content within the row
+    const valign = s.colValign || 'top';
+
+    // Передаём фон контейнера дочерним блокам через контекст рендера
+    const containerBgColor = (s.bgEnabled !== false && s.bgColor) ? s.bgColor : null;
+    const savedCtx = CURRENT_EMAIL_RENDER_CONTEXT;
+    if (containerBgColor) {
+        CURRENT_EMAIL_RENDER_CONTEXT = Object.assign(
+            {}, savedCtx || buildEmailRenderContext(), { parentBgColor: containerBgColor }
+        );
+    }
 
     const columnsContent = block.columns.map((column, index) => {
         const columnBlocks = column.blocks.map(childBlock => generateBlockHTML(childBlock)).join('');
@@ -927,7 +993,7 @@ function generateColumnsHTML(block) {
         }
 
         return `
-            <td valign="top" width="${width}" style="padding:0 ${paddingRight}px 0 ${paddingLeft}px;">
+            <td valign="${valign}" width="${width}" style="padding:0 ${paddingRight}px 0 ${paddingLeft}px;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     ${columnBlocks}
                 </table>
@@ -935,7 +1001,10 @@ function generateColumnsHTML(block) {
         `;
     }).join('');
 
-    return `
+    // Восстанавливаем контекст после рендера детей
+    CURRENT_EMAIL_RENDER_CONTEXT = savedCtx;
+
+    const innerRow = `
         <tr>
             <td style="padding:0;">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
@@ -946,6 +1015,9 @@ function generateColumnsHTML(block) {
             </td>
         </tr>
     `;
+    const bgCap = typeof CapabilityRegistry !== 'undefined' ? CapabilityRegistry.get('background') : null;
+    if (bgCap && bgCap.wrapEmail) return bgCap.wrapEmail(innerRow, block.settings || {});
+    return innerRow;
 }
 
 window.EmailPreviewTheme = EmailPreviewTheme;

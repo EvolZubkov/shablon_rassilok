@@ -263,6 +263,22 @@ os.makedirs(CACHE_BASE, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
 
 # ============================================================================
+# FEATURE FLAGS — управление функциональностью при сборке
+# ============================================================================
+# Меняй эти значения перед PyInstaller-упаковкой чтобы получить нужную версию.
+# True  = функция включена (полная версия)
+# False = функция скрыта в UI (код остаётся, просто не отображается)
+#
+# Пример для «упрощённой» сборки:
+#   FEATURES['bulk_mail']      = False   # убирает панель «Рассылка»
+#   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
+#
+FEATURES: dict = {
+    'bulk_mail':     True,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
+}
+
+# ============================================================================
 # ЛОГИРОВАНИЕ В ФАЙЛ (protocol.log)
 # ============================================================================
 
@@ -1382,6 +1398,49 @@ def _initialize_cache_locked():
         shutil.copy2(network_config, cache_config)
         print("✓ Config.json скопирован")
 
+    # 1a. Копируем профили аудиторий
+    network_profiles = os.path.join(NETWORK_RESOURCES_PATH, 'profiles')
+    cache_profiles   = os.path.join(CACHE_DIR, 'profiles')
+    # Пропускаем если network и cache указывают на одну папку (dev-режим на Windows)
+    if os.path.exists(network_profiles) and os.path.normcase(os.path.abspath(network_profiles)) != os.path.normcase(os.path.abspath(cache_profiles)):
+        print("\n📥 Загрузка profiles/...")
+        os.makedirs(cache_profiles, exist_ok=True)
+        for fname in os.listdir(network_profiles):
+            if fname.endswith('.json'):
+                shutil.copy2(
+                    os.path.join(network_profiles, fname),
+                    os.path.join(cache_profiles, fname),
+                )
+        print("✓ Профили скопированы")
+
+    # 1b. Синхронизируем shared-шаблоны (только изменившиеся файлы)
+    network_shared = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'shared')
+    cache_shared   = os.path.join(CACHE_DIR, 'templates', 'shared')
+    if os.path.exists(network_shared) and os.path.normcase(os.path.abspath(network_shared)) != os.path.normcase(os.path.abspath(cache_shared)):
+        print("\n📥 Загрузка templates/shared/...")
+        os.makedirs(cache_shared, exist_ok=True)
+        changed = _sync_dir_quiet(network_shared, cache_shared)
+        # Удаляем из кеша файлы, которых больше нет в сети
+        net_names = set(os.listdir(network_shared))
+        for fname in os.listdir(cache_shared):
+            if fname.endswith('.json') and fname not in net_names:
+                try:
+                    os.remove(os.path.join(cache_shared, fname))
+                except OSError:
+                    pass
+        print(f"✓ Шаблоны синхронизированы ({changed} изменено)")
+
+    # 1c. Копируем categories.json
+    network_cat = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+    cache_cat   = os.path.join(CACHE_DIR, 'templates', 'categories.json')
+    if os.path.isfile(network_cat) and os.path.normcase(os.path.abspath(network_cat)) != os.path.normcase(os.path.abspath(cache_cat)):
+        os.makedirs(os.path.dirname(cache_cat), exist_ok=True)
+        shutil.copy2(network_cat, cache_cat)
+        print("✓ Категории скопированы")
+
+    _invalidate_template_cache('shared')
+    _invalidate_categories_cache()
+
     # 2. Копируем только папки с картинками
     folders_to_cache = ['icons', 'expert-badges', 'bullets', 'button-icons',
                         'images', 'dividers', 'banner-backgrounds', 'banner-logos', 'banner-icons', 'fonts']
@@ -1712,6 +1771,31 @@ def _sync_cache_quiet() -> bool:
                 os.path.join(static_src, folder),
                 os.path.join(CACHE_DIR, folder),
             )
+
+        # Sync shared templates (new/changed files + deletions).
+        net_shared   = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'shared')
+        cache_shared = os.path.join(CACHE_DIR, 'templates', 'shared')
+        tpl_changed  = _sync_dir_quiet(net_shared, cache_shared)
+        if os.path.isdir(net_shared) and os.path.isdir(cache_shared):
+            net_names = set(os.listdir(net_shared))
+            for fname in list(os.listdir(cache_shared)):
+                if fname.endswith('.json') and fname not in net_names:
+                    try:
+                        os.remove(os.path.join(cache_shared, fname))
+                        tpl_changed += 1
+                    except OSError:
+                        pass
+        if tpl_changed:
+            _invalidate_template_cache('shared')
+        total += tpl_changed
+
+        # Sync categories.json.
+        net_cat   = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+        cache_cat = os.path.join(CACHE_DIR, 'templates', 'categories.json')
+        if os.path.isfile(net_cat):
+            if _copy_if_changed(net_cat, cache_cat):
+                _invalidate_categories_cache()
+                total += 1
 
         # config.json is updated last: the UI always sees a config that is
         # consistent with the already-cached assets.
@@ -2547,22 +2631,95 @@ def _remove_from_config_json(category: str, pub_url: str) -> None:
 
 
 def get_templates_dir():
-    """Returns the path to the shared templates directory (network resource)."""
+    """Returns the LOCAL CACHE path for shared templates (fast disk reads).
+
+    Shared templates are synced from the network at startup and on every
+    version update, so reads always hit local disk — never the network share.
+    Admin write routes mirror changes back to the network via
+    :func:`_mirror_template_to_network`.
+    """
+    path = os.path.join(CACHE_DIR, 'templates')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _network_templates_dir() -> str:
+    """Authoritative NETWORK path for shared templates (admin writes + sync source)."""
     return os.path.join(NETWORK_RESOURCES_PATH, 'templates')
 
 
-def get_personal_templates_dir():
-    """
-    Returns the path to the personal templates directory (local, per-user).
+def _network_categories_file() -> str:
+    """Authoritative NETWORK path for categories.json."""
+    return os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
 
-    Personal templates are stored locally so they are:
-    * available offline (no network required)
-    * private to the OS user account
-    * never written to the shared network resource
 
-    Path: ``CACHE_BASE/templates/``
+def _mirror_template_to_network(cache_filepath: str, data: dict) -> None:
+    """Replicate a template written to local cache to the authoritative network path.
+
+    Called by admin routes after every write so that other clients' background
+    sync can pick up the change.  Failures are logged and swallowed — the
+    local cache write has already succeeded.
     """
-    path = os.path.join(CACHE_BASE, 'templates')
+    try:
+        cache_base = os.path.join(CACHE_DIR, 'templates')
+        net_base   = _network_templates_dir()
+        if os.path.normcase(os.path.abspath(cache_base)) == os.path.normcase(os.path.abspath(net_base)):
+            return  # dev mode: cache and network are the same directory
+        rel      = os.path.relpath(cache_filepath, cache_base)
+        net_path = os.path.join(net_base, rel)
+        _write_template_atomic(net_path, data)
+    except Exception as exc:
+        _logger.warning('Ошибка репликации шаблона в сеть: %s', exc)
+
+
+def _delete_template_from_network(cache_filepath: str) -> None:
+    """Delete a template from the authoritative network path after removing from cache.
+
+    Failures are logged and swallowed.
+    """
+    try:
+        cache_base = os.path.join(CACHE_DIR, 'templates')
+        net_base   = _network_templates_dir()
+        if os.path.normcase(os.path.abspath(cache_base)) == os.path.normcase(os.path.abspath(net_base)):
+            return
+        rel      = os.path.relpath(cache_filepath, cache_base)
+        net_path = os.path.join(net_base, rel)
+        if os.path.isfile(net_path):
+            os.remove(net_path)
+    except Exception as exc:
+        _logger.warning('Ошибка удаления шаблона из сети: %s', exc)
+
+
+def _personal_user_slug(user_key: str) -> str:
+    """Return a filesystem-safe slug from a user key (email or login name).
+
+    Rules:
+    * If it looks like an email, take the local part (before @).
+    * Replace any non-alphanumeric/dash/dot/underscore characters with ``_``.
+    * Truncate to 64 characters.
+    * Fall back to ``'default'`` when the result would be empty.
+    """
+    key = (user_key or '').strip().lower()
+    if '@' in key:
+        key = key.split('@')[0]
+    # Strip AD "domain\user" prefix if present
+    if '\\' in key:
+        key = key.split('\\')[-1]
+    slug = re.sub(r'[^\w.\-]', '_', key)[:64].strip('_')
+    return slug or 'default'
+
+
+def get_personal_templates_dir(user_key: str = '') -> str:
+    """Return the personal templates directory for *user_key*.
+
+    Each unique user key gets its own subdirectory under
+    ``CACHE_BASE/templates/``, so that different users' personal
+    templates never mix.
+
+    Falls back to the ``'default'`` subdirectory when no key is supplied.
+    """
+    slug = _personal_user_slug(user_key)
+    path = os.path.join(CACHE_BASE, 'templates', slug)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -2574,12 +2731,12 @@ def get_user_from_system():
     return os.environ.get('USER', os.environ.get('LOGNAME', 'unknown')).lower()
 
 
-def _template_base_dir(template_type):
+def _template_base_dir(template_type, user_key: str = ''):
     """Return the filesystem directory for a given template type."""
     templates_dir = get_templates_dir()
     if template_type == 'shared':
         return os.path.join(templates_dir, 'shared')
-    return get_personal_templates_dir()
+    return get_personal_templates_dir(user_key)
 
 
 def _validate_template_id(tid):
@@ -2679,12 +2836,21 @@ def _invalidate_template_cache(template_type=None):
     After invalidation the next :func:`_get_template_index` call will rebuild
     synchronously (cold-cache path) rather than serving stale data.
     Thread-safe.
+
+    The cache is keyed by *base_dir* (filesystem path), so invalidating
+    ``'personal'`` removes all user-specific personal template caches.
     """
+    shared_dir = os.path.join(get_templates_dir(), 'shared')
     with _template_cache_lock:
-        if template_type:
-            _template_cache.pop(template_type, None)
-        else:
+        if template_type is None:
             _template_cache.clear()
+        elif template_type == 'shared':
+            _template_cache.pop(shared_dir, None)
+        else:
+            # Remove every personal-templates entry (keyed by their base_dir).
+            for k in list(_template_cache.keys()):
+                if k != shared_dir:
+                    del _template_cache[k]
 
 
 def _build_index_from_dir(base_dir, template_type):
@@ -2762,10 +2928,10 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     try:
         meta, index, fp = _build_index_from_dir(base_dir, template_type)
         with _template_cache_lock:
-            existing = _template_cache.get(template_type)
+            existing = _template_cache.get(base_dir)
             if existing is None or existing.get('ts', 0) <= started_at:
                 # No fresher entry — safe to store our result.
-                _template_cache[template_type] = {
+                _template_cache[base_dir] = {
                     'meta': meta, 'index': index, 'fp': fp,
                     'ts': time.time(), '_rebuilding': False,
                 }
@@ -2776,7 +2942,7 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     except Exception as exc:
         _logger.warning('Фоновый rebuild индекса [%s] упал: %s', template_type, exc)
         with _template_cache_lock:
-            entry = _template_cache.get(template_type)
+            entry = _template_cache.get(base_dir)
             if entry:
                 entry['_rebuilding'] = False
 
@@ -2802,8 +2968,10 @@ def _get_template_index(template_type: str, base_dir: str):
     now = time.time()
     ttl = _TEMPLATE_CACHE_TTL.get(template_type, 10.0)
 
+    # Cache is keyed by base_dir so that different personal-templates
+    # directories (one per user) each get their own independent cache entry.
     with _template_cache_lock:
-        cached = _template_cache.get(template_type)
+        cached = _template_cache.get(base_dir)
 
         if cached:
             if (now - cached['ts']) < ttl:
@@ -2824,7 +2992,7 @@ def _get_template_index(template_type: str, base_dir: str):
     # Cold cache — synchronous rebuild (first request only).
     meta, index, fp = _build_index_from_dir(base_dir, template_type)
     with _template_cache_lock:
-        _template_cache[template_type] = {
+        _template_cache[base_dir] = {
             'meta': meta, 'index': index, 'fp': fp,
             'ts': time.time(), '_rebuilding': False,
         }
@@ -2941,6 +3109,26 @@ def save_categories(categories: list) -> None:
             pass
         raise
     _invalidate_categories_cache()
+
+    # Replicate to network so other clients' background sync picks up the change.
+    try:
+        net_cat = _network_categories_file()
+        net_dir = os.path.dirname(net_cat)
+        if os.path.normcase(os.path.abspath(net_dir)) != os.path.normcase(os.path.abspath(os.path.dirname(categories_file))):
+            os.makedirs(net_dir, exist_ok=True)
+            fd2, tmp2 = tempfile.mkstemp(dir=net_dir, suffix='.tmp')
+            try:
+                with os.fdopen(fd2, 'w', encoding='utf-8') as f2:
+                    json.dump({'categories': categories}, f2, ensure_ascii=False, indent=2)
+                os.replace(tmp2, net_cat)
+            except Exception:
+                try:
+                    os.unlink(tmp2)
+                except OSError:
+                    pass
+                raise
+    except Exception as exc:
+        _logger.warning('Ошибка репликации категорий в сеть: %s', exc)
 
 
 # ============================================================================
@@ -3081,7 +3269,166 @@ def _run_webview_or_browser() -> None:
         except Exception:
             pass
 
-        view = QWebEngineView()
+        class DropAwareWebView(QWebEngineView):
+            """QWebEngineView that forwards file drops to JavaScript instead of navigating."""
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.setAcceptDrops(True)
+
+            def dragEnterEvent(self, event):
+                _logger.info('DropAwareWebView: dragEnter hasUrls=%s', event.mimeData().hasUrls())
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                else:
+                    super().dragEnterEvent(event)
+
+            def dragMoveEvent(self, event):
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    pos = event.pos()
+                    self.page().runJavaScript(
+                        f'(function(){{'
+                        # clear all highlights
+                        f'  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){{'
+                        f'    var t=w.querySelector(".exc-drop-target");'
+                        f'    var h=w.querySelector(".exc-drag-hint");'
+                        f'    var b=w.querySelector(".exc-pick-btn");'
+                        f'    if(t)t.classList.remove("exc-drop-target--over");'
+                        f'    if(h)h.style.display="none";'
+                        f'    if(b)b.style.borderColor="";'
+                        f'  }});'
+                        f'  var bz=document.getElementById("bm-file-zone");'
+                        f'  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                        # find element under cursor
+                        f'  var _dpr=window.devicePixelRatio||1;'
+                        f'  var el=document.elementFromPoint({pos.x()}/_dpr,{pos.y()}/_dpr);'
+                        # bulk mail zone
+                        f'  var bel=el;'
+                        f'  while(bel&&bel.id!=="bm-file-zone"){{bel=bel.parentElement;}}'
+                        f'  if(bel){{bel.classList.add("bm-file-zone--drag");return;}}'
+                        # exchange drop targets
+                        f'  while(el&&!el.classList.contains("exc-drop-target")){{el=el.parentElement;}}'
+                        f'  if(el){{'
+                        f'    el.classList.add("exc-drop-target--over");'
+                        f'    var w=el.closest(".exc-drop-wrap");'
+                        f'    if(w){{'
+                        f'      var h=w.querySelector(".exc-drag-hint");'
+                        f'      var b=w.querySelector(".exc-pick-btn");'
+                        f'      if(h)h.style.display="flex";'
+                        f'      if(b)b.style.borderColor="#a78bfa";'
+                        f'    }}'
+                        f'  }}'
+                        f'}})()'
+                    )
+                else:
+                    super().dragMoveEvent(event)
+
+            def dragLeaveEvent(self, event):
+                _logger.info('DropAwareWebView: dragLeave')
+                self.page().runJavaScript(
+                    '(function(){'
+                    '  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){'
+                    '    var t=w.querySelector(".exc-drop-target");'
+                    '    var h=w.querySelector(".exc-drag-hint");'
+                    '    var b=w.querySelector(".exc-pick-btn");'
+                    '    if(t)t.classList.remove("exc-drop-target--over");'
+                    '    if(h)h.style.display="none";'
+                    '    if(b)b.style.borderColor="";'
+                    '  });'
+                    '  var bz=document.getElementById("bm-file-zone");'
+                    '  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                    '})()'
+                )
+                super().dragLeaveEvent(event)
+
+            def dropEvent(self, event):
+                urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+                files = [u.toLocalFile() for u in urls if u.isLocalFile()]
+                _logger.info('DropAwareWebView: dropEvent files=%s', files)
+                if not files:
+                    _logger.info('DropAwareWebView: no local files, delegating to super')
+                    super().dropEvent(event)
+                    return
+                event.acceptProposedAction()
+                filepath = files[0]
+                pos = event.pos()
+                _logger.info('DropAwareWebView: processing file=%s pos=(%s,%s)', filepath, pos.x(), pos.y())
+                try:
+                    import json as _json, os as _os, requests as _req
+                    fname = _os.path.basename(filepath)
+                    _allowed = ('.xlsx', '.xlsm', '.xls', '.ods', '.csv')
+                    if not fname.lower().endswith(_allowed):
+                        _err = _json.dumps(
+                            f'Неподдерживаемый формат «{fname}». '
+                            f'Разрешены: .xlsx, .xls, .ods, .csv',
+                            ensure_ascii=False)
+                        self.page().runJavaScript(
+                            '(function(){'
+                            '  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){'
+                            '    var t=w.querySelector(".exc-drop-target");'
+                            '    var h=w.querySelector(".exc-drag-hint");'
+                            '    var b=w.querySelector(".exc-pick-btn");'
+                            '    if(t)t.classList.remove("exc-drop-target--over");'
+                            '    if(h)h.style.display="none";'
+                            '    if(b)b.style.borderColor="";'
+                            '  });'
+                            '  var bz=document.getElementById("bm-file-zone");'
+                            '  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                            f'  if(typeof Toast!=="undefined") Toast.error({_err});'
+                            '})()'
+                        )
+                        return
+                    _logger.info('DropAwareWebView: POST /api/bulk/parse fname=%s', fname)
+                    with open(filepath, 'rb') as fh:
+                        resp = _req.post(
+                            f'http://127.0.0.1:{PORT}/api/bulk/parse',
+                            files={'file': (fname, fh)},
+                            timeout=30,
+                        )
+                    _logger.info('DropAwareWebView: parse response status=%s', resp.status_code)
+                    data = resp.json()
+                    _logger.info('DropAwareWebView: parsed headers=%s rows=%d',
+                                 data.get('headers'), len(data.get('rows', [])))
+                    fname_js = _json.dumps(fname, ensure_ascii=False)
+                    data_js = _json.dumps(data, ensure_ascii=False).replace('\\', '\\\\').replace('`', '\\`')
+                    js = (
+                        f'(function(){{'
+                        f'  var dpr=window.devicePixelRatio||1;'
+                        f'  var cx={pos.x()}/dpr, cy={pos.y()}/dpr;'
+                        f'  var el=document.elementFromPoint(cx,cy);'
+                        # — bulk mail drop zone —
+                        f'  var bz=el;'
+                        f'  while(bz&&bz.id!=="bm-file-zone"){{bz=bz.parentElement;}}'
+                        f'  if(bz&&typeof BulkMailPanel!=="undefined"){{'
+                        f'    BulkMailPanel.loadParsed({fname_js},JSON.parse(`{data_js}`));'
+                        f'    return;'
+                        f'  }}'
+                        # — exchange email/meeting fields —
+                        f'  while(el&&!el.classList.contains("exc-drop-target")){{el=el.parentElement;}}'
+                        f'  if(!el){{return;}}'
+                        f'  el.classList.remove("exc-drop-target--over");'
+                        f'  var w=el.closest(".exc-drop-wrap");'
+                        f'  if(w){{'
+                        f'    var h=w.querySelector(".exc-drag-hint");'
+                        f'    var b=w.querySelector(".exc-pick-btn");'
+                        f'    if(h)h.style.display="none";'
+                        f'    if(b)b.style.borderColor="";'
+                        f'  }}'
+                        f'  if(typeof ExchangeModals!=="undefined")'
+                        f'    ExchangeModals._xlsxProcessParsed(JSON.parse(`{data_js}`),el.id);'
+                        f'}})()'
+                    )
+                    self.page().runJavaScript(js)
+                except Exception as exc:
+                    _logger.error('DropAwareWebView.dropEvent error: %s', exc, exc_info=True)
+
+        view = DropAwareWebView()
+        # В dev-режиме отключаем дисковый кеш чтобы изменения статики были видны сразу
+        if not getattr(sys, 'frozen', False):
+            from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+            profile = QWebEngineProfile.defaultProfile()
+            profile.setHttpCacheType(QWebEngineProfile.NoCache)
         view.load(QUrl(url))
         window.setCentralWidget(view)
         window.show()
@@ -3243,11 +3590,16 @@ def main():
 try:
     from credentials_manager import (
         get_credentials_path, save_credentials, load_credentials,
-        credentials_exist, validate_credentials_data,
+        credentials_exist, validate_credentials_data, validate_smtp_credentials_data,
     )
     from exchange_sender import (
         connect_exchange, exchange_send_email, exchange_send_meeting,
-        parse_datetime, parse_recipients,
+        exchange_save_draft,
+        parse_datetime, parse_recipients, _wrap_exchange_error,
+    )
+    from smtp_sender import (
+        connect_smtp, smtp_send_email, test_smtp_connection,
+        connect_imap, imap_save_sent,
     )
     EXCHANGE_AVAILABLE = True
 except ImportError:
@@ -3341,13 +3693,19 @@ from routes.resources import bp as resources_bp
 from routes.templates import bp as templates_bp
 from routes.exchange import bp as exchange_bp
 from routes.settings import bp as settings_bp
+from routes.profile import bp as profile_bp
+from routes.profiles_admin import bp as profiles_admin_bp
+from routes.bulk_mail import bp as bulk_mail_bp
 
 app.register_blueprint(utility_bp)
 app.register_blueprint(static_files_bp)
+app.register_blueprint(bulk_mail_bp)
 app.register_blueprint(resources_bp)
 app.register_blueprint(templates_bp)
 app.register_blueprint(exchange_bp)
 app.register_blueprint(settings_bp)
+app.register_blueprint(profile_bp)
+app.register_blueprint(profiles_admin_bp)
 
 
 if __name__ == '__main__':

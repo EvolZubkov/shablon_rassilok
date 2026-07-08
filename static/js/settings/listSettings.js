@@ -2,6 +2,8 @@
 
 function renderListSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('list') : [];
 
     // Пункты списка
     const listGroup = document.createElement('div');
@@ -111,31 +113,33 @@ function renderListSettings(container, block) {
     container.appendChild(listGroup);
 
     // Дальше — остальные настройки списка (размер шрифта, буллеты и т.д.)
-    // Шрифт
-    container.appendChild(
-        createSettingSelect(
-            'Шрифт',
-            s.fontFamily || 'default',
-            block.id,
-            'fontFamily',
-            SELECT_OPTIONS.textFontFamily
-        )
-    );
-
-    // Свой шрифт (CSS-имя) — показываем только если выбран "custom"
-    if ((s.fontFamily || 'default') === 'custom') {
+    if (!hiddenSettings.includes('fontFamily')) {
         container.appendChild(
-            createSettingInput(
-                'CSS-имя шрифта (как в CSS)',
-                s.customFontFamily || '',
+            createSettingSelect(
+                'Шрифт',
+                s.fontFamily || 'default',
                 block.id,
-                'customFontFamily'
+                'fontFamily',
+                SELECT_OPTIONS.textFontFamily
             )
         );
+        if ((s.fontFamily || 'default') === 'custom') {
+            container.appendChild(
+                createSettingInput(
+                    'CSS-имя шрифта (как в CSS)',
+                    s.customFontFamily || '',
+                    block.id,
+                    'customFontFamily'
+                )
+            );
+        }
     }
-    // Настройки текста
-    container.appendChild(createSettingFontSize('Размер', s.fontSize ?? 14, block.id, 'fontSize', [10, 12, 14, 16, 18, 20, 22, 24]));
-    container.appendChild(createSettingRange('Межстрочный интервал', s.lineHeight ?? 1.0, block.id, 'lineHeight', 1.0, 3.5, 0.1, ''));
+    if (!hiddenSettings.includes('fontSize')) {
+        container.appendChild(createSettingFontSize('Размер', s.fontSize ?? 14, block.id, 'fontSize', [10, 12, 14, 16, 18, 20, 22, 24]));
+    }
+    if (!hiddenSettings.includes('lineHeight')) {
+        container.appendChild(createSettingRange('Межстрочный интервал', s.lineHeight ?? 1.0, block.id, 'lineHeight', 1.0, 3.5, 0.1, ''));
+    }
 
     // Буллеты
     const bulletGroup = document.createElement('div');
@@ -186,8 +190,12 @@ function renderListSettings(container, block) {
     container.appendChild(bulletGroup);
 
     // Размер и положение буллета
-    container.appendChild(createSettingRange('Размер буллета', s.bulletSize ?? 20, block.id, 'bulletSize', 0, 100, 1, 'px'));
-    container.appendChild(createSettingRange('Отступ от текста', s.bulletGap ?? 10, block.id, 'bulletGap', 0, 40, 1, 'px'));
+    if (!hiddenSettings.includes('bulletSize')) {
+        container.appendChild(createSettingRange('Размер буллета', s.bulletSize ?? 20, block.id, 'bulletSize', 0, 100, 1, 'px'));
+    }
+    if (!hiddenSettings.includes('bulletGap')) {
+        container.appendChild(createSettingRange('Отступ от текста', s.bulletGap ?? 10, block.id, 'bulletGap', 0, 40, 1, 'px'));
+    }
     // Нумерованный список (с перерисовкой настроек при изменении)
     const listStyleGroup = document.createElement('div');
     listStyleGroup.className = 'setting-group';
@@ -231,18 +239,44 @@ function renderListSettings(container, block) {
         startInput.className = 'setting-input';
         startInput.style.width = '80px';
         startInput.addEventListener('change', (e) => {
-            let val = parseInt(e.target.value) || 1;
-            if (val < 1) val = 1;
-            if (val > 99) val = 99;
-            s.startNumber = val;
-            renderListBulletsToDataUrls(block, () => {
-                renderCanvas();
-            });
+            const val = parseInt(e.target.value);
+            s.startNumber = isNaN(val) ? 1 : Math.min(99, val);
+            e.target.value = s.startNumber;
+            renderListBulletsToDataUrls(block, () => { renderCanvas(); });
         });
         startGroup.appendChild(startInput);
         container.appendChild(startGroup);
+
+        // Формат номера
+        const fmtGroup = document.createElement('div');
+        fmtGroup.className = 'setting-group';
+        const fmtLabel = document.createElement('label');
+        fmtLabel.className = 'setting-label';
+        fmtLabel.textContent = 'Формат номера';
+        fmtGroup.appendChild(fmtLabel);
+
+        const fmtWrap = document.createElement('div');
+        fmtWrap.style.cssText = 'display:flex;gap:6px;';
+        [['padded','01 02 03'], ['plain','1 2 3']].forEach(([val, txt]) => {
+            const btn = document.createElement('button');
+            btn.className = 'setting-btn' + ((s.numberFormat || 'padded') === val ? ' active' : '');
+            btn.textContent = txt;
+            btn.style.cssText = 'flex:1;padding:5px 8px;font-size:12px;cursor:pointer;border-radius:6px;border:1px solid var(--border-primary);background:var(--surface-secondary);color:var(--text-primary);';
+            if ((s.numberFormat || 'padded') === val) btn.style.background = 'var(--accent)';
+            btn.onclick = () => {
+                fmtWrap.querySelectorAll('button').forEach(b => b.style.background = 'var(--surface-secondary)');
+                btn.style.background = 'var(--accent)';
+                s.numberFormat = val;
+                renderListBulletsToDataUrls(block, () => { renderCanvas(); });
+            };
+            fmtWrap.appendChild(btn);
+        });
+        fmtGroup.appendChild(fmtWrap);
+        container.appendChild(fmtGroup);
     }
-    container.appendChild(createSettingRange('Расстояние между пунктами', s.itemSpacing ?? 8, block.id, 'itemSpacing', 0, 40, 1, 'px'));
+    if (!hiddenSettings.includes('itemSpacing')) {
+        container.appendChild(createSettingRange('Расстояние между пунктами', s.itemSpacing ?? 8, block.id, 'itemSpacing', 0, 40, 1, 'px'));
+    }
 }
 
 // Хелпер для получения border-radius из настроек блока

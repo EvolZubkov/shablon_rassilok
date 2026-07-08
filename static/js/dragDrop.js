@@ -93,7 +93,7 @@ function createColumnsContainer(block1, block2, columnsCount = DEFAULT_COLUMNS) 
     return {
         id: AppState.getNextBlockId(),
         type: 'columns_container',
-        settings: {},
+        settings: { bgEnabled: false, bgColor: '#1e293b', bgRadius: 8, bgPadding: 16 },
         columns: columns
     };
 }
@@ -379,7 +379,7 @@ function handleSideZoneDrop(zone, draggedBlock, targetBlock, draggedIndex, index
     const containerBlock = {
         id: AppState.getNextBlockId(),
         type: 'columns_container',
-        settings: {},
+        settings: { bgEnabled: false, bgColor: '#1e293b', bgRadius: 8, bgPadding: 16 },
         columns: [
             {
                 id: generateColumnId(),

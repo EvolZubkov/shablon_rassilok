@@ -84,6 +84,15 @@ function addBlock(type, parentId = null, position = null) {
     if (type === 'expert') {
         requestAnimationFrame(() => renderExpertBlock(newBlock));
     }
+
+    if (type === 'canvas') {
+        if (typeof renderCanvasBlockToDataUrl === 'function') {
+            renderCanvasBlockToDataUrl(newBlock, (dataUrl) => {
+                newBlock.settings.renderedCanvas = dataUrl || null;
+                renderCanvas();
+            });
+        }
+    }
 }
 
 function renderExpertBlock(block) {
@@ -306,6 +315,18 @@ function updateBlockSetting(blockId, key, value) {
         return;
     }
 
+    // ► Специальная обработка для свободного блока
+    if (block.type === 'canvas') {
+        renderCanvas();
+        if (typeof renderCanvasBlockToDataUrl === 'function') {
+            renderCanvasBlockToDataUrl(block, (dataUrl) => {
+                block.settings.renderedCanvas = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        return;
+    }
+
     // ► Специальная обработка для кнопок
     if (block.type === 'button' &&
         ['text', 'color', 'textColor', 'icon'].includes(key)) {
@@ -338,7 +359,7 @@ function updateBlockSetting(blockId, key, value) {
 
     // Специальная обработка для списков
     if (block.type === 'list' &&
-        ['items', 'bulletType', 'bulletCustom', 'bulletSize', 'listStyle'].includes(key)) {
+        ['items', 'bulletType', 'bulletCustom', 'bulletSize', 'listStyle', 'numberFormat', 'startNumber'].includes(key)) {
 
         renderListBulletsToDataUrls(block, () => {
             renderCanvas();

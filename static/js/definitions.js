@@ -4,9 +4,10 @@
 // Статические данные ниже — FALLBACK на случай если config.json недоступен
 // (нет сети, нет сетевого диска). ConfigLoader перезапишет их при загрузке.
 
-let BANNERS = [];
+// var (не let) — чтобы window.X = ... в configLoader перезаписывал ту же переменную
+var BANNERS = [];
 
-let IMPORTANT_ICONS = [
+var IMPORTANT_ICONS = [
     { id: 'i1', src: 'icons/Геометка с картой.png', label: 'Геометрия' },
     { id: 'i2', src: 'icons/Звездочки нейрошлюза.png', label: 'Звездочки' },
     { id: 'i3', src: 'icons/Знак вопроса.png', label: 'Вопрос' },
@@ -22,7 +23,7 @@ let IMPORTANT_ICONS = [
     { id: 'i13', src: 'icons/Файл.png', label: 'Файл' },
 ];
 
-let EXPERT_BADGE_ICONS = [
+var EXPERT_BADGE_ICONS = [
     { id: 'e1', src: 'expert-badges/Сообщение.png', label: 'Сообщение' },
     { id: 'e2', src: 'expert-badges/Важно или лучшие.png', label: 'Важно или лучшие' },
     { id: 'e3', src: 'expert-badges/Кодинг.png', label: 'Кодинг' },
@@ -35,19 +36,19 @@ let EXPERT_BADGE_ICONS = [
     { id: 'e10', src: 'expert-badges/grey.png', label: 'Серый' },
 ];
 
-let BULLET_TYPES = [
-    { id: 'circle',  src: 'bullets/Буллет.png',   label: 'Буллет' },
+var BULLET_TYPES = [
+    { id: 'circle',  src: 'bullets/Буллет.png',   label: 'Буллет 1' },
     { id: 'circle2', src: 'bullets/Буллет 2.png', label: 'Буллет 2' },
     { id: 'circle3', src: 'bullets/Буллет 3.png', label: 'Буллет 3' },
     { id: 'circle4', src: 'bullets/Буллет 4.png', label: 'Буллет 4' },
 ];
 
-let BUTTON_ICONS = [
+var BUTTON_ICONS = [
     { id: 'none',     src: '',                        label: 'Без иконки' },
     { id: 'download', src: 'button-icons/Знак.png',  label: 'Лого' },
 ];
 
-let DIVIDER_IMAGES = [];
+var DIVIDER_IMAGES = [];
 
 
 // === НАСТРОЙКИ РЕНДЕРИНГА ===
@@ -107,7 +108,8 @@ const BLOCK_TYPE_NAMES = {
     important: 'Важно',
     divider: 'Разделитель',
     image: 'Картинка',
-    spacer: 'Отступ'
+    spacer: 'Отступ',
+    canvas: 'Свободный блок'
 };
 
 // === НАСТРОЙКИ ПО УМОЛЧАНИЮ ===
@@ -244,7 +246,8 @@ const DEFAULT_SETTINGS = {
         bulletSize: 20,
         bulletGap: 10,
         itemSpacing: 8,
-        listStyle: 'bullets'
+        listStyle: 'bullets',
+        numberFormat: 'padded'
     },
 
     expert: {
@@ -302,6 +305,14 @@ const DEFAULT_SETTINGS = {
 
     spacer: {
         height: 32
+    },
+
+    canvas: {
+        height: 250,
+        bgEnabled: true,
+        bgColor: '#1D2533',
+        freeElements: [],
+        renderedCanvas: null,
     }
 };
 

@@ -127,12 +127,30 @@ function createBlockHeader(block) {
 function createBlockContent(block) {
     const content = document.createElement('div');
     content.className = 'block-content';
+    // Баннер — без отступа. Остальные — левый отступ из профиля (padding внутри блока).
+    if (block.type !== 'banner') {
+        const cp = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+            ? ProfileLoader.getContentPadding() : 27;
+        if (cp > 0) {
+            content.style.paddingLeft = `${cp}px`;
+        }
+    }
     content.innerHTML = block.columns ? renderColumnsPreview(block) : renderBlockPreviewReal(block);
     return content;
 }
 
 function renderColumnsPreview(block) {
     if (!block.columns) return '';
+
+    const s = block.settings || {};
+
+    // Vertical alignment of column content within the row
+    const valign = s.colValign || 'top';
+    const alignItems = valign === 'middle' ? 'center' : valign === 'bottom' ? 'flex-end' : 'flex-start';
+
+    // Передаём фон контейнера дочерним блокам через глобальный контекст
+    const prevParentBg = window._previewParentBg;
+    window._previewParentBg = (s.bgEnabled !== false && s.bgColor) ? s.bgColor : null;
 
     const columnsHTML = block.columns.map(column => {
         const columnBlocks = column.blocks.map(childBlock => `
@@ -146,8 +164,8 @@ function renderColumnsPreview(block) {
                 <div class="block-header">
                     <span class="block-title">${getBlockTypeName(childBlock.type)}</span>
                     <div class="block-actions">
-                        <button class="block-action-btn delete" 
-                                onclick="deleteColumnBlock(${block.id}, ${column.id}, ${childBlock.id}); event.stopPropagation();" 
+                        <button class="block-action-btn delete"
+                                onclick="deleteColumnBlock(${block.id}, ${column.id}, ${childBlock.id}); event.stopPropagation();"
                                 title="Удалить блок">
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <polyline points="3 6 5 6 21 6"></polyline>
@@ -181,7 +199,15 @@ function renderColumnsPreview(block) {
         `;
     }).join('');
 
-    return `<div class="columns-container">${columnsHTML}</div>`;
+    // Восстанавливаем контекст после рендера детей
+    window._previewParentBg = prevParentBg;
+
+    if (s.bgEnabled !== false && s.bgColor) {
+        return `<div style="background:${s.bgColor};border-radius:${s.bgRadius || 0}px;padding:${s.bgPadding || 0}px;">
+            <div class="columns-container" style="align-items:${alignItems};">${columnsHTML}</div>
+        </div>`;
+    }
+    return `<div class="columns-container" style="align-items:${alignItems};">${columnsHTML}</div>`;
 }
 
 function setupCanvas() {

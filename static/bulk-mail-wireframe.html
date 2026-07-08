@@ -1,0 +1,946 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>Рассылка — прототип v5</title>
+<style>
+*, *::before, *::after { box-sizing:border-box; margin:0; padding:0; }
+:root {
+  --bg:#0b1020; --bg2:#111827; --bg3:#1a2540; --bg4:#263247;
+  --border:rgba(148,163,184,.12); --border2:rgba(148,163,184,.22);
+  --txt:#e2e8f0; --txt2:#94a3b8; --txt3:#64748b;
+  --accent:#7700ff; --accent-h:#6600e0; --accent-bg:rgba(119,0,255,.08); --accent-bg2:rgba(119,0,255,.14);
+  --ok:#22c55e; --ok-bg:rgba(34,197,94,.1);
+  --err:#ef4444; --err-bg:rgba(239,68,68,.1);
+  --warn:#f97316; --warn-bg:rgba(249,115,22,.08);
+  --teal:#14b8a6; --teal-bg:rgba(20,184,166,.1);
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --r:8px; --r-lg:12px;
+}
+html,body{height:100%;background:var(--bg);color:var(--txt);font-family:var(--font);font-size:13px;line-height:1.5;}
+
+/* ── Layout ── */
+.app{display:grid;grid-template-columns:300px 1fr;height:100vh;overflow:hidden;}
+
+/* ── Panel ── */
+.panel{background:var(--bg2);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
+.panel-head{padding:14px 16px 12px;border-bottom:1px solid var(--border);background:rgba(255,255,255,.02);display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.panel-title{font-size:14px;font-weight:700;flex:1;display:flex;align-items:center;gap:8px;}
+.pbadge{background:var(--accent);color:#fff;font-size:11px;font-weight:700;padding:1px 7px;border-radius:999px;}
+
+/* Row nav */
+.row-nav{padding:8px 16px;background:var(--accent-bg);border-bottom:1px solid rgba(119,0,255,.18);display:flex;align-items:center;gap:8px;flex-shrink:0;}
+.rnav-btn{width:24px;height:24px;display:flex;align-items:center;justify-content:center;background:var(--bg3);border:1px solid var(--border2);border-radius:6px;color:var(--txt2);font-size:16px;cursor:pointer;transition:all .15s;}
+.rnav-btn:hover{border-color:var(--accent);color:var(--accent);}
+.rnav-btn:disabled{opacity:.3;cursor:not-allowed;}
+.rnav-info{font-size:11px;font-weight:700;color:var(--accent);white-space:nowrap;}
+.rnav-sep{width:1px;height:14px;background:rgba(119,0,255,.3);}
+.rnav-name{font-size:11px;font-weight:500;color:var(--txt);flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.rnav-email{font-size:10px;color:var(--txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:110px;}
+
+/* Per-row warnings */
+.row-warns{padding:5px 16px;background:rgba(249,115,22,.06);border-bottom:1px solid rgba(249,115,22,.14);display:flex;flex-direction:column;gap:3px;}
+.row-warn{font-size:11px;color:var(--warn);display:flex;align-items:center;gap:5px;}
+
+.panel-body{flex:1;overflow-y:auto;display:flex;flex-direction:column;}
+.panel-body::-webkit-scrollbar{width:3px;}
+.panel-body::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+
+/* Section */
+.sec{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:10px;}
+.sec:last-child{border-bottom:none;}
+.stitle{font-size:10px;font-weight:700;letter-spacing:.07em;text-transform:uppercase;color:var(--txt3);display:flex;align-items:center;gap:6px;}
+.stitle .warn-hint{font-weight:400;text-transform:none;letter-spacing:0;color:var(--warn);font-size:10px;}
+
+/* File zone */
+.file-zone{display:flex;flex-direction:column;align-items:center;gap:8px;padding:18px 12px;border:1.5px dashed var(--border2);border-radius:var(--r);color:var(--txt3);font-size:12px;text-align:center;cursor:pointer;transition:all .15s;}
+.file-zone:hover{border-color:var(--accent);background:var(--accent-bg);color:var(--txt2);}
+.file-loaded{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--accent-bg2);border:1px solid rgba(119,0,255,.25);border-radius:var(--r);font-size:12px;}
+.f-name{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.f-count{font-size:11px;font-weight:700;color:var(--accent);white-space:nowrap;}
+.icon-btn{width:20px;height:20px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;color:var(--txt3);font-size:14px;cursor:pointer;border-radius:4px;transition:all .15s;margin-left:auto;}
+.icon-btn:hover{background:var(--bg3);color:var(--err);}
+
+/* Table preview */
+.tbl-wrap{overflow-x:auto;border-radius:var(--r);border:1px solid var(--border);}
+.tbl{width:100%;border-collapse:collapse;font-size:10px;}
+.tbl th{background:var(--bg4);color:var(--txt2);padding:4px 8px;text-align:left;font-weight:600;white-space:nowrap;border-bottom:1px solid var(--border);}
+.tbl td{padding:4px 8px;color:var(--txt);border-bottom:1px solid var(--border);white-space:nowrap;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl td.ec{color:var(--err);font-style:italic;}
+.tbl-more{font-size:10px;color:var(--txt3);text-align:center;padding:4px 0 2px;}
+.header-row{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--txt2);}
+
+/* Form */
+.field{display:flex;flex-direction:column;gap:4px;}
+.lbl{font-size:11px;font-weight:600;color:var(--txt2);display:flex;align-items:center;gap:4px;}
+.lbl .opt{font-weight:400;color:var(--txt3);font-size:10px;}
+.inp,.sel{height:32px;padding:0 10px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--txt);font-size:12px;font-family:var(--font);outline:none;transition:border-color .15s;width:100%;}
+.inp:focus,.sel:focus{border-color:var(--accent);}
+.inp::placeholder{color:var(--txt3);}
+
+/* Checkbox */
+.chk{display:flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--txt2);user-select:none;}
+.chk input{accent-color:var(--accent);width:14px;height:14px;cursor:pointer;flex-shrink:0;}
+
+/* Toggle switch */
+.tog-row{display:flex;align-items:center;gap:10px;cursor:pointer;}
+.tog-lbl{font-size:12px;font-weight:600;color:var(--txt);flex:1;}
+.tog{position:relative;width:32px;height:18px;flex-shrink:0;}
+.tog input{opacity:0;width:0;height:0;}
+.tog-track{position:absolute;inset:0;background:var(--bg4);border-radius:999px;border:1px solid var(--border2);transition:all .2s;cursor:pointer;}
+.tog-thumb{position:absolute;top:2px;left:2px;width:12px;height:12px;background:var(--txt3);border-radius:50%;transition:all .2s;}
+.tog input:checked~.tog-track{background:var(--accent);border-color:var(--accent);}
+.tog input:checked~.tog-track .tog-thumb{left:16px;background:#fff;}
+
+/* Expand */
+.exp-link{display:inline-flex;align-items:center;gap:4px;font-size:11px;color:var(--txt3);background:none;border:none;cursor:pointer;transition:color .15s;padding:0;}
+.exp-link:hover{color:var(--accent);}
+.exp-link svg{transition:transform .2s;}
+.exp-link.open svg{transform:rotate(180deg);}
+.exp-area{overflow:hidden;max-height:0;transition:max-height .25s ease,opacity .2s;opacity:0;}
+.exp-area.open{max-height:600px;opacity:1;}
+
+/* Mapping */
+.map-row{display:grid;grid-template-columns:1fr 14px 1fr;align-items:center;gap:6px;}
+.map-ph{font-size:11px;font-weight:600;font-family:monospace;color:var(--warn);background:rgba(249,115,22,.1);border:1px solid rgba(249,115,22,.2);border-radius:4px;padding:3px 6px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.map-ph.ok{color:var(--ok);background:rgba(34,197,94,.08);border-color:rgba(34,197,94,.2);}
+.map-arr{font-size:11px;color:var(--txt3);text-align:center;}
+.map-sel{height:28px;padding:0 6px;background:var(--bg);border:1px solid var(--border2);border-radius:6px;color:var(--txt);font-size:11px;font-family:var(--font);outline:none;width:100%;}
+.map-sel:focus{border-color:var(--accent);}
+.map-sel.warn{border-color:rgba(249,115,22,.5);}
+
+/* Attach mode */
+.radio-row{display:flex;gap:16px;}
+.radio-lbl{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--txt2);cursor:pointer;}
+.radio-lbl input{accent-color:var(--accent);}
+
+/* Summary card */
+.sum-card{background:var(--bg3);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;}
+.sum-row{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;border-bottom:1px solid var(--border);font-size:12px;}
+.sum-row:last-child{border-bottom:none;}
+.sum-val{font-weight:700;font-size:13px;}
+.sum-row.s-ok   .sum-val{color:var(--teal);}
+.sum-row.s-warn .sum-val{color:var(--warn);}
+.sum-row.s-err  .sum-val{color:var(--err);}
+
+/* Inline warnings */
+.warn-box{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--warn-bg);border:1px solid rgba(249,115,22,.22);border-radius:var(--r);font-size:11px;color:var(--warn);}
+.warn-box svg{flex-shrink:0;margin-top:1px;}
+
+/* Adv trigger */
+.adv-trig{display:flex;align-items:center;gap:8px;width:100%;background:none;border:none;cursor:pointer;padding:10px 16px;font-size:12px;color:var(--txt2);font-family:var(--font);border-bottom:1px solid var(--border);transition:all .15s;}
+.adv-trig:hover{color:var(--txt);background:rgba(255,255,255,.02);}
+.adv-trig svg:last-child{margin-left:auto;transition:transform .2s;}
+.adv-trig.open svg:last-child{transform:rotate(90deg);}
+
+/* Actions bar */
+.actions{padding:12px 16px;display:flex;flex-direction:column;gap:8px;flex-shrink:0;border-top:1px solid var(--border);}
+.btn-p{width:100%;height:36px;display:flex;align-items:center;justify-content:center;gap:8px;background:var(--accent);border:none;border-radius:var(--r);color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:var(--font);transition:background .15s;}
+.btn-p:hover{background:var(--accent-h);}
+.btn-p:disabled{opacity:.4;cursor:not-allowed;}
+.btn-s{width:100%;height:32px;display:flex;align-items:center;justify-content:center;gap:6px;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--txt2);font-size:12px;cursor:pointer;font-family:var(--font);transition:all .15s;}
+.btn-s:hover{border-color:var(--accent);color:var(--accent);}
+
+/* Progress */
+.prog-bar{height:4px;background:var(--bg4);border-radius:2px;overflow:hidden;flex:1;}
+.prog-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .3s;width:0%;}
+.prog-head{display:flex;align-items:center;gap:8px;}
+.btn-cancel{width:24px;height:24px;flex-shrink:0;display:flex;align-items:center;justify-content:center;background:transparent;border:1px solid rgba(239,68,68,.35);border-radius:6px;color:var(--err);font-size:11px;cursor:pointer;transition:background .15s;}
+.btn-cancel:hover{background:rgba(239,68,68,.15);}
+.prog-list{display:flex;flex-direction:column;gap:3px;max-height:180px;overflow-y:auto;margin-top:4px;}
+.prog-list::-webkit-scrollbar{width:3px;}
+.prog-list::-webkit-scrollbar-thumb{background:var(--border2);border-radius:2px;}
+.prog-item{display:grid;grid-template-columns:18px 1fr auto;align-items:center;gap:6px;padding:4px 6px;border-radius:5px;font-size:11px;background:rgba(255,255,255,.02);}
+.prog-dot{width:16px;height:16px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:9px;flex-shrink:0;}
+.pi--sending .prog-dot{border:2px solid var(--accent);animation:spin .8s linear infinite;}
+.pi--sent    .prog-dot{background:var(--ok);color:#fff;}
+.pi--skip    .prog-dot{background:var(--bg4);color:var(--txt3);}
+.pi--error   .prog-dot{background:var(--err);color:#fff;}
+@keyframes spin{to{transform:rotate(360deg);}}
+.prog-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--txt);}
+.prog-st{font-size:10px;white-space:nowrap;}
+.pi--sent  .prog-st{color:var(--ok);}
+.pi--error .prog-st{color:var(--err);}
+.pi--skip  .prog-st{color:var(--txt3);}
+.pi--sending .prog-st{color:var(--txt3);}
+.sum-badges{display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;}
+.badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:999px;}
+.b-ok  {background:var(--ok-bg);color:var(--ok);}
+.b-err {background:var(--err-bg);color:var(--err);}
+.b-skip{background:rgba(100,116,139,.12);color:var(--txt3);}
+.post-act{display:flex;gap:8px;margin-top:4px;}
+.btn-sm{flex:1;height:28px;display:flex;align-items:center;justify-content:center;gap:5px;background:transparent;border:1px solid var(--border2);border-radius:6px;color:var(--txt2);font-size:11px;cursor:pointer;font-family:var(--font);transition:all .15s;}
+.btn-sm:hover{border-color:var(--accent);color:var(--accent);}
+.btn-sm:disabled{opacity:.35;cursor:not-allowed;}
+
+/* Canvas */
+.canvas-area{display:flex;flex-direction:column;background:var(--bg);overflow:hidden;}
+.canvas-bar{height:44px;background:var(--bg2);border-bottom:1px solid var(--border);display:flex;align-items:center;gap:8px;padding:0 16px;flex-shrink:0;}
+.cpill{padding:3px 10px;border:1px solid var(--border2);border-radius:999px;font-size:11px;color:var(--txt2);white-space:nowrap;}
+.canvas-scroll{flex:1;overflow-y:auto;display:flex;justify-content:center;padding:32px;}
+.email{width:580px;max-width:100%;border-radius:10px;overflow:hidden;box-shadow:0 12px 50px rgba(0,0,0,.6);}
+.email-banner{height:80px;background:linear-gradient(135deg,#7700ff,#4400cc);display:flex;align-items:center;justify-content:center;color:#fff;font-size:16px;font-weight:700;}
+.eblock{padding:20px 28px;background:#1e2533;border-bottom:1px solid rgba(255,255,255,.05);}
+.eblock:last-child{border-bottom:none;}
+.eblock p{font-size:13px;line-height:1.8;color:#d8dfed;}
+.ph{background:rgba(119,0,255,.12);color:#c4b5fd;padding:1px 5px;border-radius:4px;font-family:monospace;font-size:11px;font-weight:600;transition:all .2s;}
+.ph.filled{background:rgba(34,197,94,.12);color:#86efac;}
+.ph.empty {background:rgba(239,68,68,.1);color:#fca5a5;}
+
+/* ── v5: Mode toggle ── */
+.mode-bar{display:flex;gap:3px;margin-left:auto;}
+.mode-btn{height:26px;padding:0 10px;background:transparent;border:1px solid var(--border2);border-radius:6px;color:var(--txt2);font-size:11px;font-family:var(--font);cursor:pointer;transition:all .15s;white-space:nowrap;}
+.mode-btn:hover{border-color:var(--accent);color:var(--accent);}
+.mode-btn.active{background:var(--accent-bg2);border-color:var(--accent);color:#c4b5fd;font-weight:600;}
+
+/* ── v5: Placeholder insertion bar ── */
+.ph-ins-bar{padding:7px 16px;background:rgba(119,0,255,.05);border-bottom:1px solid rgba(119,0,255,.16);display:flex;align-items:center;gap:10px;flex-wrap:wrap;flex-shrink:0;}
+.ph-ins-lbl{font-size:11px;font-weight:600;color:var(--txt2);white-space:nowrap;}
+.ph-ins-chips{display:flex;gap:5px;flex-wrap:wrap;flex:1;}
+.ph-chip{height:22px;padding:0 8px;background:var(--bg3);border:1px solid var(--border2);border-radius:4px;color:var(--txt2);font-size:11px;font-family:monospace;cursor:pointer;transition:all .15s;white-space:nowrap;}
+.ph-chip:hover{background:var(--accent-bg2);border-color:var(--accent);color:#c4b5fd;}
+.ph-chip:active{transform:scale(.95);}
+.ph-ins-hint{font-size:10px;color:var(--txt3);white-space:nowrap;}
+
+/* ── v5: Editable eblock ── */
+.eblock[contenteditable="true"]{outline:none;cursor:text;position:relative;}
+.eblock[contenteditable="true"]:focus-within{box-shadow:inset 0 0 0 2px rgba(119,0,255,.3);}
+.edit-badge{display:inline-block;font-size:9px;font-weight:600;background:var(--accent-bg2);color:var(--accent);padding:1px 5px;border-radius:3px;vertical-align:middle;margin-left:4px;user-select:none;pointer-events:none;}
+
+/* ── v5: Auto-detected badge on mapping ── */
+.ph-auto-lbl{font-size:9px;background:var(--teal-bg);color:var(--teal);padding:1px 5px;border-radius:3px;margin-left:4px;font-weight:600;}
+
+/* Modal */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.65);display:flex;align-items:center;justify-content:center;z-index:1000;backdrop-filter:blur(4px);}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:var(--r-lg);padding:24px;width:400px;display:flex;flex-direction:column;gap:16px;animation:fadeUp .15s ease;}
+@keyframes fadeUp{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.modal-title{font-size:15px;font-weight:700;}
+.modal-body{font-size:13px;color:var(--txt2);line-height:1.6;}
+.modal-body strong{color:var(--ok);}
+.modal-warns{display:flex;flex-direction:column;gap:6px;}
+.modal-warn{display:flex;align-items:flex-start;gap:8px;padding:8px 10px;background:var(--warn-bg);border:1px solid rgba(249,115,22,.22);border-radius:var(--r);font-size:12px;color:var(--warn);}
+.modal-actions{display:flex;gap:10px;justify-content:flex-end;margin-top:4px;}
+.btn-mo-cancel{height:36px;padding:0 16px;background:transparent;border:1px solid var(--border2);border-radius:var(--r);color:var(--txt2);font-size:13px;font-family:var(--font);cursor:pointer;transition:all .15s;}
+.btn-mo-cancel:hover{color:var(--txt);}
+.btn-mo-ok{height:36px;padding:0 20px;background:#16a34a;border:none;border-radius:var(--r);color:#fff;font-size:13px;font-weight:700;font-family:var(--font);cursor:pointer;display:flex;align-items:center;gap:8px;transition:background .15s;}
+.btn-mo-ok:hover{background:#15803d;}
+
+.toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(8px);background:var(--bg4);border:1px solid var(--border2);border-radius:8px;padding:8px 16px;font-size:12px;color:var(--txt);z-index:2000;opacity:0;transition:all .25s;pointer-events:none;white-space:nowrap;box-shadow:0 4px 16px rgba(0,0,0,.4);}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.hidden{display:none!important;}
+</style>
+</head>
+<body>
+
+<div class="app">
+
+<!-- ════ PANEL ════ -->
+<div class="panel">
+  <div class="panel-head">
+    <div class="panel-title">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+      Рассылка
+      <span class="pbadge hidden" id="badge">5</span>
+    </div>
+  </div>
+
+  <!-- Навигация строк -->
+  <div class="row-nav hidden" id="row-nav">
+    <button class="rnav-btn" id="btn-prev" disabled>‹</button>
+    <span class="rnav-info" id="rnav-info">Строка 1 из 127</span>
+    <button class="rnav-btn" id="btn-next">›</button>
+    <span class="rnav-sep"></span>
+    <span class="rnav-name" id="rnav-name"></span>
+    <span class="rnav-email" id="rnav-email"></span>
+  </div>
+
+  <!-- Предупреждения текущей строки -->
+  <div class="row-warns hidden" id="row-warns"></div>
+
+  <div class="panel-body">
+
+    <!-- 1. ДАННЫЕ -->
+    <div class="sec">
+      <div class="stitle">Данные</div>
+      <div class="file-zone" id="file-zone" onclick="fakeLoad()">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+        <span>Перетащите .xlsx или .ods</span>
+        <button class="btn-s" style="width:auto;height:28px;padding:0 12px;font-size:11px" onclick="event.stopPropagation();fakeLoad()">Выбрать файл</button>
+      </div>
+      <div class="file-loaded hidden" id="file-loaded">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;color:var(--accent)"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        <span class="f-name">export.xlsx</span>
+        <span class="f-count" id="f-count">127 строк</span>
+        <button class="icon-btn" onclick="clearFile()" title="Убрать файл">×</button>
+      </div>
+      <div class="hidden" id="sheet-block">
+        <div style="display:flex;flex-direction:column;gap:8px">
+          <div class="field">
+            <label class="lbl">Лист</label>
+            <select class="sel" id="sheet-sel"><option>Сотрудники</option><option>Архив</option></select>
+          </div>
+          <div class="header-row">
+            <span style="flex:1">Строка заголовка</span>
+            <select class="sel" style="width:88px;height:28px;padding:0 6px;font-size:11px"><option>1 (авто)</option><option>2</option><option>3</option></select>
+          </div>
+        </div>
+      </div>
+      <div class="hidden" id="tbl-block">
+        <button class="exp-link" id="tbl-btn" onclick="toggleExp('tbl-area',this)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          Предпросмотр данных
+        </button>
+        <div class="exp-area" id="tbl-area">
+          <div style="padding-top:8px">
+            <div class="tbl-wrap"><table class="tbl" id="preview-tbl"></table></div>
+            <div class="tbl-more" id="tbl-more"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Остальные блоки — после загрузки файла -->
+    <div class="hidden" id="settings">
+
+      <!-- 2. ПОЛУЧАТЕЛИ -->
+      <div class="sec">
+        <div class="stitle">Получатели</div>
+        <div class="field">
+          <label class="lbl">Email-колонка</label>
+          <select class="sel" id="email-col" onchange="recalc()"><option>Email</option><option>Почта</option></select>
+        </div>
+        <div class="field">
+          <label class="lbl">Тема письма</label>
+          <input class="inp" id="subj" value="Уведомление для {{ФИО}}" oninput="updateCanvasStatus()">
+        </div>
+        <label class="chk"><input type="checkbox" checked id="skip-no-email" onchange="recalc()"> Пропускать строки без email</label>
+        <button class="exp-link" id="cc-btn" onclick="toggleExp('cc-area',this)">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+          + Добавить копию (CC / BCC)
+        </button>
+        <div class="exp-area" id="cc-area">
+          <div style="display:flex;flex-direction:column;gap:8px;padding-top:8px">
+            <div class="field"><label class="lbl">Копия (CC) <span class="opt">необязательно</span></label><input class="inp" placeholder="ivan@corp.ru"></div>
+            <div class="field"><label class="lbl">Скрытая копия (BCC) <span class="opt">необязательно</span></label><input class="inp" placeholder="boss@corp.ru"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 3. ПЛЕЙСХОЛДЕРЫ -->
+      <div class="sec hidden" id="ph-sec">
+        <div class="stitle">
+          Плейсхолдеры
+          <span class="warn-hint" id="ph-hint"></span>
+          <span style="margin-left:auto;font-size:10px;color:var(--txt3);font-weight:400;text-transform:none;letter-spacing:0" id="ph-auto-note"></span>
+        </div>
+        <div id="ph-list"></div>
+      </div>
+
+      <!-- 4. ВЛОЖЕНИЯ -->
+      <div class="sec">
+        <label class="tog-row" onclick="toggleAttach(event)">
+          <span class="tog-lbl">Вложения к письмам</span>
+          <span class="tog"><input type="checkbox" id="attach-chk"><span class="tog-track"><span class="tog-thumb"></span></span></span>
+        </label>
+        <div class="exp-area" id="attach-area">
+          <div style="display:flex;flex-direction:column;gap:10px;padding-top:4px">
+            <div class="radio-row">
+              <label class="radio-lbl"><input type="radio" name="am" value="tpl" checked onchange="toggleAttachMode()"> Шаблон имени</label>
+              <label class="radio-lbl"><input type="radio" name="am" value="col" onchange="toggleAttachMode()"> Колонка</label>
+            </div>
+            <div class="field"><label class="lbl">Папка с файлами</label><input class="inp" placeholder="C:\Документы\"></div>
+            <div class="field" id="a-tpl"><label class="lbl">Шаблон имени файла</label><input class="inp" value="{{ФИО}}.pdf"></div>
+            <div class="field hidden" id="a-col"><label class="lbl">Колонка с именем файла</label><select class="sel"><option>— выберите —</option><option>НомерДоговора</option></select></div>
+            <div class="field"><label class="lbl">Если файл не найден</label><select class="sel"><option>Отправить без вложения</option><option>Пропустить получателя</option><option>Остановить рассылку</option></select></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 5. СВОДКА -->
+      <div class="sec" id="sum-sec">
+        <div class="stitle">Сводка рассылки</div>
+        <div class="sum-card" id="sum-card"></div>
+        <div id="sum-warns"></div>
+      </div>
+
+    </div>
+
+    <!-- 6. Доп. настройки -->
+    <button class="adv-trig hidden" id="adv-trig" onclick="toggleAdv()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+      Дополнительные настройки
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 6 15 12 9 18"/></svg>
+    </button>
+    <div class="exp-area" id="adv-area">
+      <div class="sec" style="border-top:none">
+        <label class="chk"><input type="checkbox"> Режим черновиков (не отправлять)</label>
+        <label class="chk"><input type="checkbox"> Остановить при первой ошибке</label>
+        <div class="field"><label class="lbl">Пауза между письмами</label>
+          <select class="sel"><option>Без паузы</option><option>1 сек.</option><option>3 сек.</option><option>5 сек.</option></select>
+        </div>
+      </div>
+    </div>
+
+    <!-- 7. ПРОГРЕСС -->
+    <div class="sec hidden" id="prog-sec">
+      <div class="stitle">Отправка</div>
+      <div class="prog-head">
+        <div class="prog-bar"><div class="prog-fill" id="prog-fill"></div></div>
+        <button class="btn-cancel" id="btn-cancel2" onclick="cancelSend()">✕</button>
+      </div>
+      <div class="prog-list" id="prog-list"></div>
+      <div class="sum-badges hidden" id="prog-summary">
+        <span class="badge b-ok"   id="s-ok"></span>
+        <span class="badge b-skip hidden" id="s-skip"></span>
+        <span class="badge b-err  hidden" id="s-err"></span>
+      </div>
+      <div class="post-act hidden" id="post-act">
+        <button class="btn-sm" id="btn-retry" onclick="retrySend()">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>Повторить ошибки</button>
+        <button class="btn-sm" onclick="exportCSV()">
+          <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>Экспорт CSV</button>
+      </div>
+    </div>
+
+  </div><!-- /panel-body -->
+
+  <div class="actions" id="action-bar">
+    <button class="btn-s hidden" id="btn-test" onclick="sendTest()">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8"/><rect x="3" y="6" width="18" height="12" rx="2"/></svg>Тестовое письмо себе</button>
+    <button class="btn-p hidden" id="btn-launch" onclick="confirmSend()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l14 9-14 9V3z"/></svg>Запустить рассылку</button>
+    <div style="font-size:11px;color:var(--txt3);text-align:center" id="empty-hint">Загрузите файл с получателями</div>
+  </div>
+</div><!-- /panel -->
+
+<!-- ════ CANVAS ════ -->
+<div class="canvas-area">
+  <div class="canvas-bar">
+    <span class="cpill">Шаблон: Уведомление о встрече</span>
+    <span class="cpill" id="canvas-status">Предпросмотр: загрузите файл</span>
+    <!-- Mode toggle -->
+    <div class="mode-bar">
+      <button class="mode-btn active" id="btn-mode-preview" onclick="setMode('preview')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+        Просмотр
+      </button>
+      <button class="mode-btn" id="btn-mode-edit" onclick="setMode('edit')">
+        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right:4px"><path d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 013 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+        Редактировать
+      </button>
+    </div>
+  </div>
+
+  <!-- Панель вставки плейсхолдеров (только в режиме редактирования) -->
+  <div class="ph-ins-bar hidden" id="ph-ins-bar">
+    <span class="ph-ins-lbl">Вставить поле:</span>
+    <div class="ph-ins-chips" id="ph-ins-chips">
+      <!-- чипы колонок появятся после загрузки файла -->
+    </div>
+    <span class="ph-ins-hint" id="ph-ins-hint">кликните в текст → затем на поле</span>
+  </div>
+
+  <div class="canvas-scroll">
+    <div class="email" id="email-tpl">
+      <div class="email-banner">Почтелье</div>
+      <div class="eblock" id="eb-0">
+        <p>Уважаемый(ая), <span class="ph" data-ph="ФИО" id="cv-fio">{{ФИО}}</span>!</p>
+        <p>Вы получаете это письмо как сотрудник отдела <span class="ph" data-ph="Отдел" id="cv-dept">{{Отдел}}</span>.<br>
+           Ваша должность: <span class="ph" data-ph="Должность" id="cv-job">{{Должность}}</span>.</p>
+      </div>
+      <div class="eblock" id="eb-1">
+        <p>Город: <span class="ph" data-ph="Город" id="cv-city">{{Город}}</span>.</p>
+        <p style="color:#64748b;font-size:11px;margin-top:8px">
+          Режим просмотра: зелёный = заполнен, красный = пусто, серый = не сопоставлен.<br>
+          Режим редактирования: кликайте в текст и вставляйте поля кнопками выше.
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /app -->
+
+<!-- Confirmation modal -->
+<div class="modal-ov hidden" id="modal">
+  <div class="modal">
+    <div class="modal-title">Подтверждение рассылки</div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-warns" id="modal-warns"></div>
+    <div class="modal-actions">
+      <button class="btn-mo-cancel" onclick="closeModal()">Отмена</button>
+      <button class="btn-mo-ok" id="modal-ok" onclick="doSend()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        <span id="modal-ok-txt">Отправить</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+'use strict';
+
+// ── Demo data ─────────────────────────────────────────────────────────────────
+const ALL_ROWS = [
+  { ФИО:'Иванов Иван Иванович',       Email:'i.ivanov@rt.ru',    Отдел:'ИТ',          Должность:'Разработчик',  Город:'Москва' },
+  { ФИО:'Петрова Мария Сергеевна',    Email:'petrova@corp.ru',   Отдел:'Бухгалтерия', Должность:'Бухгалтер',    Город:'' },
+  { ФИО:'Сидоров Алексей Петрович',   Email:'sido@corp.ru',      Отдел:'HR',          Должность:'Менеджер',     Город:'Санкт-Петербург' },
+  { ФИО:'Козлова Ольга Николаевна',   Email:'',                  Отдел:'Маркетинг',   Должность:'Аналитик',     Город:'Казань' },
+  { ФИО:'Новиков Дмитрий Андреевич',  Email:'novikov@corp.ru',   Отдел:'ИТ',          Должность:'Тестировщик',  Город:'' },
+  { ФИО:'Смирнова Елена Викторовна',  Email:'bad-email',         Отдел:'Продажи',     Должность:'Менеджер',     Город:'Екатеринбург' },
+  { ФИО:'Кузнецов Роман Игоревич',    Email:'kuznetsov@corp.ru', Отдел:'ИТ',          Должность:'DevOps',       Город:'Москва' },
+];
+for (let i=8;i<=127;i++) ALL_ROWS.push({ФИО:`Сотрудник ${i}`,Email:`user${i}@corp.ru`,Отдел:'—',Должность:'—',Город:'—'});
+
+// PH_DEFS — живой список, перестраивается при автодетекте
+let PH_DEFS = [
+  {key:'{{ФИО}}',       col:'ФИО',       id:'cv-fio' },
+  {key:'{{Отдел}}',     col:'Отдел',     id:'cv-dept'},
+  {key:'{{Должность}}', col:'Должность', id:'cv-job' },
+  {key:'{{Город}}',     col:'',          id:'cv-city'},
+];
+
+let rows=ALL_ROWS, curRow=0, loaded=false, sending=false, cancelled=false, failRows=[];
+let editMode=false, lastRange=null;
+
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const isEmail=e=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
+const allCols=()=>Object.keys(ALL_ROWS[0]);
+const dataCols=()=>allCols().filter(c=>c!=='Email');
+
+// ── File load ─────────────────────────────────────────────────────────────────
+function fakeLoad(){
+  loaded=true; rows=ALL_ROWS; curRow=0; failRows=[];
+  $('file-zone').classList.add('hidden');
+  $('file-loaded').classList.remove('hidden');
+  $('f-count').textContent=rows.length+' строк';
+  $('sheet-block').classList.remove('hidden');
+  $('tbl-block').classList.remove('hidden');
+  $('settings').classList.remove('hidden');
+  $('adv-trig').classList.remove('hidden');
+  $('badge').classList.remove('hidden');
+  $('badge').textContent=rows.length;
+  $('btn-test').classList.remove('hidden');
+  $('btn-launch').classList.remove('hidden');
+  $('empty-hint').classList.add('hidden');
+  buildPreviewTable();
+  autoDetectMapping();   // сканируем шаблон и строим маппинг
+  buildPhInsChips();     // строим чипы вставки
+  recalc();
+  showRowNav();
+  renderRow();
+}
+
+function clearFile(){
+  loaded=false; rows=[]; curRow=0;
+  ['file-loaded','sheet-block','tbl-block','settings','adv-trig','badge',
+   'btn-test','btn-launch','row-nav','row-warns','ph-ins-bar'].forEach(id=>$(id)?.classList.add('hidden'));
+  $('file-zone').classList.remove('hidden');
+  $('empty-hint').classList.remove('hidden');
+  $('prog-sec').classList.add('hidden');
+  setMode('preview');
+  resetCanvas();
+}
+
+// ── Preview table ─────────────────────────────────────────────────────────────
+function buildPreviewTable(){
+  const cols=allCols(), preview=rows.slice(0,4);
+  $('preview-tbl').innerHTML=`<thead><tr>${cols.map(c=>`<th>${esc(c)}</th>`).join('')}</tr></thead>
+    <tbody>${preview.map(r=>`<tr>${cols.map(c=>`<td class="${!r[c]?'ec':''}">${esc(r[c]||'(пусто)')}</td>`).join('')}</tr>`).join('')}</tbody>`;
+  $('tbl-more').textContent=rows.length>4?`...и ещё ${rows.length-4} строк`:'';
+}
+
+// ── Auto-detect placeholders from template ────────────────────────────────────
+function autoDetectMapping(){
+  const emailEl=$('email-tpl');
+  const cols=allCols();
+  const found=new Map(); // name → {col, id}
+
+  // 1. Collect existing .ph spans with data-ph
+  emailEl.querySelectorAll('.ph[data-ph]').forEach(el=>{
+    const name=el.dataset.ph;
+    if(!found.has(name)){
+      // auto-match column by name (exact, then case-insensitive)
+      const col=cols.find(c=>c===name)||cols.find(c=>c.toLowerCase()===name.toLowerCase())||'';
+      found.set(name,{col, id:el.id||''});
+    }
+  });
+
+  // 2. Also scan text nodes for raw {{...}} patterns
+  const walker=document.createTreeWalker(emailEl,NodeFilter.SHOW_TEXT);
+  const re=/\{\{([^}]+)\}\}/g;
+  let node;
+  while((node=walker.nextNode())){
+    let m;
+    while((m=re.exec(node.textContent))!==null){
+      const name=m[1].trim();
+      if(!found.has(name)){
+        const col=cols.find(c=>c===name)||cols.find(c=>c.toLowerCase()===name.toLowerCase())||'';
+        found.set(name,{col,id:''});
+      }
+    }
+  }
+
+  // Rebuild PH_DEFS preserving any manual mappings from before
+  const oldMap=Object.fromEntries(PH_DEFS.map(p=>[p.key,p.col]));
+  PH_DEFS=[];
+  found.forEach((v,name)=>{
+    const key=`{{${name}}}`;
+    const col=oldMap[key]!==undefined?oldMap[key]:v.col;
+    PH_DEFS.push({key,col,id:v.id});
+  });
+
+  const autoCount=found.size;
+  $('ph-auto-note').textContent=autoCount>0?`${autoCount} найдено в шаблоне`:'';
+  buildPH();
+}
+
+// ── Placeholder mapping UI ────────────────────────────────────────────────────
+function buildPH(){
+  const sec=$('ph-sec'), list=$('ph-list');
+  const cols=allCols();
+  if(!PH_DEFS.length){ sec.classList.add('hidden'); return; }
+  sec.classList.remove('hidden');
+  list.innerHTML='';
+  PH_DEFS.forEach(p=>{
+    const row=document.createElement('div'); row.className='map-row';
+    const tag=document.createElement('span');
+    tag.className=p.col?'map-ph ok':'map-ph';
+    tag.textContent=p.key;
+    const arr=document.createElement('span'); arr.className='map-arr'; arr.textContent='→';
+    const sel=document.createElement('select'); sel.className='map-sel'+(p.col?'':' warn');
+    sel.innerHTML=`<option value="">— не задано —</option>`+
+      cols.map(c=>`<option value="${esc(c)}"${c===p.col?' selected':''}>${esc(c)}</option>`).join('');
+    sel.onchange=()=>{
+      p.col=sel.value;
+      sel.className='map-sel'+(p.col?'':' warn');
+      tag.className=p.col?'map-ph ok':'map-ph';
+      recalc(); if(!editMode) renderRow();
+    };
+    row.append(tag,arr,sel);
+    list.appendChild(row);
+  });
+  updatePHHint();
+}
+
+function updatePHHint(){
+  const un=PH_DEFS.filter(p=>!p.col).length;
+  $('ph-hint').textContent=un?`${un} не сопоставлено`:'';
+}
+
+// ── Summary recalc ────────────────────────────────────────────────────────────
+function recalc(){
+  if(!loaded) return;
+  const skipNoEmail=$('skip-no-email')?.checked;
+  const emailCol=$('email-col')?.value||'Email';
+  let total=rows.length, toSend=0, skip=0, emptyEmail=0, badEmail=0;
+  rows.forEach(r=>{
+    const e=r[emailCol]||'';
+    if(!e){ emptyEmail++; if(skipNoEmail){skip++;return;} }
+    else if(!isEmail(e)){ badEmail++; skip++; return; }
+    toSend++;
+  });
+  $('sum-card').innerHTML=[
+    ['Всего строк',   total,      ''],
+    ['К отправке',    toSend,     's-ok'],
+    ['Пропустить',    skip,       skip>0?'s-warn':''],
+    ['Пустой email',  emptyEmail, emptyEmail>0?'s-warn':''],
+    ['Некорр. email', badEmail,   badEmail>0?'s-err':''],
+  ].map(([l,v,c])=>`<div class="sum-row ${c}"><span>${l}</span><span class="sum-val">${v}</span></div>`).join('');
+  const unPH=PH_DEFS.filter(p=>!p.col);
+  $('sum-warns').innerHTML=unPH.map(p=>`
+    <div class="warn-box">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Поле <strong style="color:var(--warn)">${esc(p.key)}</strong> не сопоставлено — в письмах останется пустым
+    </div>`).join('');
+  $('badge').textContent=toSend;
+  updatePHHint();
+}
+
+// ── Row nav ───────────────────────────────────────────────────────────────────
+function showRowNav(){ $('row-nav').classList.remove('hidden'); updateRowNav(); }
+function updateRowNav(){
+  const r=rows[curRow], emailCol=$('email-col')?.value||'Email';
+  $('rnav-info').textContent=`Строка ${curRow+1} из ${rows.length}`;
+  $('rnav-name').textContent=r['ФИО']||'';
+  $('rnav-email').textContent=r[emailCol]||'(нет email)';
+  $('btn-prev').disabled=curRow===0;
+  $('btn-next').disabled=curRow>=rows.length-1;
+  showRowWarnings(r,emailCol);
+}
+function showRowWarnings(r,emailCol){
+  const email=r[emailCol]||'', warns=[];
+  if(!email)             warns.push('Нет email — строка будет пропущена');
+  else if(!isEmail(email)) warns.push(`Некорректный email: ${email}`);
+  PH_DEFS.forEach(p=>{ if(p.col&&!r[p.col]) warns.push(`Поле «${p.col}» пустое`); });
+  const el=$('row-warns');
+  if(!warns.length){ el.classList.add('hidden'); return; }
+  el.classList.remove('hidden');
+  el.innerHTML=warns.map(w=>`<div class="row-warn">
+    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/></svg>${esc(w)}</div>`).join('');
+}
+$('btn-prev').addEventListener('click',()=>{ if(curRow>0){curRow--;if(!editMode)renderRow();else updateRowNav();} });
+$('btn-next').addEventListener('click',()=>{ if(curRow<rows.length-1){curRow++;if(!editMode)renderRow();else updateRowNav();} });
+
+// ── Canvas preview render ─────────────────────────────────────────────────────
+function renderRow(){
+  if(!loaded||editMode) return;
+  const r=rows[curRow];
+  updateRowNav();
+  PH_DEFS.forEach(p=>{
+    if(!p.id) return;
+    const el=$(p.id); if(!el) return;
+    const val=p.col?(r[p.col]||''):'';
+    if(!p.col)    { el.textContent=p.key;                el.className='ph'; }
+    else if(!val) { el.textContent=`[${p.col} — пусто]`; el.className='ph empty'; }
+    else          { el.textContent=val;                  el.className='ph filled'; }
+  });
+  updateCanvasStatus();
+}
+
+function resetCanvas(){
+  PH_DEFS.forEach(p=>{
+    if(!p.id) return;
+    const el=$(p.id); if(el){el.textContent=p.key;el.className='ph';}
+  });
+  $('canvas-status').textContent='Предпросмотр: загрузите файл';
+}
+
+function updateCanvasStatus(){
+  if(!loaded) return;
+  let subj=$('subj')?.value||'';
+  if(rows[curRow]) PH_DEFS.forEach(p=>{ if(p.col) subj=subj.replaceAll(p.key,rows[curRow][p.col]||''); });
+  $('canvas-status').textContent='Тема: '+(subj||'—');
+}
+
+// ── v5: Mode switching ────────────────────────────────────────────────────────
+function setMode(mode){
+  editMode=(mode==='edit');
+  $('btn-mode-preview').classList.toggle('active',!editMode);
+  $('btn-mode-edit').classList.toggle('active',editMode);
+
+  // Show/hide insertion bar
+  const bar=$('ph-ins-bar');
+  if(editMode && loaded) bar.classList.remove('hidden');
+  else bar.classList.add('hidden');
+
+  // Toggle contenteditable on email blocks
+  document.querySelectorAll('#email-tpl .eblock').forEach(el=>{
+    el.contentEditable=editMode?'true':'false';
+  });
+
+  if(editMode){
+    // Show raw {{...}} in spans
+    showTemplateRaw();
+    $('canvas-status').textContent='Режим редактирования — кликните в текст';
+  } else {
+    // Re-apply substitutions for current row
+    renderRow();
+  }
+}
+
+function showTemplateRaw(){
+  // Restore all ph spans to show {{...}} keys
+  document.querySelectorAll('#email-tpl .ph[data-ph]').forEach(el=>{
+    el.textContent=`{{${el.dataset.ph}}}`;
+    el.className='ph';
+  });
+}
+
+// ── v5: Placeholder insertion chips ──────────────────────────────────────────
+function buildPhInsChips(){
+  const container=$('ph-ins-chips');
+  container.innerHTML=dataCols().map(col=>
+    `<button class="ph-chip" onclick="insertPH('${esc(col)}')" title="Вставить {{${esc(col)}}}">${esc(col)}</button>`
+  ).join('');
+}
+
+// Save selection when user clicks inside editable blocks
+document.addEventListener('mouseup', e=>{
+  const inEdit=e.target.closest('#email-tpl .eblock[contenteditable="true"]');
+  if(inEdit){
+    const sel=window.getSelection();
+    if(sel.rangeCount>0) lastRange=sel.getRangeAt(0).cloneRange();
+  }
+});
+document.addEventListener('keyup', e=>{
+  const inEdit=e.target.closest('#email-tpl .eblock[contenteditable="true"]');
+  if(inEdit){
+    const sel=window.getSelection();
+    if(sel.rangeCount>0) lastRange=sel.getRangeAt(0).cloneRange();
+  }
+});
+
+function insertPH(colName){
+  if(!editMode){
+    showToast('Переключитесь в режим «Редактировать» для вставки полей');
+    return;
+  }
+
+  const text=`{{${colName}}}`;
+  const span=document.createElement('span');
+  span.className='ph';
+  span.setAttribute('data-ph',colName);
+  span.textContent=text;
+  // Generate unique id if needed
+  const uid='cv-'+colName.toLowerCase().replace(/\s+/g,'-')+'-'+Date.now();
+  span.id=uid;
+
+  let inserted=false;
+
+  // Try to insert at last saved selection inside email
+  if(lastRange){
+    const container=lastRange.commonAncestorContainer;
+    let inEmail=false;
+    let node=container.nodeType===3?container.parentNode:container;
+    while(node){ if(node.id==='email-tpl'){inEmail=true;break;} node=node.parentNode; }
+    if(inEmail){
+      try{
+        lastRange.deleteContents();
+        lastRange.insertNode(span);
+        // move cursor after span
+        const sel=window.getSelection();
+        const r=document.createRange();
+        r.setStartAfter(span); r.collapse(true);
+        sel.removeAllRanges(); sel.addRange(r);
+        lastRange=r.cloneRange();
+        inserted=true;
+      }catch(e){}
+    }
+  }
+
+  // Fallback: append to first eblock
+  if(!inserted){
+    const eb=document.querySelector('#email-tpl .eblock');
+    if(eb){
+      const p=eb.querySelector('p')||eb;
+      p.appendChild(document.createTextNode(' '));
+      p.appendChild(span);
+      inserted=true;
+    }
+  }
+
+  if(inserted){
+    // Flash the span
+    span.style.transition='background .2s';
+    span.style.background='rgba(119,0,255,.4)';
+    setTimeout(()=>span.style.background='',400);
+
+    // Re-detect and update mapping
+    autoDetectMapping();
+    recalc();
+    showToast(`${text} вставлено`);
+  }
+}
+
+// ── Confirm modal ─────────────────────────────────────────────────────────────
+function confirmSend(){
+  const emailCol=$('email-col')?.value||'Email', skipNoE=$('skip-no-email')?.checked;
+  let toSend=0,skip=0;
+  rows.forEach(r=>{
+    const e=r[emailCol]||'';
+    if((!e||!isEmail(e))&&skipNoE){skip++;return;}
+    toSend++;
+  });
+  const unPH=PH_DEFS.filter(p=>!p.col);
+  $('modal-body').innerHTML=`Будет отправлено <strong>${toSend} ${plural(toSend,'письмо','письма','писем')}</strong>.`+
+    (skip>0?` ${skip} ${plural(skip,'строка','строки','строк')} будут пропущены.`:'');
+  $('modal-warns').innerHTML=unPH.map(p=>`
+    <div class="modal-warn">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      Поле <strong style="color:var(--warn)">${esc(p.key)}</strong> не сопоставлено
+    </div>`).join('');
+  $('modal-ok-txt').textContent=`Отправить ${toSend} ${plural(toSend,'письмо','письма','писем')}`;
+  $('modal').classList.remove('hidden');
+}
+
+function plural(n,one,two,five){
+  const m=n%100,m10=n%10;
+  if(m>=11&&m<=14)return five;
+  if(m10===1)return one;
+  if(m10>=2&&m10<=4)return two;
+  return five;
+}
+function closeModal(){ $('modal').classList.add('hidden'); }
+function doSend(){ closeModal(); startSend(); }
+
+// ── Send ──────────────────────────────────────────────────────────────────────
+function startSend(rowsOverride){
+  if(sending) return;
+  const batch=rowsOverride||rows;
+  sending=true; cancelled=false; failRows=[];
+  $('prog-sec').classList.remove('hidden');
+  if(!rowsOverride) $('prog-list').innerHTML='';
+  $('prog-summary').classList.add('hidden');
+  $('post-act').classList.add('hidden');
+  $('btn-cancel2').style.display='';
+  $('btn-launch').disabled=true;
+  $('prog-fill').style.width='0%';
+  const emailCol=$('email-col')?.value||'Email', skipNoE=$('skip-no-email')?.checked;
+  let i=0,sent=0,errs=0,skipped=0;
+  function next(){
+    if(cancelled||i>=batch.length){ finish(sent,errs,skipped); return; }
+    const r=batch[i], email=r[emailCol]||'', name=r['ФИО']||'';
+    if(skipNoE&&(!email||!isEmail(email))){
+      skipped++; addItem(name||'—',email||'(нет email)','skip','Пропущено');
+      setP(++i,batch.length); setTimeout(next,60); return;
+    }
+    const item=addItem(name,email,'sending','...');
+    setP(i,batch.length);
+    setTimeout(()=>{
+      const ok=Math.random()>.12;
+      if(ok){ sent++; updItem(item,'sent','Отправлено'); }
+      else  { errs++; updItem(item,'error','Ошибка сервера'); failRows.push(r); }
+      setP(++i,batch.length); next();
+    },180+Math.random()*320);
+  }
+  next();
+}
+
+function finish(sent,errs,skip){
+  sending=false;
+  $('prog-fill').style.width='100%';
+  $('btn-cancel2').style.display='none';
+  $('btn-launch').disabled=false;
+  $('prog-summary').classList.remove('hidden');
+  $('s-ok').textContent=`✓ ${sent} отправлено`;
+  const se=$('s-err'),ss=$('s-skip');
+  se.textContent=`✗ ${errs} ошибок`; se.classList.toggle('hidden',errs===0);
+  ss.textContent=`⊘ ${skip} пропущено`; ss.classList.toggle('hidden',skip===0);
+  $('post-act').classList.remove('hidden');
+  $('btn-retry').disabled=failRows.length===0;
+}
+
+function setP(done,total){ $('prog-fill').style.width=`${Math.round(done/total*100)}%`; }
+function addItem(name,email,st,comment){
+  const el=document.createElement('div'); el.className=`prog-item pi--${st}`;
+  el.innerHTML=`<span class="prog-dot">${st==='sent'?'✓':st==='skip'?'⊘':st==='error'?'✗':''}</span>
+    <span class="prog-name">${esc(name)} <span style="color:var(--txt3);font-size:10px">${esc(email)}</span></span>
+    <span class="prog-st">${esc(comment)}</span>`;
+  $('prog-list').appendChild(el); $('prog-list').scrollTop=99999; return el;
+}
+function updItem(el,st,comment){
+  el.className=`prog-item pi--${st}`;
+  el.querySelector('.prog-dot').textContent=st==='sent'?'✓':st==='error'?'✗':'⊘';
+  el.querySelector('.prog-st').textContent=comment;
+}
+function cancelSend(){ if(confirm('Остановить рассылку?')) cancelled=true; }
+function retrySend(){ const r=[...failRows]; failRows=[]; startSend(r); }
+function sendTest(){ const r=rows[curRow]; alert(`Тестовое письмо:\n${r['ФИО']}\n${r['Email']||'(нет email)'}`); }
+function exportCSV(){ alert('Экспорт CSV — будет в реализации'); }
+
+// ── UI helpers ────────────────────────────────────────────────────────────────
+function toggleExp(areaId,btn){ $(areaId).classList.toggle('open'); btn?.classList.toggle('open'); }
+function toggleAttach(e){ e?.preventDefault(); const c=$('attach-chk'); c.checked=!c.checked; $('attach-area').classList.toggle('open',c.checked); }
+function toggleAttachMode(){ const t=document.querySelector('input[name="am"]:checked').value==='tpl'; $('a-tpl').classList.toggle('hidden',!t); $('a-col').classList.toggle('hidden',t); }
+function toggleAdv(){ $('adv-area').classList.toggle('open'); $('adv-trig').classList.toggle('open'); }
+
+let toastT;
+function showToast(msg){ const t=$('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),2800); }
+</script>
+</body>
+</html>

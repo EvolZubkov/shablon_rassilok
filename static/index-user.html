@@ -18,6 +18,7 @@
   </script>
   <link rel="stylesheet" href="theme-variables.css">
   <link rel="stylesheet" href="user-styles.css">
+  <link rel="stylesheet" href="bulk-mail-panel.css">
 
   <!-- Preload largest scripts so the browser fetches them in parallel with HTML parsing -->
   <link rel="preload" as="script" href="js/vendor/html2canvas.min.js">
@@ -38,8 +39,10 @@
           <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="create-email">Отправить письмо</button>
           <button type="button" class="menu-action user-menu-action user-menu-action--requires-content" data-action="create-meeting">Отправить встречу</button>
           <button type="button" class="menu-action user-menu-action user-menu-action--admin user-menu-action--requires-content" data-action="save">Сохранить</button>
+          <button type="button" class="menu-action user-menu-action" data-action="open-review-json">Открыть из JSON (согласование)...</button>
           <button type="button" class="menu-action user-menu-action" data-action="settings">Настройки...</button>
           <button type="button" class="menu-action user-menu-action" data-action="exit">Выход</button>
+          <input type="file" id="review-json-input" accept=".json" style="display:none">
         </div>
       </div>
       <div class="menu-root">
@@ -153,6 +156,12 @@
               </svg>
               Отправить встречу
             </button>
+            <button id="btn-bulk-send" class="btn-editor btn-bulk" style="display:none">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/>
+              </svg>
+              Разослать — <span id="bm-send-count">0</span> писем
+            </button>
           </div>
           <div class="toolbar-group toolbar-group-compact">
             <button id="btn-preview-user" class="btn-editor btn-preview-user" title="Предварительный просмотр">
@@ -204,7 +213,7 @@
       <div class="editor-shell">
         <aside class="editor-sidebar">
           <div class="editor-sidebar-head">
-            <h2>Подсказки</h2>
+            <h2>Библиотека</h2>
           </div>
           <div class="editor-sidebar-body">
             <section class="editor-side-card">
@@ -219,7 +228,295 @@
               <h3>Замечания</h3>
               <p>Поля, требующие внимания, подсвечиваются на самом письме.</p>
             </section>
-          </div>
+
+            <!-- ─── Рассылка (bulk mail) ─────────────────────────── -->
+            <div class="bm-accordion" id="bm-accordion">
+              <button class="bm-accordion-trigger" type="button" id="bm-accordion-trigger" aria-expanded="false">
+                <span class="bm-accordion-label">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/>
+                  </svg>
+                  Рассылка
+                  <span class="bm-accordion-badge" id="bm-accordion-badge" style="display:none"></span>
+                </span>
+                <svg class="bm-accordion-chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <polyline points="6 9 12 15 18 9"/>
+                </svg>
+              </button>
+
+              <div class="bm-accordion-body" id="bm-accordion-body">
+
+                <!-- Предупреждение: Exchange не настроен -->
+                <div id="bm-exchange-warn" style="display:none;align-items:center;gap:10px;
+                     padding:10px 16px;background:rgba(239,68,68,.08);
+                     border-bottom:1px solid rgba(239,68,68,.18);font-size:12px;color:#fca5a5">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+                  Учётные данные Exchange не настроены — отправка недоступна.
+                  <a href="#" onclick="event.preventDefault(); document.querySelector('[data-panel=settings]')?.click()"
+                     style="color:#c4b5fd;text-decoration:underline;white-space:nowrap">Настроить</a>
+                </div>
+
+                <!-- ── Блок 1: Данные ─────────────────────────────── -->
+                <div class="bm-section">
+                  <div class="bm-section-title">Данные</div>
+                  <!-- Зона загрузки -->
+                  <div class="bm-file-zone" id="bm-file-zone">
+                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>
+                    <span>Перетащите .xlsx / .ods / .csv</span>
+                    <button type="button" class="bm-btn-ghost" id="bm-file-btn">Выбрать файл</button>
+                    <input type="file" id="bm-file-input" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                  </div>
+                  <!-- Файл загружен -->
+                  <div class="bm-file-loaded" id="bm-file-info" style="display:none">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+                    <span class="bm-file-name" id="bm-file-name">файл.xlsx</span>
+                    <span class="bm-file-count" id="bm-file-count">5 строк</span>
+                    <button type="button" class="bm-btn-clear" id="bm-file-clear" title="Убрать файл">×</button>
+                  </div>
+                  <!-- Выбор листа (показывается если листов > 1) -->
+                  <div class="bm-field" id="bm-sheet-field" style="display:none">
+                    <label class="bm-label">Лист</label>
+                    <select class="bm-select" id="bm-sheet-sel"></select>
+                  </div>
+                  <!-- Строка заголовка -->
+                  <div class="bm-header-row-wrap" id="bm-header-row-field" style="display:none">
+                    <span class="bm-label">Строка заголовка</span>
+                    <select class="bm-select bm-select--compact" id="bm-header-row-sel">
+                      <option value="1">1 (авто)</option>
+                      <option value="2">2</option>
+                      <option value="3">3</option>
+                    </select>
+                  </div>
+                  <!-- Предпросмотр таблицы -->
+                  <div id="bm-preview-block" style="display:none">
+                    <button type="button" class="bm-collapse-btn" id="bm-preview-btn" aria-expanded="false">
+                      <svg class="bm-collapse-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                      Предпросмотр данных
+                    </button>
+                    <div class="bm-collapse-area" id="bm-preview-area" style="display:none">
+                      <div class="bm-tbl-wrap">
+                        <table class="bm-tbl" id="bm-preview-tbl"></table>
+                      </div>
+                      <div class="bm-tbl-more" id="bm-tbl-more"></div>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- ── Блоки 2-6: скрыты до загрузки файла ───────── -->
+                <div id="bm-settings-section" style="display:none">
+
+                  <!-- Блок 2: Получатели -->
+                  <div class="bm-section">
+                    <div class="bm-section-title">Получатели</div>
+                    <div class="bm-field">
+                      <label class="bm-label">Email-колонка</label>
+                      <select class="bm-select" id="bm-email-col"></select>
+                    </div>
+                    <button type="button" class="bm-collapse-btn" id="bm-cc-btn" aria-expanded="false">
+                      <svg class="bm-collapse-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                      + Добавить копию (CC / BCC)
+                    </button>
+                    <div class="bm-collapse-area" id="bm-cc-area" style="display:none">
+                      <div style="display:flex;flex-direction:column;gap:8px;padding-top:4px">
+                        <div class="bm-field">
+                          <label class="bm-label">Копия (CC) <span class="bm-optional">необязательно</span></label>
+                          <input type="text" class="bm-input" id="bm-cc" placeholder="ivan@corp.ru">
+                        </div>
+                        <div class="bm-field">
+                          <label class="bm-label">Скрытая копия (BCC) <span class="bm-optional">необязательно</span></label>
+                          <input type="text" class="bm-input" id="bm-bcc" placeholder="boss@corp.ru">
+                        </div>
+                      </div>
+                    </div>
+                    <div id="bm-channel-block" style="display:none"></div>
+                    <div class="bm-field" id="bm-from-field">
+                      <label class="bm-label">От кого</label>
+                      <select class="bm-select" id="bm-from"></select>
+                    </div>
+                    <div class="bm-field">
+                      <label class="bm-label">Тема письма</label>
+                      <input type="text" class="bm-input" id="bm-subject" placeholder="Уведомление для {{ФИО}}">
+                    </div>
+                    <label class="bm-toggle-row">
+                      <input type="checkbox" id="bm-skip-no-email" checked>
+                      <span class="bm-toggle-label">Пропускать строки без email</span>
+                    </label>
+                  </div>
+
+                  <!-- Блок 3: Плейсхолдеры -->
+                  <div class="bm-section" id="bm-mapping-section">
+                    <div class="bm-section-title">
+                      Плейсхолдеры
+                      <span class="bm-hint" id="bm-mapping-hint"></span>
+                    </div>
+                    <div id="bm-mapping-list"></div>
+                    <div class="bm-no-ph" id="bm-no-ph-hint">
+                      В шаблоне нет <code>{{плейсхолдеров}}</code>
+                    </div>
+                  </div>
+
+                  <!-- Блок 4: Вложения -->
+                  <div class="bm-section">
+                    <label class="bm-attach-toggle-row">
+                      <span class="bm-attach-toggle-lbl">Вложения к письмам</span>
+                      <span class="bm-tog">
+                        <input type="checkbox" id="bm-attach-toggle">
+                        <span class="bm-tog-track"><span class="bm-tog-thumb"></span></span>
+                      </span>
+                    </label>
+                    <div id="bm-attach-content" style="display:none">
+                      <!-- Режим вложений -->
+                      <div class="bm-attach-mode-row">
+                        <label class="bm-radio-label">
+                          <input type="radio" name="bm-attach-mode" value="template" id="bm-attach-mode-tpl" checked>
+                          Шаблон имени
+                        </label>
+                        <label class="bm-radio-label">
+                          <input type="radio" name="bm-attach-mode" value="column" id="bm-attach-mode-col">
+                          Колонка
+                        </label>
+                      </div>
+                      <div class="bm-field">
+                        <label class="bm-label">Папка с файлами</label>
+                        <input type="text" class="bm-input" id="bm-attach-folder" placeholder="C:\Документы\">
+                      </div>
+                      <div class="bm-field" id="bm-attach-tpl-field">
+                        <label class="bm-label">Шаблон имени файла</label>
+                        <input type="text" class="bm-input" id="bm-attach-template" placeholder="{{ФИО}}.pdf">
+                      </div>
+                      <div class="bm-field" id="bm-attach-col-field" style="display:none">
+                        <label class="bm-label">Колонка с именем файла</label>
+                        <select class="bm-select" id="bm-attach-col-sel"></select>
+                      </div>
+                      <div class="bm-field">
+                        <label class="bm-label">Если файл не найден</label>
+                        <select class="bm-select" id="bm-attach-missing">
+                          <option value="skip">Пропустить получателя</option>
+                          <option value="send" selected>Отправить без вложения</option>
+                          <option value="stop">Остановить рассылку</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Блок 5: Сводка рассылки -->
+                  <div class="bm-section" id="bm-summary-section">
+                    <div class="bm-section-title">Сводка рассылки</div>
+                    <div class="bm-sum-card" id="bm-sum-card"></div>
+                    <div id="bm-sum-warns"></div>
+                  </div>
+
+                  <!-- Блок 6: Дополнительные настройки (скрыты за коллапсом) -->
+                  <div class="bm-section">
+                    <button type="button" class="bm-collapse-btn bm-adv-btn" id="bm-adv-btn" aria-expanded="false">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+                      Дополнительные настройки
+                      <svg class="bm-collapse-chevron" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                    </button>
+                    <div class="bm-collapse-area" id="bm-adv-area" style="display:none">
+                      <div style="display:flex;flex-direction:column;gap:10px;padding-top:8px">
+
+                        <!-- Важность письма -->
+                        <div class="bm-field">
+                          <label class="bm-label">Важность письма</label>
+                          <div class="bm-importance-seg" id="bm-importance">
+                            <button type="button" class="bm-imp-btn" data-val="low">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="18 15 12 9 6 15"/></svg>
+                              Низкая
+                            </button>
+                            <button type="button" class="bm-imp-btn bm-imp-active" data-val="normal">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="2"/></svg>
+                              Обычная
+                            </button>
+                            <button type="button" class="bm-imp-btn" data-val="high">
+                              <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"/></svg>
+                              Высокая
+                            </button>
+                          </div>
+                        </div>
+
+                        <!-- Уведомление о прочтении -->
+                        <label class="bm-toggle-row">
+                          <input type="checkbox" id="bm-read-receipt">
+                          <span class="bm-toggle-label">Уведомление о прочтении</span>
+                        </label>
+
+                        <div class="bm-divider-thin"></div>
+
+                        <label class="bm-toggle-row">
+                          <input type="checkbox" id="bm-draft-mode">
+                          <span class="bm-toggle-label">Режим черновиков (не отправлять)</span>
+                        </label>
+                        <label class="bm-toggle-row">
+                          <input type="checkbox" id="bm-stop-on-error">
+                          <span class="bm-toggle-label">Остановить при первой ошибке</span>
+                        </label>
+                        <div class="bm-field">
+                          <label class="bm-label">Пауза между письмами</label>
+                          <select class="bm-select" id="bm-delay">
+                            <option value="0">Без паузы</option>
+                            <option value="1">1 секунда</option>
+                            <option value="3">3 секунды</option>
+                            <option value="5">5 секунд</option>
+                            <option value="10">10 секунд</option>
+                          </select>
+                        </div>
+                        <div class="bm-field">
+                          <label class="bm-toggle-row" style="margin-bottom:4px">
+                            <input type="checkbox" id="bm-schedule-toggle">
+                            <span class="bm-toggle-label">Отложенная отправка</span>
+                          </label>
+                          <div id="bm-send-at-wrapper" style="display:none"></div>
+                          <input type="hidden" id="bm-send-at">
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- Кнопки отправки -->
+                  <div class="bm-section bm-actions-section">
+                    <button type="button" class="bm-btn-secondary" id="bm-test-btn">
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8"/><rect x="3" y="6" width="18" height="12" rx="2"/></svg>
+                      Тестовое письмо себе
+                    </button>
+                  </div>
+
+                </div><!-- /bm-settings-section -->
+
+                <!-- ── Блок 7: Отчёт (показывается во время/после отправки) -->
+                <div id="bm-progress-section" style="display:none">
+                  <!-- Прогресс-бар + кнопка отмены -->
+                  <div class="bm-progress-header">
+                    <div class="bm-progress-bar">
+                      <div class="bm-progress-fill" id="bm-progress-fill"></div>
+                    </div>
+                    <button type="button" class="bm-btn-cancel" id="bm-cancel-btn" title="Остановить рассылку">✕</button>
+                  </div>
+                  <!-- Список результатов -->
+                  <div class="bm-progress-list" id="bm-progress-list"></div>
+                  <!-- Итоговая статистика -->
+                  <div class="bm-progress-summary" id="bm-progress-summary" style="display:none">
+                    <span class="bm-badge-ok"  id="bm-progress-ok"></span>
+                    <span class="bm-badge-skip" id="bm-progress-skip" style="display:none"></span>
+                    <span class="bm-badge-err"  id="bm-progress-err"  style="display:none"></span>
+                  </div>
+                  <!-- Действия после отправки -->
+                  <div class="bm-post-actions" id="bm-post-actions" style="display:none">
+                    <button type="button" class="bm-btn-ghost bm-btn-sm" id="bm-retry-btn">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 102.13-9.36L1 10"/></svg>
+                      Повторить ошибки
+                    </button>
+                    <button type="button" class="bm-btn-ghost bm-btn-sm" id="bm-export-btn">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                      Экспорт CSV
+                    </button>
+                  </div>
+                </div><!-- /bm-progress-section -->
+
+              </div><!-- /bm-accordion-body -->
+            </div><!-- /bm-accordion -->
+
+          </div><!-- /editor-sidebar-body -->
         </aside>
 
         <main class="editor-main">
@@ -228,8 +525,19 @@
               <span class="editor-pill">Шаблон: <span id="current-template-name-context">Новое письмо</span></span>
               <span class="editor-pill" id="editor-status-pill">Статус: Черновик</span>
             </div>
+            <!-- Навигация строк рассылки (скрыта по умолчанию) -->
+            <div class="bm-row-nav" id="bm-row-nav" style="display:none" aria-label="Навигация по строкам рассылки">
+              <button type="button" class="bm-row-nav-btn" id="bm-row-prev" title="Предыдущая строка">‹</button>
+              <span class="bm-row-nav-info" id="bm-row-info">Строка 1 из 5</span>
+              <button type="button" class="bm-row-nav-btn" id="bm-row-next" title="Следующая строка">›</button>
+              <span class="bm-row-nav-sep"></span>
+              <span class="bm-row-nav-name" id="bm-row-name"></span>
+              <span class="bm-row-nav-email" id="bm-row-email"></span>
+            </div>
           </div>
-          <div class="editor-canvas-area">
+          <div class="editor-canvas-area" style="position:relative">
+            <!-- Плавающий баннер предупреждений текущей строки -->
+            <div class="bm-row-warns" id="bm-row-warns" style="display:none"></div>
             <div id="user-canvas" class="user-canvas">
               <!-- Блоки шаблона рендерятся здесь -->
             </div>
@@ -355,22 +663,36 @@
     <!-- Модальное окно выбора картинки -->
     <div id="image-editor-modal" class="modal" style="display: none;">
       <div class="modal-overlay"></div>
-      <div class="modal-content modal-small">
+      <div class="modal-content modal-medium">
         <div class="modal-header">
           <h2>Настройки картинки</h2>
           <button class="modal-close">&times;</button>
         </div>
         <div class="modal-body">
-          <div class="form-group">
-            <label>Изображение</label>
-            <button type="button" class="btn-secondary" id="btn-change-image" style="width:100%;">
-              📁 Выбрать файл
-            </button>
-            <div id="image-preview-thumb" style="margin-top:8px; text-align:center; display:none;">
-              <img id="image-thumb-img" src="" style="max-width:100%; max-height:120px; border-radius:6px;">
+          <!-- Вкладки -->
+          <div class="toggle-buttons" id="image-tab-buttons" style="margin-bottom:12px;">
+            <button class="toggle-btn active" data-tab="upload">📁 Загрузить</button>
+            <button class="toggle-btn" data-tab="presets" id="image-tab-presets-btn">🖼 Готовые</button>
+          </div>
+
+          <!-- Вкладка: загрузить -->
+          <div id="image-tab-upload">
+            <div class="form-group">
+              <button type="button" class="btn-secondary" id="btn-change-image" style="width:100%;">
+                📁 Выбрать файл
+              </button>
+              <div id="image-preview-thumb" style="margin-top:8px; text-align:center; display:none;">
+                <img id="image-thumb-img" src="" style="max-width:100%; max-height:120px; border-radius:6px;">
+              </div>
             </div>
           </div>
-          <div class="form-group">
+
+          <!-- Вкладка: готовые -->
+          <div id="image-tab-presets" style="display:none;">
+            <div id="image-presets-grid" style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px;max-height:320px;overflow-y:auto;"></div>
+          </div>
+
+          <div class="form-group" style="margin-top:10px;">
             <label>Ссылка (необязательно)</label>
             <input type="url" id="image-url-input" placeholder="https://...">
           </div>
@@ -438,7 +760,16 @@
           <!-- Номер начала (для нумерованного) -->
           <div class="form-group" id="start-number-group" style="display: none;">
             <label>Начать с номера</label>
-            <input type="number" id="list-start-number" min="1" max="99" value="1">
+            <input type="number" id="list-start-number" min="0" max="99" value="1">
+          </div>
+
+          <!-- Формат номера (для нумерованного) -->
+          <div class="form-group" id="number-format-group" style="display: none;">
+            <label>Формат номера</label>
+            <div class="toggle-buttons">
+              <button class="toggle-btn active" data-format="padded">01 02 03</button>
+              <button class="toggle-btn" data-format="plain">1 2 3</button>
+            </div>
           </div>
 
           <!-- Выбор иконки буллета -->
@@ -761,6 +1092,22 @@
 
   </div>
 
+  <!-- Редактор свободного блока -->
+  <div id="canvas-editor-modal" class="modal" style="display:none;">
+    <div class="modal-overlay"></div>
+    <div class="modal-content modal-small" style="max-height:85vh;display:flex;flex-direction:column;">
+      <div class="modal-header">
+        <h2>Свободный блок</h2>
+        <button class="modal-close">&times;</button>
+      </div>
+      <div class="modal-body" id="canvas-editor-body" style="flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:14px;">
+      </div>
+      <div class="modal-footer">
+        <button id="btn-apply-canvas" class="btn-primary">Применить</button>
+      </div>
+    </div>
+  </div>
+
   <div id="banner-color-modal" class="modal banner-color-modal" style="display:none;">
     <div class="modal-overlay"></div>
     <div class="modal-content banner-color-modal__content">
@@ -776,18 +1123,7 @@
     </div>
   </div>
 
-  <!-- Модалка -->
-  <div id="modal-bulk-mail" class="exc-modal-overlay" style="display:none">
-    <div class="exc-modal" style="width:95vw;max-width:1200px;height:90vh;display:flex;flex-direction:column;padding:0">
-      <div class="exc-modal-header" style="flex-shrink:0">
-        <span class="exc-modal-title">Массовая рассылка</span>
-        <button class="exc-modal-close" onclick="closeBulkMail()">×</button>
-      </div>
-      <iframe id="bulk-mail-frame" src="bulk-mail-prototype.html"
-        style="flex:1;border:none;border-radius:0 0 12px 12px">
-      </iframe>
-    </div>
-  </div>
+  <!-- Старый iframe-модал рассылки заменён панелью в сайдбаре (bulk-mail-panel.js) -->
 
   <!-- Подключение скриптов -->
   <script src="js/vendor/html2canvas.min.js"></script>
@@ -795,11 +1131,18 @@
   <!-- Общие модули -->
   <script src="js/textSanitizer.js"></script>
   <script src="js/toast.js"></script>
+  <script src="js/dateTimePicker.js"></script>
   <script src="js/shared/utils.js"></script>
   <script src="js/shared/favoritesStore.js"></script>
   <script src="js/definitions.js"></script>
   <script src="js/configLoader.js"></script>
+  <script src="js/profileLoader.js"></script>
   <script src="js/state.js"></script>
+  <script src="js/capabilityRegistry.js"></script>
+  <script src="js/capabilities/background.js"></script>
+  <script src="js/capabilities/border.js"></script>
+  <script src="js/capabilities/clickable.js"></script>
+  <script src="js/capabilities/free.js"></script>
   <script src="js/blockDefaults.js"></script>
   <script src="js/templatesAPI.js"></script>
   <script src="js/imageRenderers.js"></script>
@@ -808,6 +1151,7 @@
   <script src="js/outlookIntegration.js"></script>
   <script src="js/buttonAutoStyle.js"></script>
   <script src="js/settings/bannerSettings.js"></script>
+  <script src="js/settings/canvasBlockSettings.js"></script>
   <script src="js/colorPicker.js"></script>
 
   <!-- User-специфичные модули -->
@@ -819,6 +1163,7 @@
   <script src="js/shared/emailHistoryStore.js"></script>
   <script src="js/user/exchangeModals.js"></script>
   <!-- <script src="js/user/bulk-mail.js"></script> -->
+  <script src="js/user/bulk-mail-panel.js"></script>
 
   <!-- Переключатель режима: фиксированная позиция, виден только при can_switch -->
   <button id="mode-switch-widget" class="mode-toggle-btn" type="button" hidden title="Режим конструктора">
@@ -833,6 +1178,33 @@
   </button>
 
   <script src="js/userInit.js"></script>
+
+  <!-- ── Модалка подтверждения рассылки ──────────────────────────────────── -->
+  <div id="bm-confirm-modal"
+       style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;z-index:9999;
+              background:rgba(0,0,0,.65);
+              align-items:center;justify-content:center;">
+    <div style="background:#1e293b;border:1px solid #334155;
+                border-radius:12px;padding:24px;width:420px;max-width:90vw;
+                display:flex;flex-direction:column;gap:16px;
+                box-shadow:0 20px 60px rgba(0,0,0,.5);">
+      <div style="font-size:15px;font-weight:700;color:#f1f5f9" id="bm-confirm-title">Подтверждение рассылки</div>
+      <div style="font-size:13px;color:#94a3b8;line-height:1.6" id="bm-confirm-body"></div>
+      <div id="bm-confirm-warns" style="display:flex;flex-direction:column;gap:6px"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:4px">
+        <button id="bm-confirm-cancel"
+                style="height:36px;padding:0 16px;background:transparent;border:1px solid #334155;
+                       border-radius:8px;color:#94a3b8;font-size:13px;cursor:pointer;font-family:inherit;">
+          Отмена
+        </button>
+        <button id="bm-confirm-ok"
+                style="height:36px;padding:0 20px;background:#7700ff;border:none;border-radius:8px;
+                       color:#fff;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">
+          <span id="bm-confirm-ok-label">Отправить</span>
+        </button>
+      </div>
+    </div>
+  </div>
 </body>
 
 </html>

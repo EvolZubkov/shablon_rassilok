@@ -2,6 +2,8 @@
 
 function renderImageSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('image') : [];
 
     const uploadGroup = document.createElement('div');
     uploadGroup.className = 'setting-group';
@@ -21,9 +23,66 @@ function renderImageSettings(container, block) {
     uploadGroup.appendChild(createFileUploadButton('Загрузить изображение', block.id, 'src'));
     container.appendChild(uploadGroup);
 
+    // Пресеты из репозитория
+    const presets = window.PRESET_IMAGES || [];
+    if (presets.length > 0 && !hiddenSettings.includes('presets')) {
+        const presetGroup = document.createElement('div');
+        presetGroup.className = 'setting-group';
+
+        // Аккордеон-заголовок
+        const trigger = document.createElement('div');
+        trigger.style.cssText = 'display:flex;justify-content:space-between;align-items:center;cursor:pointer;user-select:none;padding:4px 0;';
+        const triggerLabel = document.createElement('label');
+        triggerLabel.className = 'setting-label';
+        triggerLabel.style.cssText = 'cursor:pointer;margin:0;';
+        triggerLabel.textContent = 'Готовые изображения';
+        const arrow = document.createElement('span');
+        arrow.textContent = '▾';
+        arrow.style.cssText = 'font-size:12px;color:var(--text-muted);transition:transform .2s;';
+        trigger.appendChild(triggerLabel);
+        trigger.appendChild(arrow);
+        presetGroup.appendChild(trigger);
+
+        // Тело аккордеона
+        const body = document.createElement('div');
+        body.style.cssText = 'display:none;';
+
+        const grid = document.createElement('div');
+        grid.style.cssText = 'display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-top:6px;';
+
+        presets.forEach(item => {
+            const src = item.src.startsWith('/') || item.src.startsWith('http') ? item.src : '/' + item.src;
+            const thumb = document.createElement('div');
+            thumb.style.cssText = `aspect-ratio:1;overflow:hidden;border-radius:6px;cursor:pointer;border:2px solid ${s.src === src ? 'var(--accent-primary)' : 'transparent'};`;
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = item.label || '';
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+            thumb.appendChild(img);
+            thumb.addEventListener('click', () => {
+                updateBlockSetting(block.id, 'src', src);
+                renderSettings();
+            });
+            grid.appendChild(thumb);
+        });
+
+        body.appendChild(grid);
+        presetGroup.appendChild(body);
+
+        trigger.addEventListener('click', () => {
+            const open = body.style.display !== 'none';
+            body.style.display = open ? 'none' : '';
+            arrow.style.transform = open ? '' : 'rotate(-90deg)';
+        });
+
+        container.insertBefore(presetGroup, uploadGroup.nextSibling);
+    }
+
     container.appendChild(createSettingInput('Альтернативный текст', s.alt, block.id, 'alt'));
     container.appendChild(createSettingInput('Ширина (%, px или auto)', s.width, block.id, 'width'));
-    container.appendChild(createSettingSelect('Выравнивание', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
+    if (!hiddenSettings.includes('align')) {
+        container.appendChild(createSettingSelect('Выравнивание', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
+    }
 
     // Скругление углов
     const radiusGroup = document.createElement('div');
@@ -119,7 +178,9 @@ function renderImageSettings(container, block) {
         radiusGroup.appendChild(allInput);
     }
 
-    container.appendChild(radiusGroup);
+    if (!hiddenSettings.includes('borderRadiusAll')) {
+        container.appendChild(radiusGroup);
+    }
 
     // Соотношение сторон
     const aspectRatioOptions = [
@@ -129,6 +190,8 @@ function renderImageSettings(container, block) {
         { value: '3:2', label: '3:2 (фото)' },
         { value: '1:1', label: '1:1 (квадрат)' }
     ];
-    container.appendChild(createSettingSelect('Соотношение сторон', s.aspectRatio || 'original', block.id, 'aspectRatio', aspectRatioOptions));
+    if (!hiddenSettings.includes('aspectRatio')) {
+        container.appendChild(createSettingSelect('Соотношение сторон', s.aspectRatio || 'original', block.id, 'aspectRatio', aspectRatioOptions));
+    }
     container.appendChild(createSettingInput('Ссылка на картинке', s.url || '', block.id, 'url'));
 }

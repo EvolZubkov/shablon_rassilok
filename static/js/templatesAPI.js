@@ -25,6 +25,16 @@ const TemplatesAPI = {
     baseURL: '/api/templates',  // ← БЕЗ http://localhost:XXXX
 
     /**
+     * Current user's identity key (email address).
+     * Set at app startup from Exchange credentials.
+     * Sent as the X-User-Key request header for all personal-template
+     * operations so the backend namespaces each user's templates separately.
+     * Null/empty → backend uses the 'default' slug.
+     * @type {string|null}
+     */
+    userKey: null,
+
+    /**
      * In-memory template data cache.
      * Maps {@code "id:type"} strings to template data objects.
      * Cleared whenever {@link getList} receives new data from the server.
@@ -45,6 +55,11 @@ const TemplatesAPI = {
         this._cache.clear();
     },
 
+    /** @private Returns X-User-Key header object when userKey is set. */
+    _userHeader() {
+        return this.userKey ? { 'X-User-Key': this.userKey } : {};
+    },
+
     /**
      * Fetch the template list from the server.
      *
@@ -58,7 +73,7 @@ const TemplatesAPI = {
      */
     async getList(etag = null) {
         try {
-            const headers = {};
+            const headers = { ...this._userHeader() };
             if (etag) headers['If-None-Match'] = etag;
 
             const response = await fetch(`${this.baseURL}/list`, { headers });
@@ -102,7 +117,8 @@ const TemplatesAPI = {
         const key = `${id}:${type}`;
         if (this._cache.has(key)) return this._cache.get(key);
         try {
-            const response = await fetch(`${this.baseURL}/load?id=${encodeURIComponent(id)}&type=${type}`);
+            const headers = type === 'personal' ? this._userHeader() : {};
+            const response = await fetch(`${this.baseURL}/load?id=${encodeURIComponent(id)}&type=${type}`, { headers });
             if (response.status === 404) {
                 return { notFound: true };
             }
@@ -130,6 +146,7 @@ const TemplatesAPI = {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    ...(type === 'personal' ? this._userHeader() : {}),
                 },
                 body: JSON.stringify({
                     name: name,
@@ -165,7 +182,7 @@ const TemplatesAPI = {
         try {
             const response = await fetch(`${this.baseURL}/update`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...(type === 'personal' ? this._userHeader() : {}) },
                 body: JSON.stringify({ id, type, blocks, preview }),
             });
             const data = await response.json();
@@ -190,7 +207,7 @@ const TemplatesAPI = {
         try {
             const response = await fetch(
                 `${this.baseURL}/delete?id=${encodeURIComponent(id)}&type=${type}`,
-                { method: 'DELETE' }
+                { method: 'DELETE', headers: type === 'personal' ? this._userHeader() : {} }
             );
             const data = await response.json();
             if (data.success) {
