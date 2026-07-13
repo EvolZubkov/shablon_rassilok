@@ -25,6 +25,9 @@ const EMAIL_THEME = {
 const EMAIL_PREVIEW_THEME_STORAGE_KEY = 'email-builder-email-preview-theme';
 
 let CURRENT_EMAIL_RENDER_CONTEXT = null;
+// Эффективная ширина контентной колонки во время генерации письма.
+// Устанавливается в generateEmailHTML() с учётом padding (3-колонный layout).
+let _emailContentWidth = LAYOUT.TABLE_WIDTH;
 
 const EmailPreviewTheme = {
     LIGHT: EMAIL_THEME.LIGHT,
@@ -442,19 +445,38 @@ ${buildEmailThemeStyles()}
     // Генерируем HTML блоков
     const _cp = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
         ? ProfileLoader.getContentPadding() : 27;
+    const _innerW = TABLE_WIDTH - _cp * 2;
+    // Устанавливаем контекстную ширину для generateColumnsHTML
+    _emailContentWidth = _cp > 0 ? _innerW : TABLE_WIDTH;
     AppState.blocks.forEach(block => {
         const blockHtml = generateBlockHTML(block);
-        // Баннер — без отступа (полная ширина). Остальные — обёртка с отступом.
-        if (block.type === 'banner' || _cp === 0) {
+        // Баннер — полная ширина.
+        // Остальные — симметричный отступ через 3 колонки (CSS padding игнорируется Outlook).
+        if (block.type === 'banner' || block.type === 'divider') {
+            // Баннер и разделитель — полная ширина (их img имеет width=TABLE_WIDTH).
+            // При 3-колоночной раскладке первый <td> должен охватить все 3 колонки.
+            html += (_cp > 0)
+                ? blockHtml.replace(/(<td\b)/, '$1 colspan="3"')
+                : blockHtml;
+            return;
+        }
+        if (_cp === 0) {
             html += blockHtml;
         } else {
-            html += `<tr><td style="padding:0 0 0 ${_cp}px;">
-  <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
-    ${blockHtml}
-  </table>
-</td></tr>`;
+            html += `<tr>
+  <td width="${_cp}" style="width:${_cp}px;min-width:${_cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+  <td width="${_innerW}" style="width:${_innerW}px;padding:0;">
+    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${_innerW}" style="width:${_innerW}px;">
+      ${blockHtml}
+    </table>
+  </td>
+  <td width="${_cp}" style="width:${_cp}px;min-width:${_cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+</tr>`;
         }
     });
+
+    // Сбрасываем контекстную ширину
+    _emailContentWidth = LAYOUT.TABLE_WIDTH;
 
     html += `
     </table>
@@ -719,7 +741,11 @@ function generateListHTML(s) {
         if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
             bulletHTML = `<img src="${s.renderedBullets[index]}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block;">`;
         } else {
-            const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || '');
+            let bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || '');
+            // Relative paths don't resolve inside srcdoc iframes — make absolute
+            if (bulletSrc && !bulletSrc.startsWith('data:') && !bulletSrc.startsWith('http') && !bulletSrc.startsWith('/')) {
+                bulletSrc = window.location.origin + '/' + bulletSrc;
+            }
             const numberFontSize = Math.max(10, Math.round(bulletSize * 0.3));
 
             const baseBullet = bulletSrc
@@ -970,9 +996,10 @@ function generateColumnsHTML(block) {
 
     const columnsContent = block.columns.map((column, index) => {
         const columnBlocks = column.blocks.map(childBlock => generateBlockHTML(childBlock)).join('');
-        const width = Math.round(LAYOUT.TABLE_WIDTH * column.width / 100);
+        // _emailContentWidth учитывает padding (3-колонный layout) при генерации письма
+        const width = Math.round(_emailContentWidth * column.width / 100);
 
-        console.log(`[COLUMNS] Column ${index}: width=${column.width}% -> ${width}px`);
+        console.log(`[COLUMNS] Column ${index}: width=${column.width}% -> ${width}px (contentW=${_emailContentWidth})`);
 
         // Определяем padding для каждой колонки
         let paddingLeft = 0;
