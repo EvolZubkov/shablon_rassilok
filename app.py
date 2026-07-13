@@ -1851,6 +1851,44 @@ _config_cache_data  = None   # last successfully parsed config dict
 _config_cache_mtime = None   # os.path.getmtime() value at the time of last read
 
 
+def _load_builtin_config() -> dict:
+    """Return the built-in config.json (ships with the app) as a dict, or {}."""
+    builtin_path = os.path.join(BUILTIN_DIR, 'config.json')
+    try:
+        with open(builtin_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _merge_builtin_defaults(config: dict) -> dict:
+    """
+    Fill in missing or empty list fields from the built-in config.json.
+
+    The cache/network config may be empty or have blank lists (e.g. when the
+    network resource catalog was created without bullet definitions).  The
+    built-in config ships with the app and provides fallback entries that
+    include ``id`` fields required for bullet/icon type matching on the
+    frontend.  Cache values win when non-empty; builtin fills the gaps.
+    """
+    builtin = _load_builtin_config()
+    if not builtin:
+        return config
+    result = dict(config)
+    for key, builtin_val in builtin.items():
+        if key not in result:
+            result[key] = builtin_val
+        elif isinstance(builtin_val, list) and not result[key]:
+            # Cache has an empty list — use builtin entries as defaults
+            result[key] = builtin_val
+        elif isinstance(builtin_val, dict) and isinstance(result.get(key), dict):
+            # Shallow-merge dicts (e.g. "icons": {"important": [...]})
+            for sub_key, sub_val in builtin_val.items():
+                if sub_key not in result[key] or (isinstance(sub_val, list) and not result[key][sub_key]):
+                    result[key][sub_key] = sub_val
+    return result
+
+
 def load_config():
     """
     Load config.json from the local cache (fast path) or from the network share
@@ -1866,6 +1904,10 @@ def load_config():
     :func:`initialize_cache` on startup, so reading from the network on
     every API call is unnecessary and causes visible latency on Linux FUSE
     mounts (kio-fuse / gvfs).
+
+    Missing or empty list fields are filled in from the built-in config.json
+    so that entries like bullet type ``id`` fields are always available even
+    when the network catalog does not define them.
     """
     global _config_cache_data, _config_cache_mtime
 
@@ -1881,6 +1923,7 @@ def load_config():
                     return dict(_config_cache_data)  # shallow copy — safe for read-only callers
             with open(cache_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            config = _merge_builtin_defaults(config)
             with _config_cache_lock:
                 _config_cache_data  = config
                 _config_cache_mtime = mtime
@@ -1893,6 +1936,7 @@ def load_config():
         try:
             with open(network_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            config = _merge_builtin_defaults(config)
             _logger.info('Config.json загружен с сервера (кеш отсутствовал)')
             os.makedirs(os.path.dirname(cache_config_path), exist_ok=True)
             with open(cache_config_path, 'w', encoding='utf-8') as f:
@@ -1902,7 +1946,7 @@ def load_config():
             _logger.warning('Ошибка чтения config.json с сервера: %s', e)
 
     _logger.error('Не удалось загрузить config.json!')
-    return {"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []}
+    return _merge_builtin_defaults({"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []})
 
 # ============================================================================
 # ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ И ШРИФТОВ
