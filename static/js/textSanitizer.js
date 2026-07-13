@@ -137,10 +137,13 @@ const TextSanitizer = (() => {
         // Markdown жирный **текст**
         text = text.replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>');
 
-        // Markdown ссылки [текст](url)
+        // Markdown ссылки [текст](url) — поддерживает голые URL без протокола
         text = text.replace(
-            /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
-            '<a href="$2">$1</a>'
+            /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+|[a-zA-Z0-9][^\s)]*\.[a-zA-Z]{2,}[^\s)]*)\)/g,
+            (_, linkText, url) => {
+                const href = /^(https?:\/\/|mailto:)/i.test(url) ? url : `https://${url}`;
+                return `<a href="${href}">${linkText}</a>`;
+            }
         );
 
         // Авто-ссылки http(s)://...
@@ -463,9 +466,13 @@ const TextSanitizer = (() => {
 
         // Convert markdown links [text](url) → <a href="url">text</a>
         // Handles legacy plain-text content stored without prior sanitize() call
+        // Supports bare URLs without protocol (auto-prepends https://)
         html = html.replace(
-            /\[([^\]]+)\]\((https?:\/\/[^\s)]+|mailto:[^\s)]+)\)/g,
-            '<a href="$2">$1</a>'
+            /\[([^\]]+)\]\(((?:https?:\/\/|mailto:)[^\s)]+|[a-zA-Z0-9][^\s)]*\.[a-zA-Z]{2,}[^\s)]*)\)/g,
+            (_, linkText, url) => {
+                const href = /^(https?:\/\/|mailto:)/i.test(url) ? url : `https://${url}`;
+                return `<a href="${href}">${linkText}</a>`;
+            }
         );
 
         // Auto-link bare email addresses not already inside an <a> tag

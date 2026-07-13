@@ -133,6 +133,7 @@ function createBlockContent(block) {
             ? ProfileLoader.getContentPadding() : 27;
         if (cp > 0) {
             content.style.paddingLeft = `${cp}px`;
+            content.style.paddingRight = `${cp}px`;
         }
     }
     content.innerHTML = block.columns ? renderColumnsPreview(block) : renderBlockPreviewReal(block);

@@ -58,86 +58,6 @@
     }
   ],
   "bannerBackgrounds": [
-    {
-      "id": "bg1",
-      "src": "banner-backgrounds/vacan.png",
-      "label": "Вакансии"
-    },
-    {
-      "id": "bg2",
-      "src": "banner-backgrounds/vatrush.png",
-      "label": "Ватрушка"
-    },
-    {
-      "id": "bg3",
-      "src": "banner-backgrounds/dialog.png",
-      "label": "Диалог"
-    },
-    {
-      "id": "bg4",
-      "src": "banner-backgrounds/info_1.png",
-      "label": "Инфо 1"
-    },
-    {
-      "id": "bg5",
-      "src": "banner-backgrounds/info_2.png",
-      "label": "Инфо 2"
-    },
-    {
-      "id": "bg6",
-      "src": "banner-backgrounds/calendar.png",
-      "label": "Календарь"
-    },
-    {
-      "id": "bg7",
-      "src": "banner-backgrounds/list_osnack.png",
-      "label": "Лист"
-    },
-    {
-      "id": "bg8",
-      "src": "banner-backgrounds/merop_1.png",
-      "label": "Мероприятие 1"
-    },
-    {
-      "id": "bg9",
-      "src": "banner-backgrounds/merop_2.png",
-      "label": "Мероприятие 2"
-    },
-    {
-      "id": "bg10",
-      "src": "banner-backgrounds/opoveschen.png",
-      "label": "Оповещение"
-    },
-    {
-      "id": "bg11",
-      "src": "banner-backgrounds/happy.png",
-      "label": "Поздравление"
-    },
-    {
-      "id": "bg12",
-      "src": "banner-backgrounds/rupor.png",
-      "label": "Рупор"
-    },
-    {
-      "id": "bg13",
-      "src": "banner-backgrounds/sam.png",
-      "label": "Самолёт"
-    },
-    {
-      "id": "bg14",
-      "src": "banner-backgrounds/sport_1.png",
-      "label": "Спорт 1"
-    },
-    {
-      "id": "bg15",
-      "src": "banner-backgrounds/sport_2.png",
-      "label": "Спорт 2"
-    },
-    {
-      "id": "bg16",
-      "src": "banner-backgrounds/hlopushka.png",
-      "label": "Хлопушка"
-    }
   ],
   "bannerLogos": [
     {
@@ -297,13 +217,23 @@
   "bullets": [
     {
       "id": "circle",
-      "src": "bullets/Ellipse_1.png",
-      "label": "Эллипс_1"
+      "src": "bullets/Буллет.png",
+      "label": "Буллет 1"
     },
     {
       "id": "circle2",
-      "src": "bullets/Ellipse_2.png",
-      "label": "Эллипс_2"
+      "src": "bullets/Буллет 2.png",
+      "label": "Буллет 2"
+    },
+    {
+      "id": "circle3",
+      "src": "bullets/Буллет 3.png",
+      "label": "Буллет 3"
+    },
+    {
+      "id": "circle4",
+      "src": "bullets/Буллет 4.png",
+      "label": "Буллет 4"
     }
   ],
   "buttonIcons": [
