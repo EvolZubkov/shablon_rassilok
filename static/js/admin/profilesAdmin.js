@@ -142,6 +142,21 @@ const ProfilesAdmin = (() => {
             hideable: [],
             caps: [],
         },
+        {
+            type: 'table', label: 'Таблица', icon: '📊', desc: 'Градиентная плашка-заголовок + карточка с данными на едином фоне',
+            defaults: [
+                { key: 'titleGradientStart', label: 'Градиент: начало', type: 'color' },
+                { key: 'titleGradientEnd',   label: 'Градиент: конец',  type: 'color' },
+                { key: 'containerBg',        label: 'Фон карточки',     type: 'color' },
+                { key: 'headerTextColor',    label: 'Цвет текста шапки', type: 'color' },
+                { key: 'textColor',          label: 'Цвет текста ячеек', type: 'color' },
+                { key: 'dividerColor',       label: 'Цвет grid-линий',  type: 'color' },
+                { key: 'linkColor',          label: 'Цвет ссылок',      type: 'color' },
+                { key: 'fontSize',           label: 'Размер шрифта',    type: 'range', min: 10, max: 24, unit: 'px' },
+            ],
+            hideable: ['titleGradientStart', 'titleGradientEnd', 'containerBg', 'headerTextColor', 'textColor', 'dividerColor', 'linkColor', 'fontSize'],
+            caps: [],
+        },
     ];
 
     const CAPABILITIES = [

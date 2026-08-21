@@ -158,4 +158,38 @@ function renderColumnsSettings(container, block) {
     if (bgCap && bgCap.renderSettings) {
         bgCap.renderSettings(container, block);
     }
+
+    // Full-width фон: только цвет подложки растягивается на всю ширину письма (600px),
+    // сами колонки остаются на текущей позиции (с боковым contentPadding, как обычно).
+    if (block.settings.bgEnabled !== false && block.settings.bgColor) {
+        const fwGroup = document.createElement('div');
+        fwGroup.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:8px;margin-top:8px;';
+
+        const fwLabel = document.createElement('label');
+        fwLabel.className = 'setting-label';
+        fwLabel.textContent = 'Фон на всю ширину (600px)';
+        fwLabel.style.cssText = 'margin:0;';
+        fwGroup.appendChild(fwLabel);
+
+        const fwEnabled = !!block.settings.bgFullWidth;
+        const fwBtn = document.createElement('button');
+        fwBtn.type = 'button';
+        fwBtn.title = fwEnabled ? 'Отключить растягивание фона' : 'Растянуть фон на всю ширину';
+        fwBtn.textContent = fwEnabled ? 'Вкл' : 'Выкл';
+        fwBtn.style.cssText = `
+            flex-shrink:0; padding:2px 8px; border-radius:4px; cursor:pointer;
+            font-size:10px; font-weight:600; letter-spacing:.04em; text-transform:uppercase;
+            border:1px solid ${fwEnabled ? 'var(--accent-primary)' : 'var(--border-secondary)'};
+            background:${fwEnabled ? 'var(--accent-primary)' : 'var(--bg-hover)'};
+            color:${fwEnabled ? '#fff' : 'var(--text-muted)'};
+        `;
+        fwBtn.addEventListener('click', () => {
+            updateBlockSetting(block.id, 'bgFullWidth', !fwEnabled);
+            renderCanvas();
+            renderSettings();
+        });
+        fwGroup.appendChild(fwBtn);
+
+        container.appendChild(fwGroup);
+    }
 }

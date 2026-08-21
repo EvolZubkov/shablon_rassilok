@@ -1,6 +1,6 @@
 {
   "name": "email-builder",
-  "version": "2.2.4",
+  "version": "2.3.1",
   "private": true,
   "scripts": {
     "test": "vitest run tests/app.test.js",

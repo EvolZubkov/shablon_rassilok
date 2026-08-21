@@ -10,6 +10,7 @@
     "important": { "enabled": true,  "capabilities": [] },
     "divider":   { "enabled": true,  "capabilities": [] },
     "image":     { "enabled": true,  "capabilities": [] },
-    "spacer":    { "enabled": true,  "capabilities": [] }
+    "spacer":    { "enabled": true,  "capabilities": [] },
+    "table":     { "enabled": true,  "capabilities": [] }
   }
 }
