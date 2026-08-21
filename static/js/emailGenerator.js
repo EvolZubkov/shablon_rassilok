@@ -452,8 +452,13 @@ ${buildEmailThemeStyles()}
         const blockHtml = generateBlockHTML(block);
         // Баннер — полная ширина.
         // Остальные — симметричный отступ через 3 колонки (CSS padding игнорируется Outlook).
-        if (block.type === 'banner' || block.type === 'divider') {
-            // Баннер и разделитель — полная ширина (их img имеет width=TABLE_WIDTH).
+        const isFullWidthColumns = block.type === 'columns_container'
+            && block.settings?.bgEnabled !== false
+            && block.settings?.bgColor
+            && block.settings?.bgFullWidth;
+        if (block.type === 'banner' || block.type === 'divider' || isFullWidthColumns) {
+            // Баннер, разделитель и колонки с full-width фоном — полная ширина
+            // (их HTML уже сам компенсирует боковой отступ изнутри при необходимости).
             // При 3-колоночной раскладке первый <td> должен охватить все 3 колонки.
             html += (_cp > 0)
                 ? blockHtml.replace(/(<td\b)/, '$1 colspan="3"')
@@ -516,6 +521,11 @@ async function convertBlockImages(block) {
         s.renderedBanner = await convertBase64ToUrl(s.renderedBanner, 'banner');
     }
 
+    // Таблица (плашка-заголовок)
+    if (block.type === 'table' && s.renderedTitleBar) {
+        s.renderedTitleBar = await convertBase64ToUrl(s.renderedTitleBar, 'table_title');
+    }
+
     // Кнопка
     if (block.type === 'button' && s.renderedButton) {
         s.renderedButton = await convertBase64ToUrl(s.renderedButton, 'button');
@@ -572,6 +582,7 @@ function generateBlockHTML(block) {
         case 'image':     html = generateImageHTML(s);     break;
         case 'spacer':    html = generateSpacerHTML(s);    break;
         case 'canvas':    html = generateCanvasBlockHTML(s); break;
+        case 'table':     html = generateTableHTML(s);     break;
         default:          html = '';
     }
     return CapabilityRegistry.applyWrappers(html, block, 'email');
@@ -787,6 +798,202 @@ function generateListHTML(s) {
             <td style="${getPadding()}">
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%">
                     ${listItems}
+                </table>
+            </td>
+        </tr>
+    `;
+}
+
+/**
+ * Генерирует HTML блока "Таблица" — карточка на едином фоне (containerBg) с
+ * плашкой-заголовком (растрирована в PNG на клиенте, т.к. Outlook не
+ * поддерживает CSS-градиенты — см. imageRenderers.js renderTableTitleToDataUrl)
+ * и данными ниже: ячейки БЕЗ собственной заливки.
+ *
+ * Grid-линии:
+ *  - горизонтальные — отдельная «строка-разделитель» (вложенная 1×1 таблица
+ *    высотой 1-2px) с padding по бокам — так линия не доходит до краёв
+ *    карточки, надёжно работает и в Outlook (в отличие от ::before/::after).
+ *  - вертикальные — border-right прямо на ячейке, во всю высоту строки.
+ *    Сделать её "не доходящей" до верха/низа ячейки в table-based email
+ *    не получится надёжно для Outlook (нет прямого аналога absolute+inset
+ *    для переменной высоты строки) — в конструкторе/предпросмотре линия
+ *    отрисована с отступом как в референсе, в письме — во всю высоту.
+ */
+function generateTableHTML(s) {
+    if (!s) return '';
+
+    const ctx = getCurrentEmailRenderContext();
+    const columns = s.columns || [];
+    const rows = s.rows || [];
+    const widths = (Array.isArray(s.columnWidths) && s.columnWidths.length === columns.length)
+        ? s.columnWidths
+        : columns.map(() => Math.round(100 / (columns.length || 1)));
+    const fontFamily = resolveTextFontFamily(s);
+    const lineHeight = s.lineHeight || 1.5;
+    // Единый коэффициент уменьшения шрифта на случай, если в какой-то
+    // ячейке есть "слово" без пробелов длиннее своей колонки — Outlook
+    // ненадёжно переносит такие слова (word-break/overflow-wrap ниже он
+    // может игнорировать), из-за чего колонка/таблица раздувается за
+    // пределы письма. Коэффициент один на всю таблицу — оба размера
+    // шрифта уменьшаются пропорционально, не по отдельным ячейкам.
+    const fontScale = (typeof computeTableFontScale === 'function')
+        ? computeTableFontScale(s, _emailContentWidth)
+        : 1;
+    const fontSize = Math.round((s.fontSize || 15) * fontScale);
+    const headerFontSize = Math.round((s.headerFontSize || 18) * fontScale);
+    const cellPaddingV = s.cellPaddingV ?? 22;
+    const cellPaddingH = s.cellPaddingH ?? 40;
+    const dividerColor = s.dividerColor || '#FFFFFF';
+    const containerBg = s.containerBg || '#EBF1F6';
+    const containerRadius = s.containerRadius ?? 28;
+    const linkColor = s.linkColor || '#475569';
+    const cellTextAlign = ['left', 'center', 'right'].includes(s.cellTextAlign) ? s.cellTextAlign : 'left';
+
+    // insertTableBreakOpportunities вставляет невидимые точки разрыва
+    // внутрь длинных "слов" до санитайзера/HTML-обёртки — см.
+    // blockPreview.js. Без этого CSS word-break/overflow-wrap на <td>
+    // могут не сработать в Outlook (движок Word) для контента без явных
+    // точек разрыва, и колонка/таблица раздуется за пределы письма.
+    const renderCell = (value) => {
+        const withBreaks = (typeof insertTableBreakOpportunities === 'function')
+            ? insertTableBreakOpportunities(value)
+            : value;
+        return TextSanitizer.render(
+            typeof withBreaks === 'string' && withBreaks.trim().startsWith('<')
+                ? withBreaks
+                : TextSanitizer.sanitize(withBreaks || '', true),
+            linkColor
+        );
+    };
+
+    // Горизонтальная линия-разделитель, инсетнутая по бокам на cellPaddingH.
+    const dividerRow = (heightPx) => `
+        <tr>
+            <td colspan="${columns.length}" style="padding:0 ${cellPaddingH}px;">
+                <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+                    <tr><td height="${heightPx}" style="height:${heightPx}px; font-size:1px; line-height:${heightPx}px; background-color:${dividerColor};">&nbsp;</td></tr>
+                </table>
+            </td>
+        </tr>`;
+
+    // width="100%" в атрибуте <img> Outlook (движок Word) часто игнорирует и
+    // рендерит картинку по натуральному пиксельному размеру растра — карточка
+    // раздувается за пределы 536px. Нужен пиксельный атрибут width, как у banner.
+    // Ширина равна cardWidth (ширине обеих таблиц карточки, см. ниже) — раньше
+    // тут был запас "-2px" на случай, если Outlook проигнорирует атрибут
+    // width, но теперь у таблиц карточки тоже жёсткий пиксельный width, и
+    // этот запас только создавал видимый шов между плашкой/крышкой и телом
+    // карточки (тело оказывалось на 2px шире).
+    const cardWidth = Math.max(1, Math.round(_emailContentWidth));
+    const titleImgWidth = cardWidth;
+    // Фон этой <td> — ctx.bodyBg (фон страницы письма), не containerBg.
+    // Плашка скруглена по всем 4 углам (см. renderTableTitleToDataUrl):
+    // нижние два угла закрашены containerBg прямо в PNG (задуманный эффект —
+    // полоска карточки выглядывает из-под низа плашки), а верхние два
+    // остаются прозрачными — под ними просвечивает именно фон этой <td>,
+    // то есть фон страницы письма (внешняя верхняя граница карточки).
+    const titleBarHTML = s.renderedTitleBar
+        ? `
+        <tr>
+            <td style="padding:0; line-height:0; font-size:0; background-color:${ctx.bodyBg};">
+                <img src="${s.renderedTitleBar}" alt="" width="${titleImgWidth}" style="${getImageStyle(titleImgWidth, 'width:100%;')}">
+            </td>
+        </tr>`
+        : '';
+
+    // Нижняя "крышка" карточки — растровая полоса со скруглёнными нижними
+    // углами (см. imageRenderers.js renderTableBottomCapToDataUrl). Нужна
+    // потому что Outlook игнорирует CSS border-radius на самой таблице ниже.
+    //
+    // Если крышка ещё не сохранена в settings (старый шаблон, сделанный до
+    // появления этой функции, либо блок ни разу не трогали в панели
+    // "Карточка" после её добавления) — рендерим её здесь же, при экспорте
+    // письма. renderTableBottomCapToDataUrl не грузит внешние картинки, её
+    // callback вызывается синхронно, поэтому results доступен сразу же —
+    // это гарантирует, что крышка есть ВСЕГДА, не полагаясь на то, что
+    // где-то в UI успел сработать нужный триггер перерисовки.
+    let bottomCapSrc = s.renderedBottomCap;
+    if (!bottomCapSrc && containerRadius > 0 && typeof renderTableBottomCapToDataUrl === 'function') {
+        renderTableBottomCapToDataUrl({ settings: s }, (dataUrl) => { bottomCapSrc = dataUrl; });
+    }
+
+    // Фон этой <td> — НЕ containerBg. Крышка сама залита containerBg и
+    // обрезает только нижние углы, оставляя их прозрачными — скругление
+    // видно, только если под вырезом другой цвет. Это внешняя граница
+    // карточки (снизу уже ничего, кроме страницы письма), поэтому под
+    // вырезом должен просвечивать фон страницы (ctx.bodyBg), а не сам
+    // containerBg — иначе вырез сливается с заливкой и угол выглядит
+    // прямым, хотя технически отрисован скруглённым.
+    const bottomCapImgWidth = titleImgWidth;
+    const bottomCapHTML = bottomCapSrc
+        ? `
+        <tr>
+            <td style="padding:0; line-height:0; font-size:0; background-color:${ctx.bodyBg};">
+                <img src="${bottomCapSrc}" alt="" width="${bottomCapImgWidth}" style="${getImageStyle(bottomCapImgWidth, 'width:100%; display:block;')}">
+            </td>
+        </tr>`
+        : '';
+
+    // Padding — прямо на <td>, не на вложенном <div>: Outlook (движок Word)
+    // ненадёжно уважает padding на обычных <div>, особенно левый (см. тот же
+    // приём в dividerRow чуть выше). Раздутие таблицы за 600px, которого
+    // опасался прежний div-приём, тут не грозит: внутренняя таблица уже
+    // на table-layout:fixed — ширина колонок берётся из width% первой
+    // строки, а padding только сокращает доступное место под контент
+    // внутри уже фиксированной ширины ячейки, не раздвигая колонку.
+    // word-break/overflow-wrap: на table-layout:fixed ширина колонки не
+    // растёт от контента, но БЕЗ этих свойств слово без пробелов (длинный
+    // тестовый набор символов, ссылка и т.п.) не переносится и вылезает за
+    // рамки ячейки — обычный перенос по пробелам работает и без этого, а
+    // вот разрыв ВНУТРИ слова нужно включать явно.
+    const wrapStyle = 'word-break:break-word; overflow-wrap:break-word; hyphens:auto;';
+    // Авто-контраст текста под containerBg, если цвет не задан вручную —
+    // тот же приём, что и resolveBlockTextColor() выше для text/heading/list.
+    const headerTextColor = s.headerTextColor || (isLightColorPreview(containerBg) ? '#00204A' : '#ffffff');
+    const bodyTextColor = s.textColor || (isLightColorPreview(containerBg) ? '#334155' : '#ffffff');
+    const headerCellsHTML = columns.map((col, i) => {
+        const isLastCol = i === columns.length - 1;
+        return `
+                <td style="width:${widths[i]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-weight:bold; font-size:${headerFontSize}px; color:${headerTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle}${isLastCol ? '' : ` border-right:2px solid ${dividerColor};`}">
+                    ${renderCell(col)}
+                </td>`;
+    }).join('');
+
+    const bodyRowsHTML = rows.map((row, rowIndex) => {
+        const isLastRow = rowIndex === rows.length - 1;
+        const cellsHTML = columns.map((col, colIndex) => {
+            const isLastCol = colIndex === columns.length - 1;
+            const borderRight = isLastCol ? '' : `border-right:2px solid ${dividerColor};`;
+            return `
+                <td style="width:${widths[colIndex]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-size:${fontSize}px; line-height:${lineHeight}; color:${bodyTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle} ${borderRight}">
+                    ${renderCell(row[colIndex])}
+                </td>`;
+        }).join('');
+        return `<tr>${cellsHTML}</tr>${isLastRow ? '' : dividerRow(1)}`;
+    }).join('');
+
+    // Пиксельный width="${cardWidth}" на обеих таблицах карточки, а не
+    // width="100%" — по той же причине, что и у <img> выше: Outlook
+    // ненадёжно считает вложенные проценты, из-за чего плоская часть
+    // карточки (100%-таблицы) может отрендериться шире/со сдвигом
+    // относительно плашки/крышки (у них жёсткий пиксельный width) и
+    // вылезти за их границы либо продублироваться отдельным слоем фона.
+    return `
+        <tr>
+            <td style="${getPadding()}">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${cardWidth}" style="width:${cardWidth}px;">
+                    ${titleBarHTML}
+                    <tr>
+                        <td style="padding:15px 0 20px; background-color:${containerBg};">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${cardWidth}" style="width:${cardWidth}px; border-collapse:collapse; table-layout:fixed;">
+                                <tr>${headerCellsHTML}</tr>
+                                ${dividerRow(2)}
+                                ${bodyRowsHTML}
+                            </table>
+                        </td>
+                    </tr>
+                    ${bottomCapHTML}
                 </table>
             </td>
         </tr>
@@ -1043,7 +1250,28 @@ function generateColumnsHTML(block) {
         </tr>
     `;
     const bgCap = typeof CapabilityRegistry !== 'undefined' ? CapabilityRegistry.get('background') : null;
-    if (bgCap && bgCap.wrapEmail) return bgCap.wrapEmail(innerRow, block.settings || {});
+    const bgActive = !!(bgCap && bgCap.wrapEmail && s.bgEnabled !== false && s.bgColor);
+
+    if (bgActive && s.bgFullWidth) {
+        // Фон растягивается на всю ширину письма (TABLE_WIDTH), а сами колонки
+        // остаются на текущей позиции: боковой contentPadding переносим внутрь фона —
+        // сам блок выводится с colspan="3" в generateEmailHTML() (как баннер).
+        const cp = Math.round((LAYOUT.TABLE_WIDTH - _emailContentWidth) / 2);
+        const contentRow = cp > 0 ? `
+            <tr>
+                <td width="${cp}" style="width:${cp}px;min-width:${cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+                <td width="${_emailContentWidth}" style="width:${_emailContentWidth}px;padding:0;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${_emailContentWidth}">
+                        ${innerRow}
+                    </table>
+                </td>
+                <td width="${cp}" style="width:${cp}px;min-width:${cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+            </tr>
+        ` : innerRow;
+        return bgCap.wrapEmail(contentRow, s);
+    }
+
+    if (bgActive) return bgCap.wrapEmail(innerRow, s);
     return innerRow;
 }
 

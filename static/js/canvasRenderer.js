@@ -204,6 +204,15 @@ function renderColumnsPreview(block) {
     window._previewParentBg = prevParentBg;
 
     if (s.bgEnabled !== false && s.bgColor) {
+        if (s.bgFullWidth) {
+            // Фон "вырывается" за пределы contentPadding родителя (margin отрицательный),
+            // а колонки остаются на прежней визуальной позиции (компенсируем padding'ом).
+            const cp = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+                ? ProfileLoader.getContentPadding() : 27;
+            return `<div style="background:${s.bgColor};border-radius:${s.bgRadius || 0}px;margin:0 -${cp}px;padding:${s.bgPadding || 0}px ${(s.bgPadding || 0) + cp}px;">
+                <div class="columns-container" style="align-items:${alignItems};">${columnsHTML}</div>
+            </div>`;
+        }
         return `<div style="background:${s.bgColor};border-radius:${s.bgRadius || 0}px;padding:${s.bgPadding || 0}px;">
             <div class="columns-container" style="align-items:${alignItems};">${columnsHTML}</div>
         </div>`;

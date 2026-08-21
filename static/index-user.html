@@ -800,6 +800,56 @@
         </div>
       </div>
     </div>
+    <!-- Модальное окно редактирования таблицы -->
+    <div id="table-editor-modal" class="modal" style="display: none;">
+      <div class="modal-overlay"></div>
+      <div class="modal-content modal-medium">
+        <div class="modal-header">
+          <h2>Настройки таблицы</h2>
+          <button class="modal-close">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- Заголовок плашки -->
+          <div class="form-group">
+            <label>Текст заголовка</label>
+            <input type="text" id="table-title-input" placeholder="Заголовок">
+          </div>
+
+          <!-- Колонки -->
+          <div class="form-group">
+            <label>Колонки</label>
+            <div class="list-items-editor" id="table-columns-editor">
+              <!-- Колонки загружаются динамически -->
+            </div>
+            <button type="button" class="btn-add-item" id="btn-add-table-column">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              Добавить колонку
+            </button>
+          </div>
+
+          <!-- Строки -->
+          <div class="form-group">
+            <label>Строки</label>
+            <div class="list-items-editor" id="table-rows-editor">
+              <!-- Строки загружаются динамически -->
+            </div>
+            <button type="button" class="btn-add-item" id="btn-add-table-row">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <line x1="12" y1="5" x2="12" y2="19"></line>
+                <line x1="5" y1="12" x2="19" y2="12"></line>
+              </svg>
+              Добавить строку
+            </button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btn-apply-table" class="btn-primary">Применить</button>
+        </div>
+      </div>
+    </div>
     <!-- Модальное окно выбора разделителя -->
     <div id="divider-editor-modal" class="modal" style="display: none;">
       <div class="modal-overlay"></div>
