@@ -228,6 +228,7 @@ function renderUserCanvas() {
 
     // Инициализируем inline-редактирование
     initInlineEditing();
+    _adjustListMarkerIndents();
     window.updateUserEditorMeta?.();
 
     // Рендерим canvas-блоки у которых есть элементы но нет PNG
@@ -486,7 +487,8 @@ function renderUserSingleBlock(block) {
  * Рендер блока с колонками
  */
 function renderUserColumnsBlock(block) {
-    const gap = block.settings?.columnGap ?? 10;
+    const s = block.settings || {};
+    const gap = s.columnGap ?? 10;
 
     const columnsHTML = block.columns.map((column, index) => {
         const columnBlocks = column.blocks.map(childBlock => {
@@ -500,11 +502,20 @@ function renderUserColumnsBlock(block) {
         </td>`;
     }).join('');
 
-    return `
+    const table = `
         <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
             <tr>${columnsHTML}</tr>
         </table>
     `;
+
+    // Фон подложки колонок — как в admin-канвасе (canvasRenderer.js
+    // renderColumnsPreview) и в письме (emailGenerator.js
+    // generateColumnsHTML), которые эту настройку уже поддерживали;
+    // здесь её не было вообще, поэтому фон никогда не отображался.
+    if (s.bgEnabled !== false && s.bgColor) {
+        return `<div style="background:${s.bgColor}; border-radius:${s.bgRadius || 0}px; padding:${s.bgPadding || 0}px;">${table}</div>`;
+    }
+    return table;
 }
 
 /**
@@ -548,9 +559,38 @@ function renderUserText(block) {
                 padding:16px 20px;
                 outline:none;
              ">
-            ${formatTextForEditing(s.content || 'Введите текст...')}
+            ${s.content || 'Введите текст...'}
         </div>
     `;
+}
+
+/**
+ * Точная подгонка отступа для пунктов списка (data-bullet) под РЕАЛЬНУЮ
+ * ширину каждого конкретного маркера. Маркер/отступ в user-редакторе —
+ * чисто CSS-эффект (::before + attr()/counter(), см. user-styles.css) с
+ * ОДНИМ фиксированным padding-left на все маркеры — разные глифы (точка,
+ * стрелка, квадрат) и разная длина номера ("1." vs "12.") реально занимают
+ * разную ширину, поэтому фиксированное значение неточно для части из них.
+ *
+ * CSS не умеет измерить ширину сгенерированного контента и тут же
+ * использовать её в layout — но САМ БРАУЗЕР это уже посчитал для
+ * отрисовки ::before, и это можно спросить через getComputedStyle. Вызывать
+ * можно только ПОСЛЕ вставки блоков в DOM (canvas.appendChild), иначе
+ * getComputedStyle ещё не имеет раскладки для измерения.
+ *
+ * Инлайн-style, который тут проставляется, НЕ сохраняется (saveTextChanges
+ * копирует только data-bullet, см. ALLOWED_TAGS.p в textSanitizer.js) —
+ * пересчитывается заново при каждом renderUserCanvas(), это нормально.
+ */
+function _adjustListMarkerIndents() {
+    document.querySelectorAll('#user-canvas .editable-text p[data-bullet]').forEach(p => {
+        const before = getComputedStyle(p, '::before');
+        const width = parseFloat(before.width);
+        if (!isFinite(width) || width <= 0) return;
+        const indent = Math.round(width);
+        p.style.paddingLeft = `${indent}px`;
+        p.style.textIndent = `-${indent}px`;
+    });
 }
 
 /**
@@ -636,7 +676,7 @@ function renderUserList(block) {
         if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
             bulletHTML = `<img src="${s.renderedBullets[index]}" style="width:${bulletSize}px; height:${bulletSize}px;">`;
         } else {
-            const bulletSrc = s.bulletCustom || (typeof BULLET_TYPES !== 'undefined' && BULLET_TYPES.find(b => b.id === s.bulletType)?.src);
+            const bulletSrc = s.bulletCustom || (typeof BULLET_TYPES !== 'undefined' && BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType)?.src);
             if (bulletSrc) {
                 bulletHTML = `<img src="${bulletSrc}" style="width:${bulletSize}px; height:${bulletSize}px;">`;
             } else {
@@ -1571,7 +1611,7 @@ function openListEditor(blockId) {
         }
 
         // Перерендериваем буллеты
-        if (s.listStyle === 'numbered' && typeof renderListBulletsToDataUrls === 'function') {
+        if (typeof renderListBulletsToDataUrls === 'function') {
             renderListBulletsToDataUrls(block, () => {
                 renderUserCanvas();
             });
@@ -1594,13 +1634,17 @@ function renderBulletIconsGrid(selectedId) {
 
     const bullets = window.BULLET_TYPES || [];
 
-    grid.innerHTML = bullets.map(bullet => `
-        <div class="bullet-icon-item ${bullet.id === selectedId ? 'selected' : ''}"
-             data-id="${TextSanitizer.escapeHTML(bullet.id)}"
+    grid.innerHTML = bullets.map(bullet => {
+        const bulletKey = bullet.id || bullet.src || '';
+        const isSelected = bulletKey === selectedId || bullet.src === selectedId;
+        return `
+        <div class="bullet-icon-item ${isSelected ? 'selected' : ''}"
+             data-id="${TextSanitizer.escapeHTML(bulletKey)}"
              data-src="${TextSanitizer.escapeHTML(bullet.src)}">
             <img src="${TextSanitizer.escapeHTML(bullet.src)}" alt="${TextSanitizer.escapeHTML(bullet.name || '')}">
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Обработчики кликов
     grid.querySelectorAll('.bullet-icon-item').forEach(item => {

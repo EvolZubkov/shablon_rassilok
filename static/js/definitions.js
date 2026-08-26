@@ -211,7 +211,10 @@ const DEFAULT_SETTINGS = {
         align: 'left',
         color: '#e5e7eb',
         fontFamily: 'rt-light',
-        customFontFamily: ''
+        customFontFamily: '',
+        listBulletSize: null,   // null = маркер наследует fontSize блока
+        listBulletColor: null,  // null = маркер наследует цвет текста
+        listItemSpacing: 4      // px между соседними пунктами списка
     },
 
     heading: {
@@ -229,7 +232,12 @@ const DEFAULT_SETTINGS = {
         url: 'https://example.com',
         color: '#ff4f12',
         icon: '',
-        align: 'center'
+        align: 'center',
+        // null — не задано вручную: рендер сам решает (14px, либо 12px
+        // в 4-колоночной раскладке, см. imageRenderers.js
+        // renderButtonToDataUrl / emailGenerator.js generateButtonHTML /
+        // blockPreview.js renderButtonPreview).
+        fontSize: null
     },
 
     list: {
@@ -248,7 +256,9 @@ const DEFAULT_SETTINGS = {
         bulletGap: 10,
         itemSpacing: 8,
         listStyle: 'bullets',
-        numberFormat: 'padded'
+        numberFormat: 'padded',
+        leftIndent: 0,
+        bulletAlign: 'block' // 'block' — по всей высоте пункта, 'first-line' — прижат к верху
     },
 
     expert: {

@@ -182,7 +182,17 @@ function renderTextPreview(s) {
     const fontFamily = resolveTextFontFamily(s);
 
     // s.content уже simple HTML — просто рендерим через TextSanitizer.render()
-    const textHTML = TextSanitizer.render(s.content || '');
+    const textHTML = TextSanitizer.render(s.content || '', undefined, {
+        bulletSize: s.listBulletSize,
+        bulletColor: s.listBulletColor,
+        itemSpacing: s.listItemSpacing,
+        fontSize: s.fontSize,
+        // Канвас — реальный браузер, кастомный шрифт физически загружен и
+        // применяется (в отличие от письма, где Outlook всегда подменяет
+        // его на Arial) — меряем маркер тем же шрифтом, что реально видно,
+        // иначе ширина посчитана для одного шрифта, а показана в другом.
+        measureFontFamily: fontFamily,
+    });
 
     return `
         <div style="
@@ -206,9 +216,22 @@ function renderListPreview(s) {
     const lineHeightPrev = s.lineHeight || 1.0;
     const cellWidthPrev = bulletSizePrev + bulletGapPrev + 2;
     const isNumbered = s.listStyle === 'numbered';
+    const leftIndentPrev = Number(s.leftIndent) || 0;
+    // Канвас должен ПРЕДСКАЗЫВАТЬ реальное письмо. Подтверждено на реальном
+    // отправленном письме: Word/Outlook даже с valign="top" всё равно
+    // частично перераспределяет "лишнюю" высоту (похоже на центрирование),
+    // поэтому вычисляемый отступ для 'first-line' убран — просто top, без
+    // точного центрирования по первой строке (см. emailGenerator.js
+    // generateListHTML). 'block' пока оставлен с оценкой числа строк.
+    const isFirstLinePrev = s.bulletAlign === 'first-line';
+    const lineHeightPxPrev = Math.round(fontSizePrev * lineHeightPrev);
+    const cpPrev = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded) ? ProfileLoader.getContentPadding() : 27;
+    const availableTextWidthPrev = Math.max(20, (LAYOUT.TABLE_WIDTH - cpPrev * 2) - leftIndentPrev - cellWidthPrev);
+    const measureCtxPrev = document.createElement('canvas').getContext('2d');
+    measureCtxPrev.font = `${fontSizePrev}px Arial`;
 
     return `
-        <div style="padding: 8px;">
+        <div style="padding: 8px 8px 8px ${8 + leftIndentPrev}px;">
             <table style="width: 100%;">
                 ${(s.items || []).map((item, index) => {
                     // item может быть plain text или simple HTML
@@ -218,12 +241,25 @@ function renderListPreview(s) {
                             : TextSanitizer.sanitize(item || '', true)
                     );
 
+                    let bulletTopExtraPrev;
+                    if (isFirstLinePrev) {
+                        bulletTopExtraPrev = 0;
+                    } else {
+                        const plainText = _measurableListItemText(item);
+                        const textWidth = plainText ? measureCtxPrev.measureText(plainText).width : 0;
+                        const estimatedLines = Math.max(1, Math.ceil(textWidth / availableTextWidthPrev));
+                        const blockHeight = estimatedLines * lineHeightPxPrev;
+                        bulletTopExtraPrev = Math.max(0, (blockHeight - bulletSizePrev) / 2);
+                    }
+
                     let bulletHTML;
 
                     if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
                         bulletHTML = `<img src="${s.renderedBullets[index]}" style="display:block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;">`;
                     } else {
-                        const bulletSrcPrev = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || '');
+                        const bulletSrcPrev = (!isNumbered && s.renderedBulletFlat)
+                            ? s.renderedBulletFlat
+                            : (s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || ''));
                         const numberFontSize = Math.max(10, Math.round(bulletSizePrev * 0.3));
 
                         const baseBullet = bulletSrcPrev
@@ -249,10 +285,10 @@ function renderListPreview(s) {
 
                     return `
                         <tr>
-                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: middle;">
+                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2 + bulletTopExtraPrev}px ${bulletGapPrev}px ${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: top;">
                                 ${bulletHTML}
                             </td>
-                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPrev}; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0;">
+                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPxPrev}px; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0; vertical-align: top;">
                                 ${formatted}
                             </td>
                         </tr>
@@ -434,7 +470,11 @@ function renderButtonPreview(s) {
     const paddingY = basePaddingY * scale;
     const paddingX = basePaddingX * scale;
     const radius = baseRadius * scale;
-    const fontSize = baseFont * scale;
+    // В 4-колоночной раскладке колонки узкие — даже ручной размер не
+    // должен превышать 14px (см. imageRenderers.js renderButtonToDataUrl).
+    const columnsCount = Number(s._columnsCount || 1);
+    const effectiveFontSize = Number(s.fontSize) || (baseFont * scale);
+    const fontSize = columnsCount >= 4 ? Math.min(effectiveFontSize, 14) : effectiveFontSize;
 
     const autoStyle = getButtonAutoStyle(s);
     const previewColor = autoStyle.color;

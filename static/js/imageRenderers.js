@@ -1123,7 +1123,7 @@ function renderButtonToDataUrl(block, callback) {
     const text = fullText.length > 25 ? fullText.slice(0, 25) + '…' : fullText;
 
     const scale = 1;
-    const basePaddingX = 24;
+    const basePaddingX = 18;
     const baseRadius = 6;
 
     const columnsCount = Number(s._columnsCount || 1);
@@ -1133,7 +1133,12 @@ function renderButtonToDataUrl(block, callback) {
     const paddingX = basePaddingX * scale;
     const rectHeight = baseHeight * scale;
     const radius = baseRadius * scale;
-    const fontSize = baseFontSize * scale;
+    // Явно заданный s.fontSize переопределяет авто-логику (14px/12px по
+    // числу колонок) — высота/паддинг кнопки при этом не пересчитываются.
+    // В 4-колоночной раскладке колонки узкие — даже ручной размер не
+    // должен превышать 14px, иначе текст не влезает.
+    const effectiveFontSize = Number(s.fontSize) || (baseFontSize * scale);
+    const fontSize = columnsCount >= 4 ? Math.min(effectiveFontSize, 14) : effectiveFontSize;
 
     const hasIcon = !!(renderIcon && renderIcon !== 'none' && renderIcon.length > 0);
 
@@ -1209,15 +1214,29 @@ function renderListBulletsToDataUrls(block, callback) {
     const items = s.items || [];
     const isNumbered = s.listStyle === 'numbered';
 
-    // если список не нумерованный — просто очищаем кеш
-    if (!isNumbered || items.length === 0) {
+    if (items.length === 0) {
         block.settings.renderedBullets = [];
+        block.settings.renderedBulletFlat = null;
         if (callback) callback([]);
         return;
     }
 
+    // Обычный (не нумерованный) список — растрируем ОДНУ иконку буллита в
+    // самодостаточный data:URL и переиспользуем её для всех пунктов. Без
+    // этого <img src> ссылается на путь вида bullets/*.png, который в
+    // редакторе резолвится относительно локального сервера приложения, а в
+    // реально отправленном письме превращается в битую картинку (получатель
+    // не может достучаться до этого сервера) — см. renderFlatBulletToDataUrl.
+    if (!isNumbered) {
+        block.settings.renderedBullets = [];
+        renderFlatBulletToDataUrl(block, () => {
+            if (callback) callback([]);
+        });
+        return;
+    }
+
     const bulletSize = s.bulletSize || 20;
-    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || null);
+    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || null);
 
     const SCALE = 2;
     const numberFontSize = Math.max(10, Math.round(bulletSize * 0.45));
@@ -1321,6 +1340,61 @@ function renderListBulletsToDataUrls(block, callback) {
     } else {
         items.forEach((_, idx) => drawForIndex(idx, null));
     }
+}
+
+// Растрирует иконку буллита (без номера) в самодостаточный data:URL —
+// используется для обычных (не нумерованных) списков, см. вызов из
+// renderListBulletsToDataUrls.
+function renderFlatBulletToDataUrl(block, callback) {
+    const s = block.settings || {};
+    const bulletSize = s.bulletSize || 20;
+    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || null);
+
+    // Счётчик поколений: выбор иконки в панели настроек бьёт по
+    // updateBlockSetting ДВА раза подряд (сброс bulletCustom, потом сама
+    // bulletType) — каждый вызов запускает свою асинхронную загрузку
+    // картинки, и они могут завершиться в любом порядке. Без этой проверки
+    // более старый (уже неактуальный) вызов может завершиться ПОСЛЕ нового
+    // и затереть результат устаревшей иконкой.
+    const gen = (block.settings._bulletRenderGen = (block.settings._bulletRenderGen || 0) + 1);
+
+    // Нет иконки (цветной кружок) — рендерить нечего, кружок и так рисуется CSS.
+    if (!bulletSrc) {
+        block.settings.renderedBulletFlat = null;
+        if (callback) callback(null);
+        return;
+    }
+
+    // Уже самодостаточный data:URL (например, загруженная пользователем своя иконка).
+    if (bulletSrc.startsWith('data:')) {
+        block.settings.renderedBulletFlat = bulletSrc;
+        if (callback) callback(bulletSrc);
+        return;
+    }
+
+    const SCALE = 2;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = bulletSrc;
+
+    img.onload = () => {
+        if (block.settings._bulletRenderGen !== gen) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = bulletSize * SCALE;
+        canvas.height = bulletSize * SCALE;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(SCALE, SCALE);
+        ctx.drawImage(img, 0, 0, bulletSize, bulletSize);
+        block.settings.renderedBulletFlat = canvas.toDataURL('image/png');
+        canvas.width = 0;
+        if (callback) callback(block.settings.renderedBulletFlat);
+    };
+    img.onerror = () => {
+        if (block.settings._bulletRenderGen !== gen) return;
+        console.warn('Не удалось загрузить иконку буллита', bulletSrc);
+        block.settings.renderedBulletFlat = null;
+        if (callback) callback(null);
+    };
 }
 
 function roundRectPath(ctx, x, y, w, h, r) {
