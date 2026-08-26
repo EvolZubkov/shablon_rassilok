@@ -87,6 +87,15 @@ function renderButtonSettings(container, block) {
         container.appendChild(createSettingSelect('Положение кнопки', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
     }
 
+    // null — не задано вручную, рендер сам выбирает 14px (или 12px в
+    // 4-колоночной раскладке). Явный выбор тут переопределяет автоматику.
+    if (!hiddenSettings.includes('fontSize')) {
+        container.appendChild(
+            createSettingFontSize('Размер шрифта', s.fontSize || 14, block.id, 'fontSize',
+                [10, 11, 12, 13, 14, 16, 18, 20, 22, 24])
+        );
+    }
+
     // Иконка кнопки — скрываем для МИФ/Альпина
     if (!isMifOrAlpina) {
         const iconGroup = document.createElement('div');

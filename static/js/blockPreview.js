@@ -31,6 +31,118 @@ function resolveTextFontFamily(s) {
     }
 }
 
+// Сколько символов подряд без пробела Word обязан уметь перенести — после
+// каждого такого куска вставляется невидимая точка разрыва (см.
+// insertTableBreakOpportunities). Используется и там, и при измерении в
+// computeTableFontScale, чтобы обе меры были согласованы друг с другом.
+const TABLE_BREAK_CHUNK_CHARS = 15;
+
+/**
+ * Разбивает строку на куски по TABLE_BREAK_CHUNK_CHARS символов —
+ * используется и для вставки точек разрыва в текст, и при измерении
+ * ширины (см. ниже) — важно мерить и резать текст одинаково, иначе шрифт
+ * будет уменьшаться сильнее или слабее, чем реально нужно.
+ */
+function _splitIntoBreakChunks(word) {
+    const chunks = [];
+    for (let i = 0; i < word.length; i += TABLE_BREAK_CHUNK_CHARS) {
+        chunks.push(word.slice(i, i + TABLE_BREAK_CHUNK_CHARS));
+    }
+    return chunks;
+}
+
+/**
+ * Вставляет невидимую точку разрыва (zero-width space, U+200B) внутрь
+ * "слов" длиннее TABLE_BREAK_CHUNK_CHARS символов. Word (Outlook) может
+ * игнорировать CSS word-break/overflow-wrap для контента без явных точек
+ * разрыва — вставляем их прямо в текст, чтобы движок физически мог
+ * перенести строку, а не просто надеяться на CSS. Не трогает значения,
+ * которые уже являются готовым HTML (начинаются с "<") — там резать
+ * разметку опасно, символ можно случайно воткнуть внутрь тега/атрибута.
+ */
+const TABLE_ZERO_WIDTH_SPACE = String.fromCharCode(8203);
+
+function insertTableBreakOpportunities(value) {
+    if (typeof value !== 'string' || value.trim().startsWith('<')) return value;
+    return value.replace(/\S+/g, (word) => {
+        if (word.length <= TABLE_BREAK_CHUNK_CHARS) return word;
+        return _splitIntoBreakChunks(word).join(TABLE_ZERO_WIDTH_SPACE);
+    });
+}
+
+// Один переиспользуемый <canvas>-контекст для измерения текста таблицы —
+// не создаём новый элемент на каждый вызов.
+let _tableMeasureCtx = null;
+function _getTableMeasureCtx() {
+    if (!_tableMeasureCtx) {
+        _tableMeasureCtx = document.createElement('canvas').getContext('2d');
+    }
+    return _tableMeasureCtx;
+}
+
+/**
+ * Единый коэффициент уменьшения fontSize/headerFontSize блока "Таблица" —
+ * применяется одинаково ко ВСЕМ ячейкам сразу (не по отдельности), чтобы
+ * самое длинное "слово" (кусок текста без пробелов — TextSanitizer.render()
+ * оборачивает ячейку в <p>, поэтому меряем именно исходное значение ячейки,
+ * до HTML-обёртки) помещалось по ширине своей колонки при totalWidthPx.
+ *
+ * Не решает перенос строк — для этого уже есть word-break/overflow-wrap
+ * плюс insertTableBreakOpportunities (см. generateTableHTML) — а именно
+ * не даёт ОДНОМУ куску без пробелов раздуть колонку/таблицу за пределы
+ * письма в Outlook, который word-break может игнорировать. Меряется не
+ * слово целиком, а кусок между точками разрыва (TABLE_BREAK_CHUNK_CHARS,
+ * та же длина, что реально режется в insertTableBreakOpportunities) —
+ * ровно то, что Word обязан суметь перенести без переноса ВНУТРИ куска.
+ * Никогда не уменьшает ниже порога читаемости (MIN_FONT_SIZE), даже если
+ * кусок всё равно не влезает.
+ */
+function computeTableFontScale(s, totalWidthPx) {
+    const columns = s.columns || [];
+    const rows = s.rows || [];
+    const widths = (Array.isArray(s.columnWidths) && s.columnWidths.length === columns.length)
+        ? s.columnWidths
+        : columns.map(() => 100 / (columns.length || 1));
+    const cellPaddingH = s.cellPaddingH ?? 40;
+    const fontFamily = resolveTextFontFamily(s);
+    const fontSize = s.fontSize || 15;
+    const headerFontSize = s.headerFontSize || 18;
+    const MIN_FONT_SIZE = 11;
+
+    const measureCtx = _getTableMeasureCtx();
+    const longestWordWidth = (text, weight, size) => {
+        const words = String(text || '').split(/\s+/).filter(Boolean);
+        if (!words.length) return 0;
+        measureCtx.font = `${weight} ${size}px ${fontFamily}`;
+        const chunks = words.flatMap(w => _splitIntoBreakChunks(w));
+        return Math.max(...chunks.map(c => measureCtx.measureText(c).width));
+    };
+
+    let scale = 1;
+    columns.forEach((col, i) => {
+        const availablePx = Math.max(1, (widths[i] / 100) * totalWidthPx - cellPaddingH * 2);
+
+        const headerWordPx = longestWordWidth(col, 'bold', headerFontSize);
+        if (headerWordPx > availablePx) {
+            scale = Math.min(scale, availablePx / headerWordPx);
+        }
+
+        rows.forEach(row => {
+            const bodyWordPx = longestWordWidth(row[i], 'normal', fontSize);
+            if (bodyWordPx > availablePx) {
+                scale = Math.min(scale, availablePx / bodyWordPx);
+            }
+        });
+    });
+
+    // Не даём итоговому размеру тела ячейки уйти ниже порога читаемости —
+    // если даже максимальное уменьшение не спасает, просто ограничиваем
+    // снизу (заголовок при этом останется пропорционально больше и тоже
+    // не окажется меньше порога, т.к. изначально крупнее тела).
+    const minScaleAllowed = MIN_FONT_SIZE / fontSize;
+    return Math.max(scale, minScaleAllowed);
+}
+
 // ⚠️ formatTextWithLinks УДАЛЕНА — используем TextSanitizer.render()
 
 function renderBlockPreviewReal(block) {
@@ -59,6 +171,7 @@ function renderBlockPreviewReal(block) {
         case 'image':     html = renderImagePreview(s);     break;
         case 'spacer':    html = renderSpacerPreview(s);    break;
         case 'canvas':    html = renderCanvasBlockPreview(block); break;
+        case 'table':     html = renderTablePreview(block);      break;
         default:          html = '<p>Неизвестный блок</p>';
     }
     return CapabilityRegistry.applyWrappers(html, block, 'preview');
@@ -69,7 +182,17 @@ function renderTextPreview(s) {
     const fontFamily = resolveTextFontFamily(s);
 
     // s.content уже simple HTML — просто рендерим через TextSanitizer.render()
-    const textHTML = TextSanitizer.render(s.content || '');
+    const textHTML = TextSanitizer.render(s.content || '', undefined, {
+        bulletSize: s.listBulletSize,
+        bulletColor: s.listBulletColor,
+        itemSpacing: s.listItemSpacing,
+        fontSize: s.fontSize,
+        // Канвас — реальный браузер, кастомный шрифт физически загружен и
+        // применяется (в отличие от письма, где Outlook всегда подменяет
+        // его на Arial) — меряем маркер тем же шрифтом, что реально видно,
+        // иначе ширина посчитана для одного шрифта, а показана в другом.
+        measureFontFamily: fontFamily,
+    });
 
     return `
         <div style="
@@ -93,9 +216,22 @@ function renderListPreview(s) {
     const lineHeightPrev = s.lineHeight || 1.0;
     const cellWidthPrev = bulletSizePrev + bulletGapPrev + 2;
     const isNumbered = s.listStyle === 'numbered';
+    const leftIndentPrev = Number(s.leftIndent) || 0;
+    // Канвас должен ПРЕДСКАЗЫВАТЬ реальное письмо. Подтверждено на реальном
+    // отправленном письме: Word/Outlook даже с valign="top" всё равно
+    // частично перераспределяет "лишнюю" высоту (похоже на центрирование),
+    // поэтому вычисляемый отступ для 'first-line' убран — просто top, без
+    // точного центрирования по первой строке (см. emailGenerator.js
+    // generateListHTML). 'block' пока оставлен с оценкой числа строк.
+    const isFirstLinePrev = s.bulletAlign === 'first-line';
+    const lineHeightPxPrev = Math.round(fontSizePrev * lineHeightPrev);
+    const cpPrev = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded) ? ProfileLoader.getContentPadding() : 27;
+    const availableTextWidthPrev = Math.max(20, (LAYOUT.TABLE_WIDTH - cpPrev * 2) - leftIndentPrev - cellWidthPrev);
+    const measureCtxPrev = document.createElement('canvas').getContext('2d');
+    measureCtxPrev.font = `${fontSizePrev}px Arial`;
 
     return `
-        <div style="padding: 8px;">
+        <div style="padding: 8px 8px 8px ${8 + leftIndentPrev}px;">
             <table style="width: 100%;">
                 ${(s.items || []).map((item, index) => {
                     // item может быть plain text или simple HTML
@@ -105,12 +241,25 @@ function renderListPreview(s) {
                             : TextSanitizer.sanitize(item || '', true)
                     );
 
+                    let bulletTopExtraPrev;
+                    if (isFirstLinePrev) {
+                        bulletTopExtraPrev = 0;
+                    } else {
+                        const plainText = _measurableListItemText(item);
+                        const textWidth = plainText ? measureCtxPrev.measureText(plainText).width : 0;
+                        const estimatedLines = Math.max(1, Math.ceil(textWidth / availableTextWidthPrev));
+                        const blockHeight = estimatedLines * lineHeightPxPrev;
+                        bulletTopExtraPrev = Math.max(0, (blockHeight - bulletSizePrev) / 2);
+                    }
+
                     let bulletHTML;
 
                     if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
                         bulletHTML = `<img src="${s.renderedBullets[index]}" style="display:block;width:${bulletSizePrev}px;height:${bulletSizePrev}px;">`;
                     } else {
-                        const bulletSrcPrev = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || '');
+                        const bulletSrcPrev = (!isNumbered && s.renderedBulletFlat)
+                            ? s.renderedBulletFlat
+                            : (s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || ''));
                         const numberFontSize = Math.max(10, Math.round(bulletSizePrev * 0.3));
 
                         const baseBullet = bulletSrcPrev
@@ -136,15 +285,118 @@ function renderListPreview(s) {
 
                     return `
                         <tr>
-                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: middle;">
+                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2 + bulletTopExtraPrev}px ${bulletGapPrev}px ${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: top;">
                                 ${bulletHTML}
                             </td>
-                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPrev}; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0;">
+                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPxPrev}px; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0; vertical-align: top;">
                                 ${formatted}
                             </td>
                         </tr>
                     `;
                 }).join('')}
+            </table>
+        </div>
+    `;
+}
+
+// Блок "Таблица": плашка-заголовок — растрированный PNG (как у баннера,
+// см. imageRenderers.js renderTableTitleToDataUrl), карточка на едином фоне
+// (containerBg), ячейки без своей заливки — разделены белыми grid-линиями
+// через ::before/::after с отступом от краёв (как в референсе; в браузере
+// это надёжно, в отличие от email — там email-safe приближение, см.
+// emailGenerator.js generateTableHTML).
+function renderTablePreview(block) {
+    const s = block.settings || {};
+    const columns = s.columns || [];
+    const rows = s.rows || [];
+    const widths = (Array.isArray(s.columnWidths) && s.columnWidths.length === columns.length)
+        ? s.columnWidths
+        : columns.map(() => 100 / (columns.length || 1));
+    const fontFamily = resolveTextFontFamily(s);
+    const fontSize = s.fontSize || 15;
+    const lineHeight = s.lineHeight || 1.5;
+    const headerFontSize = s.headerFontSize || 18;
+    const cellPaddingV = s.cellPaddingV ?? 22;
+    const cellPaddingH = s.cellPaddingH ?? 40;
+    const dividerColor = s.dividerColor || '#FFFFFF';
+    const containerBg = s.containerBg || '#EBF1F6';
+    const containerRadius = s.containerRadius ?? 28;
+    const linkColor = s.linkColor || '#475569';
+    const cellTextAlign = ['left', 'center', 'right'].includes(s.cellTextAlign) ? s.cellTextAlign : 'left';
+    const scope = `tbl-prev-${block.id}`;
+
+    const renderCell = (value) => TextSanitizer.render(
+        typeof value === 'string' && value.trim().startsWith('<')
+            ? value
+            : TextSanitizer.sanitize(value || '', true),
+        linkColor
+    );
+
+    const safeTitleBarSrc = typeof s.renderedTitleBar === 'string' ? s.renderedTitleBar.replace(/"/g, '&quot;') : '';
+    const titleBar = s.renderedTitleBar
+        ? `<img src="${safeTitleBarSrc}" alt="" style="display:block; width:100%; height:auto;">`
+        : `<div style="padding:20px; color:#9ca3af; font-size:13px; background:#1e293b; border-radius:${s.titleRadius ?? 24}px;">⏳ Рендеринг заголовка...</div>`;
+
+    // Цвет — inline style с !important: это единственный способ гарантированно
+    // победить внешнее правило [data-theme="light"] .block-content td { color:
+    // var(--text-secondary) !important; } (theme-variables.css) — inline
+    // !important стоит выше любого правила из подключаемого CSS-файла,
+    // независимо от специфичности их селектора.
+    // Если цвет не задан вручную — авто-контраст под containerBg (как у
+    // text/heading/list, см. resolveBlockTextColor в emailGenerator.js).
+    const headerTextColor = s.headerTextColor || (isLightColorPreview(containerBg) ? '#00204A' : '#ffffff');
+    const bodyTextColor = s.textColor || (isLightColorPreview(containerBg) ? '#334155' : '#ffffff');
+
+    const headerRow = `
+        <tr>
+            ${columns.map((col, i) => `
+                <td style="width:${widths[i]}%; color:${headerTextColor} !important;">${renderCell(col)}</td>
+            `).join('')}
+        </tr>
+    `;
+
+    const bodyRows = rows.map(row => `
+        <tr>
+            ${columns.map((col, colIndex) => `
+                <td style="width:${widths[colIndex]}%; color:${bodyTextColor} !important;">${renderCell(row[colIndex])}</td>
+            `).join('')}
+        </tr>
+    `).join('');
+
+    // sc3 (класс трижды) поднимает специфичность выше глобальных правил темы
+    // ([data-theme="light"] .block-content td/p/span {color:...!important}).
+    // Важно: TextSanitizer.render() оборачивает текст ячейки в <p> — глобальное
+    // правило метит НЕ ТОЛЬКО td, но и p/span НАПРЯМУЮ, поэтому наследование
+    // цвета от <td> не спасает (прямое правило на потомке всегда бьёт
+    // унаследованное значение). Поэтому цвет прокидывается через
+    // `td * { color:inherit !important }` — заставляет все вложенные теги
+    // (p, span, strong…) явно наследовать цвет от своей td.
+    const sc3 = `.${scope}.${scope}.${scope}`;
+    const css = `
+        .${scope} { background:${containerBg}; border-radius:${containerRadius}px; border:1px solid #E2E8F0; box-shadow:0 4px 24px rgba(0,0,0,.05); box-sizing:border-box; overflow:hidden; }
+        .${scope} table { width:100%; border-collapse:collapse; table-layout:fixed; margin-top:15px; margin-bottom:20px; }
+        .${scope} td { padding:${cellPaddingV}px ${cellPaddingH}px; vertical-align:middle; text-align:${cellTextAlign}; position:relative; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; word-break:break-word; overflow-wrap:break-word; hyphens:auto; }
+        .${scope} thead td { font-size:${headerFontSize}px; font-weight:bold; }
+        ${sc3} td * { color:inherit !important; }
+        ${sc3} td a { color:${linkColor} !important; text-decoration:underline; }
+        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:2px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} thead tr td:first-child::after { left:${cellPaddingH}px; }
+        .${scope} thead tr td:last-child::after { right:${cellPaddingH}px; }
+        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:1px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} tbody tr:not(:last-child) td:first-child::after { left:${cellPaddingH}px; }
+        .${scope} tbody tr:not(:last-child) td:last-child::after { right:${cellPaddingH}px; }
+        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:2px; background-color:${dividerColor}; top:0; bottom:0; }
+        .${scope} thead td:not(:last-child)::before { top:10px; }
+        .${scope} tbody tr:last-child td:not(:last-child)::before { bottom:15px; }
+    `;
+
+    return `
+        <style>${css}</style>
+        <div class="${scope}">
+            ${titleBar}
+            <table>
+                <thead>${headerRow}</thead>
+                <tbody>${bodyRows}</tbody>
             </table>
         </div>
     `;
@@ -218,7 +470,11 @@ function renderButtonPreview(s) {
     const paddingY = basePaddingY * scale;
     const paddingX = basePaddingX * scale;
     const radius = baseRadius * scale;
-    const fontSize = baseFont * scale;
+    // В 4-колоночной раскладке колонки узкие — даже ручной размер не
+    // должен превышать 14px (см. imageRenderers.js renderButtonToDataUrl).
+    const columnsCount = Number(s._columnsCount || 1);
+    const effectiveFontSize = Number(s.fontSize) || (baseFont * scale);
+    const fontSize = columnsCount >= 4 ? Math.min(effectiveFontSize, 14) : effectiveFontSize;
 
     const autoStyle = getButtonAutoStyle(s);
     const previewColor = autoStyle.color;

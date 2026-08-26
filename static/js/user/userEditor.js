@@ -228,6 +228,7 @@ function renderUserCanvas() {
 
     // Инициализируем inline-редактирование
     initInlineEditing();
+    _adjustListMarkerIndents();
     window.updateUserEditorMeta?.();
 
     // Рендерим canvas-блоки у которых есть элементы но нет PNG
@@ -375,6 +376,7 @@ function makeAttentionBadge(block) {
             case 'divider': openDividerEditor(id); break;
             case 'expert':  openExpertEditor(id);  break;
             case 'canvas':  openCanvasEditor(id);  break;
+            case 'table':   openTableEditor(id);   break;
             default: break;
         }
     });
@@ -471,6 +473,7 @@ function renderUserSingleBlock(block) {
         case 'image':     html = renderUserImage(block);     break;
         case 'spacer':    html = renderUserSpacer(block);    break;
         case 'canvas':    html = renderUserCanvasBlock(block); break;
+        case 'table':     html = renderUserTable(block);       break;
         default:          html = '<p style="padding:20px;color:#999">Неизвестный блок</p>';
     }
     // Применяем capabilities (подложка, рамка, ссылка и др.) — как в admin/blockPreview.js
@@ -484,7 +487,8 @@ function renderUserSingleBlock(block) {
  * Рендер блока с колонками
  */
 function renderUserColumnsBlock(block) {
-    const gap = block.settings?.columnGap ?? 10;
+    const s = block.settings || {};
+    const gap = s.columnGap ?? 10;
 
     const columnsHTML = block.columns.map((column, index) => {
         const columnBlocks = column.blocks.map(childBlock => {
@@ -498,11 +502,20 @@ function renderUserColumnsBlock(block) {
         </td>`;
     }).join('');
 
-    return `
+    const table = `
         <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
             <tr>${columnsHTML}</tr>
         </table>
     `;
+
+    // Фон подложки колонок — как в admin-канвасе (canvasRenderer.js
+    // renderColumnsPreview) и в письме (emailGenerator.js
+    // generateColumnsHTML), которые эту настройку уже поддерживали;
+    // здесь её не было вообще, поэтому фон никогда не отображался.
+    if (s.bgEnabled !== false && s.bgColor) {
+        return `<div style="background:${s.bgColor}; border-radius:${s.bgRadius || 0}px; padding:${s.bgPadding || 0}px;">${table}</div>`;
+    }
+    return table;
 }
 
 /**
@@ -546,9 +559,38 @@ function renderUserText(block) {
                 padding:16px 20px;
                 outline:none;
              ">
-            ${formatTextForEditing(s.content || 'Введите текст...')}
+            ${s.content || 'Введите текст...'}
         </div>
     `;
+}
+
+/**
+ * Точная подгонка отступа для пунктов списка (data-bullet) под РЕАЛЬНУЮ
+ * ширину каждого конкретного маркера. Маркер/отступ в user-редакторе —
+ * чисто CSS-эффект (::before + attr()/counter(), см. user-styles.css) с
+ * ОДНИМ фиксированным padding-left на все маркеры — разные глифы (точка,
+ * стрелка, квадрат) и разная длина номера ("1." vs "12.") реально занимают
+ * разную ширину, поэтому фиксированное значение неточно для части из них.
+ *
+ * CSS не умеет измерить ширину сгенерированного контента и тут же
+ * использовать её в layout — но САМ БРАУЗЕР это уже посчитал для
+ * отрисовки ::before, и это можно спросить через getComputedStyle. Вызывать
+ * можно только ПОСЛЕ вставки блоков в DOM (canvas.appendChild), иначе
+ * getComputedStyle ещё не имеет раскладки для измерения.
+ *
+ * Инлайн-style, который тут проставляется, НЕ сохраняется (saveTextChanges
+ * копирует только data-bullet, см. ALLOWED_TAGS.p в textSanitizer.js) —
+ * пересчитывается заново при каждом renderUserCanvas(), это нормально.
+ */
+function _adjustListMarkerIndents() {
+    document.querySelectorAll('#user-canvas .editable-text p[data-bullet]').forEach(p => {
+        const before = getComputedStyle(p, '::before');
+        const width = parseFloat(before.width);
+        if (!isFinite(width) || width <= 0) return;
+        const indent = Math.round(width);
+        p.style.paddingLeft = `${indent}px`;
+        p.style.textIndent = `-${indent}px`;
+    });
 }
 
 /**
@@ -634,7 +676,7 @@ function renderUserList(block) {
         if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
             bulletHTML = `<img src="${s.renderedBullets[index]}" style="width:${bulletSize}px; height:${bulletSize}px;">`;
         } else {
-            const bulletSrc = s.bulletCustom || (typeof BULLET_TYPES !== 'undefined' && BULLET_TYPES.find(b => b.id === s.bulletType)?.src);
+            const bulletSrc = s.bulletCustom || (typeof BULLET_TYPES !== 'undefined' && BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType)?.src);
             if (bulletSrc) {
                 bulletHTML = `<img src="${bulletSrc}" style="width:${bulletSize}px; height:${bulletSize}px;">`;
             } else {
@@ -647,8 +689,8 @@ function renderUserList(block) {
                 <td style="width:${bulletSize + bulletGap}px; vertical-align:top; padding:${(s.itemSpacing || 8) / 2}px 0;">
                     ${bulletHTML}
                 </td>
-                <td class="editable-text" 
-                    contenteditable="true" 
+                <td class="editable-text"
+                    contenteditable="true"
                     data-block-id="${block.id}"
                     data-field="items"
                     data-item-index="${index}"
@@ -665,10 +707,107 @@ function renderUserList(block) {
         `;
     }).join('');
 
+
     return `
         <div class="editable-list" data-block-id="${block.id}" style="padding:16px 20px;">
             <table style="width:100%; border-collapse:collapse;">
                 ${itemsHTML}
+            </table>
+        </div>
+    `;
+}
+
+/**
+ * Рендер таблицы (плашка-заголовок + данные). Редактируется целиком через
+ * модалку openTableEditor — как banner/expert/canvas, без inline-contenteditable,
+ * т.к. содержимое двумерное (строки×колонки), а не плоский список.
+ */
+function renderUserTable(block) {
+    const s = block.settings || {};
+    const columns = s.columns || [];
+    const rows = s.rows || [];
+    const widths = (Array.isArray(s.columnWidths) && s.columnWidths.length === columns.length)
+        ? s.columnWidths
+        : columns.map(() => 100 / (columns.length || 1));
+    const fontFamily = (typeof resolveTextFontFamily === 'function') ? resolveTextFontFamily(s) : 'inherit';
+    const fontSize = s.fontSize || 15;
+    const lineHeight = s.lineHeight || 1.5;
+    const headerFontSize = s.headerFontSize || 18;
+    const cellPaddingV = s.cellPaddingV ?? 22;
+    const cellPaddingH = s.cellPaddingH ?? 40;
+    const dividerColor = s.dividerColor || '#FFFFFF';
+    const containerBg = s.containerBg || '#EBF1F6';
+    const containerRadius = s.containerRadius ?? 28;
+    const linkColor = s.linkColor || '#475569';
+    const cellTextAlign = ['left', 'center', 'right'].includes(s.cellTextAlign) ? s.cellTextAlign : 'left';
+    const scope = `tbl-user-${block.id}`;
+
+    const renderCell = (value) => TextSanitizer.render(
+        typeof value === 'string' && value.trim().startsWith('<')
+            ? value
+            : TextSanitizer.sanitize(value || '', true),
+        linkColor
+    );
+
+    const safeTitleBarSrc = typeof s.renderedTitleBar === 'string' ? s.renderedTitleBar.replace(/"/g, '&quot;') : '';
+    const titleBar = s.renderedTitleBar
+        ? `<img src="${safeTitleBarSrc}" style="display:block; width:100%; height:auto;" alt="">`
+        : `<div style="padding:20px; color:#9ca3af; font-size:13px; background:#1e293b; border-radius:${s.titleRadius ?? 24}px;">⏳ Рендеринг заголовка...</div>`;
+
+    // Цвет — inline style с !important: единственный способ гарантированно
+    // победить внешнее правило [data-theme="light"] .block-content td { color:
+    // var(--text-secondary) !important; } (theme-variables.css) — inline
+    // !important стоит выше любого правила из подключаемого CSS-файла.
+    // Если цвет не задан вручную — авто-контраст под containerBg (как у
+    // text/heading/list, см. resolveBlockTextColor в emailGenerator.js).
+    const headerTextColor = s.headerTextColor || (isLightColorPreview(containerBg) ? '#00204A' : '#ffffff');
+    const bodyTextColor = s.textColor || (isLightColorPreview(containerBg) ? '#334155' : '#ffffff');
+
+    const headerRow = `
+        <tr>
+            ${columns.map((col, i) => `
+                <td style="width:${widths[i]}%; color:${headerTextColor} !important;">${renderCell(col)}</td>
+            `).join('')}
+        </tr>`;
+
+    const bodyRows = rows.map(row => `
+        <tr>
+            ${columns.map((col, colIndex) => `
+                <td style="width:${widths[colIndex]}%; color:${bodyTextColor} !important;">${renderCell(row[colIndex])}</td>
+            `).join('')}
+        </tr>`).join('');
+
+    // sc3 (класс трижды) поднимает специфичность выше глобальных правил темы
+    // ([data-theme="light"] .block-content td/p/span {color:...!important}).
+    // TextSanitizer.render() оборачивает текст ячейки в <p> — правило метит
+    // p/span НАПРЯМУЮ, наследование от td не спасает. Поэтому цвет
+    // прокидывается через `td * { color:inherit !important }`.
+    const sc3 = `.${scope}.${scope}.${scope}`;
+    const css = `
+        .${scope} { background:${containerBg}; border-radius:${containerRadius}px; border:1px solid #E2E8F0; box-shadow:0 4px 24px rgba(0,0,0,.05); box-sizing:border-box; overflow:hidden; cursor:pointer; }
+        .${scope} table { width:100%; border-collapse:collapse; table-layout:fixed; margin-top:15px; margin-bottom:20px; }
+        .${scope} td { padding:${cellPaddingV}px ${cellPaddingH}px; vertical-align:middle; text-align:${cellTextAlign}; position:relative; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; word-break:break-word; overflow-wrap:break-word; hyphens:auto; }
+        .${scope} thead td { font-size:${headerFontSize}px; font-weight:bold; }
+        ${sc3} td * { color:inherit !important; }
+        ${sc3} td a { color:${linkColor} !important; text-decoration:underline; }
+        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:2px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} thead tr td:first-child::after { left:${cellPaddingH}px; }
+        .${scope} thead tr td:last-child::after { right:${cellPaddingH}px; }
+        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:1px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} tbody tr:not(:last-child) td:first-child::after { left:${cellPaddingH}px; }
+        .${scope} tbody tr:not(:last-child) td:last-child::after { right:${cellPaddingH}px; }
+        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:2px; background-color:${dividerColor}; top:0; bottom:0; }
+        .${scope} thead td:not(:last-child)::before { top:10px; }
+        .${scope} tbody tr:last-child td:not(:last-child)::before { bottom:15px; }
+    `;
+
+    return `
+        <style>${css}</style>
+        <div class="editable-table ${scope}" data-block-id="${block.id}">
+            ${titleBar}
+            <table>
+                <thead>${headerRow}</thead>
+                <tbody>${bodyRows}</tbody>
             </table>
         </div>
     `;
@@ -1027,6 +1166,13 @@ function initInlineEditing() {
         el.addEventListener('click', (e) => {
             const blockId = parseInt(el.dataset.blockId);
             openExpertEditor(blockId);
+        });
+    });
+
+    canvas.querySelectorAll('.editable-table').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const blockId = parseInt(el.dataset.blockId);
+            openTableEditor(blockId);
         });
     });
 
@@ -1465,7 +1611,7 @@ function openListEditor(blockId) {
         }
 
         // Перерендериваем буллеты
-        if (s.listStyle === 'numbered' && typeof renderListBulletsToDataUrls === 'function') {
+        if (typeof renderListBulletsToDataUrls === 'function') {
             renderListBulletsToDataUrls(block, () => {
                 renderUserCanvas();
             });
@@ -1488,13 +1634,17 @@ function renderBulletIconsGrid(selectedId) {
 
     const bullets = window.BULLET_TYPES || [];
 
-    grid.innerHTML = bullets.map(bullet => `
-        <div class="bullet-icon-item ${bullet.id === selectedId ? 'selected' : ''}"
-             data-id="${TextSanitizer.escapeHTML(bullet.id)}"
+    grid.innerHTML = bullets.map(bullet => {
+        const bulletKey = bullet.id || bullet.src || '';
+        const isSelected = bulletKey === selectedId || bullet.src === selectedId;
+        return `
+        <div class="bullet-icon-item ${isSelected ? 'selected' : ''}"
+             data-id="${TextSanitizer.escapeHTML(bulletKey)}"
              data-src="${TextSanitizer.escapeHTML(bullet.src)}">
             <img src="${TextSanitizer.escapeHTML(bullet.src)}" alt="${TextSanitizer.escapeHTML(bullet.name || '')}">
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Обработчики кликов
     grid.querySelectorAll('.bullet-icon-item').forEach(item => {
@@ -1533,6 +1683,192 @@ function renderListItemsEditor(items) {
             } else {
                 alert('Должен остаться хотя бы один пункт');
             }
+        });
+    });
+}
+
+/**
+ * Открыть редактор таблицы (заголовок + колонки + строки)
+ */
+function openTableEditor(blockId) {
+    const block = findBlockById(UserAppState.blocks, blockId);
+    if (!block) return;
+
+    const modal = document.getElementById('table-editor-modal');
+    if (!modal) return;
+
+    const s = block.settings;
+    modal.dataset.blockId = blockId;
+
+    const titleInput = document.getElementById('table-title-input');
+    if (titleInput) titleInput.value = TextSanitizer.toPlainText(s.title || '');
+
+    // Рабочий черновик редактора — мутируется на месте, применяется в block.settings
+    // только по кнопке «Применить».
+    const draft = {
+        columns: [...(s.columns || [])],
+        rows: (s.rows || []).map(r => [...r])
+    };
+
+    const redraw = () => {
+        renderTableColumnsEditor(draft, redraw);
+        renderTableRowsEditor(draft, redraw);
+    };
+    redraw();
+
+    document.getElementById('btn-add-table-column').onclick = () => {
+        draft.columns.push(`Колонка ${draft.columns.length + 1}`);
+        draft.rows.forEach(r => r.push(''));
+        redraw();
+    };
+
+    document.getElementById('btn-add-table-row').onclick = () => {
+        draft.rows.push(draft.columns.map(() => ''));
+        redraw();
+    };
+
+    document.getElementById('btn-apply-table').onclick = () => {
+        pushUndoState();
+
+        // Заголовок плашки рисуется как обычный текст в <canvas> (не HTML),
+        // поэтому хранится и остаётся plain text — без sanitize/applyTypography.
+        const newTitle = (titleInput?.value || '').trim();
+        const titleChanged = newTitle !== (s.title || '');
+
+        s.title = newTitle;
+        s.columns = draft.columns.map(c => TextSanitizer.applyTypography(TextSanitizer.sanitize((c || '').trim(), true)));
+        s.rows = draft.rows.map(row => row.map(cell => TextSanitizer.applyTypography(TextSanitizer.sanitize((cell || '').trim(), true))));
+
+        UserAppState.isDirty = true;
+
+        if (titleChanged && typeof renderTableTitleToDataUrl === 'function') {
+            renderTableTitleToDataUrl(block, (dataUrl) => {
+                s.renderedTitleBar = dataUrl || null;
+                renderUserCanvas();
+            });
+        } else {
+            renderUserCanvas();
+        }
+
+        modal.style.display = 'none';
+    };
+
+    modal.style.display = 'flex';
+}
+
+/**
+ * Рендер редактора колонок таблицы. Мутирует draft на месте; onRedraw()
+ * вызывается после структурных изменений (удаление колонки также подрезает
+ * draft.rows), т.к. это требует перерисовать и редактор строк.
+ */
+function renderTableColumnsEditor(draft, onRedraw) {
+    const editor = document.getElementById('table-columns-editor');
+    if (!editor) return;
+
+    editor.innerHTML = draft.columns.map((col, index) => `
+        <div class="list-item-row" data-index="${index}">
+            <input type="text" value="${escapeHtmlAttr(TextSanitizer.toPlainText(col || ''))}" placeholder="Название колонки...">
+            <button type="button" class="btn-delete-item" title="Удалить колонку">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+
+    editor.querySelectorAll('.list-item-row input').forEach((input, index) => {
+        input.addEventListener('input', () => {
+            draft.columns[index] = input.value;
+        });
+    });
+
+    editor.querySelectorAll('.btn-delete-item').forEach((btn, index) => {
+        btn.addEventListener('click', () => {
+            if (draft.columns.length <= 1) {
+                alert('Должна остаться хотя бы одна колонка');
+                return;
+            }
+            draft.columns.splice(index, 1);
+            draft.rows.forEach(r => r.splice(index, 1));
+            onRedraw();
+        });
+    });
+}
+
+/**
+ * Рендер редактора строк таблицы: для каждой строки — по одному текстовому
+ * полю на каждую текущую колонку draft.columns. Мутирует draft на месте.
+ */
+function renderTableRowsEditor(draft, onRedraw) {
+    const editor = document.getElementById('table-rows-editor');
+    if (!editor) return;
+
+    editor.innerHTML = draft.rows.map((row, rowIndex) => `
+        <div class="list-item-row" data-index="${rowIndex}" style="flex-direction:column; align-items:stretch; gap:6px;">
+            ${draft.columns.map((col, colIndex) => `
+                <div style="display:flex; gap:4px;">
+                    <input type="text"
+                           data-row="${rowIndex}" data-col="${colIndex}"
+                           value="${escapeHtmlAttr(TextSanitizer.toPlainText(row[colIndex] || ''))}"
+                           placeholder="${escapeHtmlAttr(TextSanitizer.toPlainText(col || '') || `Колонка ${colIndex + 1}`)}"
+                           style="flex:1;">
+                    <button type="button" class="btn-make-link" title="Сделать выделенный текст ссылкой"
+                            data-row="${rowIndex}" data-col="${colIndex}">🔗</button>
+                </div>
+            `).join('')}
+            <button type="button" class="btn-delete-item" title="Удалить строку" data-row-index="${rowIndex}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+
+    editor.querySelectorAll('input[data-row]').forEach(input => {
+        input.addEventListener('input', () => {
+            const r = Number(input.dataset.row);
+            const c = Number(input.dataset.col);
+            draft.rows[r][c] = input.value;
+        });
+    });
+
+    // Кнопка "Сделать ссылкой" — та же логика, что у блока "Список"
+    // (openListEditor): выделяем текст в поле → оборачиваем в [текст](url).
+    editor.querySelectorAll('.btn-make-link').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const r = Number(btn.dataset.row);
+            const c = Number(btn.dataset.col);
+            const input = editor.querySelector(`input[data-row="${r}"][data-col="${c}"]`);
+            if (!input) return;
+
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            if (start === end) {
+                if (typeof Toast !== 'undefined') Toast.warning('Сначала выделите текст в поле.');
+                else alert('Сначала выделите текст в поле.');
+                return;
+            }
+
+            const selected = input.value.slice(start, end);
+            const url = prompt('Введите ссылку (https://… или mailto:…):');
+            if (!url) return;
+
+            const newValue = input.value.slice(0, start) + `[${selected}](${url})` + input.value.slice(end);
+            input.value = newValue;
+            draft.rows[r][c] = newValue;
+        });
+    });
+
+    editor.querySelectorAll('.btn-delete-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (draft.rows.length <= 1) {
+                alert('Должна остаться хотя бы одна строка');
+                return;
+            }
+            draft.rows.splice(Number(btn.dataset.rowIndex), 1);
+            onRedraw();
         });
     });
 }

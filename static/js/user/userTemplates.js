@@ -72,7 +72,7 @@ async function prerenderBlock(block) {
                 break;
                 
             case 'list':
-                if (block.settings.listStyle === 'numbered' && typeof renderListBulletsToDataUrls === 'function') {
+                if (typeof renderListBulletsToDataUrls === 'function') {
                     renderListBulletsToDataUrls(block, () => {
                         resolve();
                     });

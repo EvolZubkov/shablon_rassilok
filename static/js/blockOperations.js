@@ -42,7 +42,7 @@ function addBlock(type, parentId = null, position = null) {
             let inserted = false;
             if (sid !== null) {
                 // Full-width block types must not go inside a column — insert after the parent row instead
-                const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer', 'image', 'heading', 'text', 'list', 'important'];
+                const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer', 'image', 'heading', 'text', 'list', 'important', 'table'];
                 const insertIntoColumn = !FULL_WIDTH_TYPES.includes(type);
 
                 outer: for (let rowIdx = 0; rowIdx < AppState.blocks.length; rowIdx++) {
@@ -76,6 +76,18 @@ function addBlock(type, parentId = null, position = null) {
     if (type === 'banner') {
         renderBannerToDataUrl(newBlock, (dataUrl) => {
             newBlock.settings.renderedBanner = dataUrl || null;
+            requestAnimationFrame(() => renderCanvas());
+        });
+        return;
+    }
+
+    if (type === 'table') {
+        renderTableTitleToDataUrl(newBlock, (dataUrl) => {
+            newBlock.settings.renderedTitleBar = dataUrl || null;
+            requestAnimationFrame(() => renderCanvas());
+        });
+        renderTableBottomCapToDataUrl(newBlock, (dataUrl) => {
+            newBlock.settings.renderedBottomCap = dataUrl || null;
             requestAnimationFrame(() => renderCanvas());
         });
         return;
@@ -329,7 +341,7 @@ function updateBlockSetting(blockId, key, value) {
 
     // ► Специальная обработка для кнопок
     if (block.type === 'button' &&
-        ['text', 'color', 'textColor', 'icon'].includes(key)) {
+        ['text', 'color', 'textColor', 'icon', 'fontSize'].includes(key)) {
 
         const parentBlock = findParentBlockWithColumns(blockId);
 
@@ -401,6 +413,32 @@ function updateBlockSetting(blockId, key, value) {
             });
             return;
         }
+    }
+
+    // Специальная обработка для блока "Таблица" — перерисовываем градиентную
+    // плашку-заголовок и нижнюю "крышку" карточки в canvas только когда
+    // меняются относящиеся к ним поля.
+    if (block.type === 'table') {
+        const titleKeys = ['title', 'titleColor', 'titleGradientEnabled', 'titleBgColor', 'titleGradientStart', 'titleGradientEnd', 'titleGradientAngle', 'titleRightImage', 'titleRadius', 'titleFontSize'];
+        // containerBg триггерит перерисовку ОБЕИХ картинок: и крышки, и
+        // плашки — PNG плашки тоже запекает containerBg в свои нижние
+        // скруглённые уголки (см. imageRenderers.js renderTableTitleToDataUrl).
+        const needsTitleRerender = titleKeys.includes(key) || key === 'containerBg';
+        const needsCapRerender = key === 'containerBg' || key === 'containerRadius';
+
+        if (needsTitleRerender) {
+            renderTableTitleToDataUrl(block, (dataUrl) => {
+                block.settings.renderedTitleBar = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        if (needsCapRerender) {
+            renderTableBottomCapToDataUrl(block, (dataUrl) => {
+                block.settings.renderedBottomCap = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        if (needsTitleRerender || needsCapRerender) return;
     }
 
     renderCanvas();

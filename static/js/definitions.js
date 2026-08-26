@@ -109,7 +109,8 @@ const BLOCK_TYPE_NAMES = {
     divider: 'Разделитель',
     image: 'Картинка',
     spacer: 'Отступ',
-    canvas: 'Свободный блок'
+    canvas: 'Свободный блок',
+    table: 'Таблица'
 };
 
 // === НАСТРОЙКИ ПО УМОЛЧАНИЮ ===
@@ -210,7 +211,10 @@ const DEFAULT_SETTINGS = {
         align: 'left',
         color: '#e5e7eb',
         fontFamily: 'rt-light',
-        customFontFamily: ''
+        customFontFamily: '',
+        listBulletSize: null,   // null = маркер наследует fontSize блока
+        listBulletColor: null,  // null = маркер наследует цвет текста
+        listItemSpacing: 4      // px между соседними пунктами списка
     },
 
     heading: {
@@ -228,7 +232,12 @@ const DEFAULT_SETTINGS = {
         url: 'https://example.com',
         color: '#ff4f12',
         icon: '',
-        align: 'center'
+        align: 'center',
+        // null — не задано вручную: рендер сам решает (14px, либо 12px
+        // в 4-колоночной раскладке, см. imageRenderers.js
+        // renderButtonToDataUrl / emailGenerator.js generateButtonHTML /
+        // blockPreview.js renderButtonPreview).
+        fontSize: null
     },
 
     list: {
@@ -247,7 +256,9 @@ const DEFAULT_SETTINGS = {
         bulletGap: 10,
         itemSpacing: 8,
         listStyle: 'bullets',
-        numberFormat: 'padded'
+        numberFormat: 'padded',
+        leftIndent: 0,
+        bulletAlign: 'block' // 'block' — по всей высоте пункта, 'first-line' — прижат к верху
     },
 
     expert: {
@@ -313,6 +324,57 @@ const DEFAULT_SETTINGS = {
         bgColor: '#1D2533',
         freeElements: [],
         renderedCanvas: null,
+    },
+
+    table: {
+        // Заголовок-плашка — «по принципу баннера»: сплошной цвет ИЛИ
+        // градиент (titleGradientEnabled) + опциональная картинка справа,
+        // всё растрируется в PNG (renderedTitleBar), см. imageRenderers.js
+        title: 'Заголовок',
+        titleColor: '#ffffff',
+        titleGradientEnabled: true,
+        titleBgColor: '#0E059A',
+        titleGradientStart: '#0E059A',
+        titleGradientEnd: '#AA1FE6',
+        titleGradientAngle: 90,
+        titleRightImage: '',
+        titleRadius: 24,
+        titleFontSize: 32,
+        renderedTitleBar: null,
+
+        // Колонки и строки данных таблицы
+        columns: ['Название', 'Для кого', 'Что сделано'],
+        columnWidths: [33, 16, 51],   // % ширины колонок, сумма ~100
+        rows: [
+            ['', '', ''],
+            ['', '', '']
+        ],
+
+        // Карточка (фон под плашкой и таблицей)
+        containerBg: '#EBF1F6',
+        containerRadius: 28,
+        // Нижняя "крышка" карточки — узкая полоса с скруглёнными нижними
+        // углами, растрируется в PNG по тому же принципу, что и
+        // renderedTitleBar (Outlook игнорирует CSS border-radius), см.
+        // imageRenderers.js renderTableBottomCapToDataUrl
+        renderedBottomCap: null,
+
+        // Стили тела таблицы — данные лежат на фоне карточки, ячейки
+        // разделены белыми grid-линиями (не заливкой/зеброй).
+        // headerTextColor/textColor: null — не "белый по умолчанию", а
+        // "не задано вручную": пока пользователь не выберет цвет явно,
+        // generateTableHTML/renderTablePreview/renderUserTable сами
+        // посчитают контраст под containerBg (см. isLightColorPreview).
+        headerTextColor: null,
+        headerFontSize: 18,
+        textColor: null,
+        fontSize: 15,
+        lineHeight: 1.5,
+        dividerColor: '#FFFFFF',
+        cellPaddingV: 22,
+        cellPaddingH: 40,
+        cellTextAlign: 'left', // 'left' | 'center' | 'right' — выравнивание текста в ячейках (шапка + тело)
+        fontFamily: 'rt-light'
     }
 };
 

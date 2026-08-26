@@ -117,6 +117,7 @@ def get_config():
         config = _m._merge_shared_resources_into_config(config)
         config = _m._merge_user_resources_into_config(config)
         config = _m._dedup_config_resources(config)
+        config = _m._prune_missing_resources(config)
         config['features'] = _m.FEATURES
         return jsonify({'success': True, 'config': config})
     except Exception as e:

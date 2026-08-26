@@ -85,6 +85,9 @@ function renderSettings() {
         case 'canvas':
             renderCanvasBlockSettings(settingsContent, block);
             break;
+        case 'table':
+            renderTableSettings(settingsContent, block);
+            break;
     }
 
     // Если выбран контейнер с колонками, показываем настройки колонок

@@ -32,6 +32,34 @@ function renderCanvas() {
     });
 
     canvas.scrollTop = savedScroll;
+
+    ensureListBulletsRendered(AppState.blocks);
+}
+
+// Самоисцеление для шаблонов, сохранённых до появления кеша
+// renderedBulletFlat (см. imageRenderers.js): без него обычный (не
+// нумерованный) буллет-список ссылается на bullets/*.png на локальном
+// сервере приложения — картинка бьётся, как только письмо реально уходит
+// получателю. Догоняем кеш при каждом рендере канваса, без участия админа.
+function ensureListBulletsRendered(blocks) {
+    (blocks || []).forEach(block => {
+        if (block.type === 'list' && needsFlatBulletRender(block)) {
+            block.settings._bulletRenderAttempted = true;
+            renderListBulletsToDataUrls(block, () => {
+                renderCanvas();
+            });
+        }
+        if (block.columns) {
+            block.columns.forEach(col => ensureListBulletsRendered(col.blocks));
+        }
+    });
+}
+
+function needsFlatBulletRender(block) {
+    const s = block.settings || {};
+    if (s._bulletRenderAttempted || s.listStyle === 'numbered' || s.renderedBulletFlat) return false;
+    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || null);
+    return !!bulletSrc;
 }
 
 function createBlockElement(block, index) {
@@ -147,7 +175,21 @@ function renderColumnsPreview(block) {
 
     // Vertical alignment of column content within the row
     const valign = s.colValign || 'top';
-    const alignItems = valign === 'middle' ? 'center' : valign === 'bottom' ? 'flex-end' : 'flex-start';
+    const toAlignValue = (v) => v === 'middle' ? 'center' : v === 'bottom' ? 'flex-end' : 'flex-start';
+    const alignItems = toAlignValue(valign);
+    // Зазор между колонками (по умолчанию совпадает с .columns-container
+    // { gap:12px } в modular-styles.css) и между блоками внутри одной
+    // колонки (по умолчанию совпадает с .column-content { gap:12px }) —
+    // задаются inline-стилем, чтобы переопределить статический CSS-класс.
+    const colGap = s.colGap ?? 12;
+    const blockGap = s.blockGap ?? 12;
+    // .columns-container — flexbox с gap; при чистых процентах, суммирующихся
+    // в 100%, и flex-shrink:0 у .column ряд гарантированно шире контейнера
+    // ровно на суммарный gap (та же природа бага, что и с width+padding в
+    // письме, см. generateColumnsHTML) — визуально это может обрезаться
+    // родителем, из-за чего смена процентов колонок кажется "не работающей".
+    // Вычитаем суммарный gap из 100% через calc(), прежде чем брать долю.
+    const totalGapPx = colGap * Math.max(0, block.columns.length - 1);
 
     // Передаём фон контейнера дочерним блокам через глобальный контекст
     const prevParentBg = window._previewParentBg;
@@ -190,9 +232,17 @@ function renderColumnsPreview(block) {
             </div>
         ` : '';
 
+        // min-width:0 обязателен — у flex-элементов дефолт min-width:auto,
+        // из-за которого колонка НИКОГДА не сжимается уже своего контента
+        // (текста/картинки), даже если явно задать маленький width — именно
+        // это и делало смену % ширины "невидимой" (колонка держится на
+        // ширине контента, а не на заданном проценте).
+        // align-self переопределяет align-items родителя для ЭТОЙ колонки —
+        // column.valign (если задан в панели настроек) важнее общего colValign.
+        const columnAlignSelf = column.valign ? toAlignValue(column.valign) : 'auto';
         return `
-            <div class="column" style="width: ${column.width}%;" data-column-id="${column.id}">
-                <div class="column-content" data-parent-id="${block.id}" data-column-id="${column.id}">
+            <div class="column" style="width: calc((100% - ${totalGapPx}px) * ${column.width} / 100); min-width: 0; align-self: ${columnAlignSelf};" data-column-id="${column.id}">
+                <div class="column-content" data-parent-id="${block.id}" data-column-id="${column.id}" style="gap:${blockGap}px;">
                     ${columnBlocks}
                     ${dropZoneHTML}
                 </div>
@@ -204,11 +254,20 @@ function renderColumnsPreview(block) {
     window._previewParentBg = prevParentBg;
 
     if (s.bgEnabled !== false && s.bgColor) {
+        if (s.bgFullWidth) {
+            // Фон "вырывается" за пределы contentPadding родителя (margin отрицательный),
+            // а колонки остаются на прежней визуальной позиции (компенсируем padding'ом).
+            const cp = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+                ? ProfileLoader.getContentPadding() : 27;
+            return `<div style="background:${s.bgColor};border-radius:${s.bgRadius || 0}px;margin:0 -${cp}px;padding:${s.bgPadding || 0}px ${(s.bgPadding || 0) + cp}px;">
+                <div class="columns-container" style="align-items:${alignItems}; gap:${colGap}px;">${columnsHTML}</div>
+            </div>`;
+        }
         return `<div style="background:${s.bgColor};border-radius:${s.bgRadius || 0}px;padding:${s.bgPadding || 0}px;">
-            <div class="columns-container" style="align-items:${alignItems};">${columnsHTML}</div>
+            <div class="columns-container" style="align-items:${alignItems}; gap:${colGap}px;">${columnsHTML}</div>
         </div>`;
     }
-    return `<div class="columns-container" style="align-items:${alignItems};">${columnsHTML}</div>`;
+    return `<div class="columns-container" style="align-items:${alignItems}; gap:${colGap}px;">${columnsHTML}</div>`;
 }
 
 function setupCanvas() {

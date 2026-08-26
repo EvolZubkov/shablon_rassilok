@@ -6,7 +6,7 @@ CapabilityRegistry.register({
     label: 'Подложка',
 
     defaultSettings: {
-        bgEnabled: true,
+        bgEnabled: false,
         bgColor:   '#1e293b',
         bgRadius:  8,
         bgPadding: 16,

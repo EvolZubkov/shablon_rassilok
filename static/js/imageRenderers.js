@@ -1123,7 +1123,7 @@ function renderButtonToDataUrl(block, callback) {
     const text = fullText.length > 25 ? fullText.slice(0, 25) + '…' : fullText;
 
     const scale = 1;
-    const basePaddingX = 24;
+    const basePaddingX = 18;
     const baseRadius = 6;
 
     const columnsCount = Number(s._columnsCount || 1);
@@ -1133,7 +1133,12 @@ function renderButtonToDataUrl(block, callback) {
     const paddingX = basePaddingX * scale;
     const rectHeight = baseHeight * scale;
     const radius = baseRadius * scale;
-    const fontSize = baseFontSize * scale;
+    // Явно заданный s.fontSize переопределяет авто-логику (14px/12px по
+    // числу колонок) — высота/паддинг кнопки при этом не пересчитываются.
+    // В 4-колоночной раскладке колонки узкие — даже ручной размер не
+    // должен превышать 14px, иначе текст не влезает.
+    const effectiveFontSize = Number(s.fontSize) || (baseFontSize * scale);
+    const fontSize = columnsCount >= 4 ? Math.min(effectiveFontSize, 14) : effectiveFontSize;
 
     const hasIcon = !!(renderIcon && renderIcon !== 'none' && renderIcon.length > 0);
 
@@ -1209,15 +1214,29 @@ function renderListBulletsToDataUrls(block, callback) {
     const items = s.items || [];
     const isNumbered = s.listStyle === 'numbered';
 
-    // если список не нумерованный — просто очищаем кеш
-    if (!isNumbered || items.length === 0) {
+    if (items.length === 0) {
         block.settings.renderedBullets = [];
+        block.settings.renderedBulletFlat = null;
         if (callback) callback([]);
         return;
     }
 
+    // Обычный (не нумерованный) список — растрируем ОДНУ иконку буллита в
+    // самодостаточный data:URL и переиспользуем её для всех пунктов. Без
+    // этого <img src> ссылается на путь вида bullets/*.png, который в
+    // редакторе резолвится относительно локального сервера приложения, а в
+    // реально отправленном письме превращается в битую картинку (получатель
+    // не может достучаться до этого сервера) — см. renderFlatBulletToDataUrl.
+    if (!isNumbered) {
+        block.settings.renderedBullets = [];
+        renderFlatBulletToDataUrl(block, () => {
+            if (callback) callback([]);
+        });
+        return;
+    }
+
     const bulletSize = s.bulletSize || 20;
-    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType) || BULLET_TYPES[0])?.src || null);
+    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || null);
 
     const SCALE = 2;
     const numberFontSize = Math.max(10, Math.round(bulletSize * 0.45));
@@ -1321,6 +1340,61 @@ function renderListBulletsToDataUrls(block, callback) {
     } else {
         items.forEach((_, idx) => drawForIndex(idx, null));
     }
+}
+
+// Растрирует иконку буллита (без номера) в самодостаточный data:URL —
+// используется для обычных (не нумерованных) списков, см. вызов из
+// renderListBulletsToDataUrls.
+function renderFlatBulletToDataUrl(block, callback) {
+    const s = block.settings || {};
+    const bulletSize = s.bulletSize || 20;
+    const bulletSrc = s.bulletCustom || ((BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType) || BULLET_TYPES[0])?.src || null);
+
+    // Счётчик поколений: выбор иконки в панели настроек бьёт по
+    // updateBlockSetting ДВА раза подряд (сброс bulletCustom, потом сама
+    // bulletType) — каждый вызов запускает свою асинхронную загрузку
+    // картинки, и они могут завершиться в любом порядке. Без этой проверки
+    // более старый (уже неактуальный) вызов может завершиться ПОСЛЕ нового
+    // и затереть результат устаревшей иконкой.
+    const gen = (block.settings._bulletRenderGen = (block.settings._bulletRenderGen || 0) + 1);
+
+    // Нет иконки (цветной кружок) — рендерить нечего, кружок и так рисуется CSS.
+    if (!bulletSrc) {
+        block.settings.renderedBulletFlat = null;
+        if (callback) callback(null);
+        return;
+    }
+
+    // Уже самодостаточный data:URL (например, загруженная пользователем своя иконка).
+    if (bulletSrc.startsWith('data:')) {
+        block.settings.renderedBulletFlat = bulletSrc;
+        if (callback) callback(bulletSrc);
+        return;
+    }
+
+    const SCALE = 2;
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.src = bulletSrc;
+
+    img.onload = () => {
+        if (block.settings._bulletRenderGen !== gen) return;
+        const canvas = document.createElement('canvas');
+        canvas.width = bulletSize * SCALE;
+        canvas.height = bulletSize * SCALE;
+        const ctx = canvas.getContext('2d');
+        ctx.scale(SCALE, SCALE);
+        ctx.drawImage(img, 0, 0, bulletSize, bulletSize);
+        block.settings.renderedBulletFlat = canvas.toDataURL('image/png');
+        canvas.width = 0;
+        if (callback) callback(block.settings.renderedBulletFlat);
+    };
+    img.onerror = () => {
+        if (block.settings._bulletRenderGen !== gen) return;
+        console.warn('Не удалось загрузить иконку буллита', bulletSrc);
+        block.settings.renderedBulletFlat = null;
+        if (callback) callback(null);
+    };
 }
 
 function roundRectPath(ctx, x, y, w, h, r) {
@@ -2120,4 +2194,187 @@ function renderFreeBlockToDataUrl(block, callback) {
         canvas.width = 0;
         callback(dataUrl);
     });
+}
+
+// ── Блок "Таблица" — рендер градиентной плашки-заголовка ──────────────────
+// Outlook не умеет CSS-градиенты, поэтому плашка растрируется в PNG (как
+// фон баннера), а тело таблицы ниже остаётся обычным HTML (см. emailGenerator.js).
+
+/**
+ * Переводит угол CSS linear-gradient в координаты линии градиента для canvas.
+ * @param {number} angleDeg - угол в градусах (CSS-семантика: 0deg = "к верху").
+ * @param {number} w - ширина прямоугольника.
+ * @param {number} h - высота прямоугольника.
+ * @returns {{x1:number,y1:number,x2:number,y2:number}}
+ */
+function computeCssLinearGradientLine(angleDeg, w, h) {
+    const angle = ((Number(angleDeg) || 0) % 360 + 360) % 360;
+    const rad = (angle * Math.PI) / 180;
+    const dx = Math.sin(rad);
+    const dy = -Math.cos(rad);
+    const halfW = w / 2, halfH = h / 2;
+    const length = Math.abs(halfW * dx) + Math.abs(halfH * dy);
+    const cx = w / 2, cy = h / 2;
+    return {
+        x1: cx - dx * length,
+        y1: cy - dy * length,
+        x2: cx + dx * length,
+        y2: cy + dy * length
+    };
+}
+
+const TABLE_TITLE_PADDING_V = 30;
+const TABLE_TITLE_PADDING_H = 40;
+
+/**
+ * Рендерит плашку-заголовок блока "Таблица" — по принципу баннера:
+ * сплошной цвет ИЛИ градиент (titleGradientEnabled) + опциональная картинка
+ * справа (titleRightImage). Асинхронно (картинка грузится через Image()),
+ * поэтому результат приходит в callback, как у renderBannerToDataUrl.
+ */
+function renderTableTitleToDataUrl(block, callback) {
+    const s = block.settings || {};
+    const SCALE = 2;
+    const WIDTH = 600;
+    const fontSize = Number(s.titleFontSize) || 32;
+    const HEIGHT = fontSize + TABLE_TITLE_PADDING_V * 2;
+    const RADIUS = Number(s.titleRadius) || 0;
+    const pageBg = (typeof getCurrentEmailRenderContext === 'function' && getCurrentEmailRenderContext().bodyBg) || '#ffffff';
+
+    const imagesToLoad = s.titleRightImage ? [{ key: 'rightImage', src: s.titleRightImage }] : [];
+
+    loadAllImages(imagesToLoad, (loadedImages) => {
+        const canvas = document.createElement('canvas');
+        canvas.width = WIDTH * SCALE;
+        canvas.height = HEIGHT * SCALE;
+
+        const ctx = canvas.getContext('2d');
+        ctx.scale(SCALE, SCALE);
+
+        // Картинка полностью НЕПРОЗРАЧНАЯ — не полагаемся на alpha вообще.
+        // Outlook (движок Word) масштабирует эту картинку почти вдвое
+        // (холст рисуется в 2x для чёткости, а показывается в ~1x), и на
+        // масштабировании границы alpha-прозрачных скруглённых уголков дают
+        // артефакты/шов. Поэтому оба цвета для уголков закрашиваются прямо
+        // в холсте ДО клипа: сверху — pageBg (фон страницы письма, снаружи
+        // карточки), снизу — containerBg (карточка, задуманный эффект —
+        // полоска карточки выглядывает из-под скруглённого низа плашки).
+        ctx.fillStyle = pageBg;
+        ctx.fillRect(0, 0, RADIUS, RADIUS);
+        ctx.fillRect(WIDTH - RADIUS, 0, RADIUS, RADIUS);
+
+        ctx.fillStyle = s.containerBg || '#EBF1F6';
+        ctx.fillRect(0, HEIGHT - RADIUS, RADIUS, RADIUS);
+        ctx.fillRect(WIDTH - RADIUS, HEIGHT - RADIUS, RADIUS, RADIUS);
+
+        // Ручные moveTo/lineTo/arcTo вместо per-corner формы
+        // roundRect([tl,tr,br,bl]) — как и в renderTableBottomCapToDataUrl,
+        // per-corner форма может быть не реализована в QWebEngineView.
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(RADIUS, 0);
+        ctx.lineTo(WIDTH - RADIUS, 0);
+        ctx.arcTo(WIDTH, 0, WIDTH, RADIUS, RADIUS);
+        ctx.lineTo(WIDTH, HEIGHT - RADIUS);
+        ctx.arcTo(WIDTH, HEIGHT, WIDTH - RADIUS, HEIGHT, RADIUS);
+        ctx.lineTo(RADIUS, HEIGHT);
+        ctx.arcTo(0, HEIGHT, 0, HEIGHT - RADIUS, RADIUS);
+        ctx.lineTo(0, RADIUS);
+        ctx.arcTo(0, 0, RADIUS, 0, RADIUS);
+        ctx.closePath();
+        ctx.clip();
+
+        // Фон: сплошной цвет или градиент — как у backgroundColor/gradientEnabled баннера.
+        if (s.titleGradientEnabled !== false) {
+            const { x1, y1, x2, y2 } = computeCssLinearGradientLine(
+                s.titleGradientAngle ?? 90, WIDTH, HEIGHT
+            );
+            const gradient = ctx.createLinearGradient(x1, y1, x2, y2);
+            gradient.addColorStop(0, s.titleGradientStart || '#0E059A');
+            gradient.addColorStop(1, s.titleGradientEnd || '#AA1FE6');
+            ctx.fillStyle = gradient;
+        } else {
+            ctx.fillStyle = s.titleBgColor || '#0E059A';
+        }
+        ctx.fillRect(0, 0, WIDTH, HEIGHT);
+
+        // Картинка справа: по высоте плашки (cover), но не шире 40% ширины.
+        const img = loadedImages.rightImage;
+        if (img && img.width && img.height) {
+            const maxImgWidth = WIDTH * 0.4;
+            let drawWidth = img.width * (HEIGHT / img.height);
+            let drawHeight = HEIGHT;
+            if (drawWidth > maxImgWidth) {
+                drawWidth = maxImgWidth;
+                drawHeight = img.height * (maxImgWidth / img.width);
+            }
+            ctx.drawImage(img, WIDTH - drawWidth, (HEIGHT - drawHeight) / 2, drawWidth, drawHeight);
+        }
+
+        ctx.restore();
+
+        // Заголовок
+        const fontFamily = getBannerFontFamily('rt-regular');
+        ctx.font = `400 ${fontSize}px ${fontFamily}`;
+        ctx.fillStyle = s.titleColor || '#ffffff';
+        ctx.textBaseline = 'middle';
+        ctx.textAlign = 'left';
+        ctx.fillText(String(s.title || ''), TABLE_TITLE_PADDING_H, HEIGHT / 2);
+
+        const dataUrl = canvas.toDataURL('image/png');
+        callback(dataUrl);
+    });
+}
+
+/**
+ * Рендерит нижнюю "крышку" карточки блока "Таблица" — узкую полосу цвета
+ * containerBg со скруглёнными только нижними углами (верхние = 0, чтобы
+ * плавно продолжать плоскую середину карточки над ней).
+ *
+ * Растрируется в PNG по тому же принципу, что и renderTableTitleToDataUrl:
+ * Outlook (движок Word) не поддерживает CSS border-radius, а высота этой
+ * полосы, в отличие от высоты всей карточки, ФИКСИРОВАНА (= containerRadius)
+ * и не зависит от количества строк/длины текста — поэтому, в отличие от
+ * фона всей карточки, её можно безопасно нарисовать один раз при экспорте,
+ * не дожидаясь фактической раскладки текста у получателя.
+ */
+function renderTableBottomCapToDataUrl(block, callback) {
+    const s = block.settings || {};
+    const SCALE = 2;
+    const WIDTH = 600;
+    const RADIUS = Number(s.containerRadius) || 0;
+
+    if (RADIUS <= 0) {
+        callback(null);
+        return;
+    }
+
+    const HEIGHT = RADIUS;
+    const canvas = document.createElement('canvas');
+    canvas.width = WIDTH * SCALE;
+    canvas.height = HEIGHT * SCALE;
+
+    const ctx = canvas.getContext('2d');
+    ctx.scale(SCALE, SCALE);
+
+    // Скругляем только нижние два угла вручную через moveTo/lineTo/arcTo —
+    // без per-corner формы roundRect([tl,tr,br,bl]): это самая новая часть
+    // спецификации и на не самых свежих сборках Chromium (в т.ч. в
+    // QWebEngineView) может быть не реализована корректно, из-за чего вместо
+    // прозрачных скруглённых уголков получается сплошной прямоугольник.
+    // moveTo/lineTo/arcTo — базовые примитивы, поддерживаются всегда.
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(WIDTH, 0);
+    ctx.lineTo(WIDTH, HEIGHT - RADIUS);
+    ctx.arcTo(WIDTH, HEIGHT, WIDTH - RADIUS, HEIGHT, RADIUS);
+    ctx.lineTo(RADIUS, HEIGHT);
+    ctx.arcTo(0, HEIGHT, 0, HEIGHT - RADIUS, RADIUS);
+    ctx.closePath();
+    ctx.fillStyle = s.containerBg || '#EBF1F6';
+    ctx.fill();
+
+    const dataUrl = canvas.toDataURL('image/png');
+    canvas.width = 0;
+    callback(dataUrl);
 }

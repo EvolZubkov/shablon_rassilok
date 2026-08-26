@@ -274,7 +274,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 #   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
 #
 FEATURES: dict = {
-    'bulk_mail':     True,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'bulk_mail': True,   # Панель «Рассылка», кнопка {{}} в тулбаре
     'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
 }
 
@@ -2263,18 +2263,7 @@ def _dedup_config_resources(config: dict) -> dict:
     from appearing twice when it is referenced by different URL patterns
     (e.g. ``/cache/…`` vs ``/api/user-resources/file/…``).
     """
-    list_keys = [
-        ('icons', 'important'),
-        ('expertBadges',),
-        ('bullets',),
-        ('buttonIcons',),
-        ('dividers',),
-        ('bannerBackgrounds',),
-        ('bannerLogos',),
-        ('bannerIcons',),
-        ('images',),
-    ]
-    for key_path in list_keys:
+    for key_path in _RESOURCE_LIST_KEYS:
         node = config
         for k in key_path[:-1]:
             if not isinstance(node, dict):
@@ -2299,6 +2288,77 @@ def _dedup_config_resources(config: dict) -> dict:
                 seen.add(fname)
             deduped.append(item)
         node[leaf] = deduped
+    return config
+
+
+_RESOURCE_LIST_KEYS = [
+    ('icons', 'important'),
+    ('expertBadges',),
+    ('bullets',),
+    ('buttonIcons',),
+    ('dividers',),
+    ('bannerBackgrounds',),
+    ('bannerLogos',),
+    ('bannerIcons',),
+    ('images',),
+]
+
+
+def _resource_file_exists(src: str) -> bool:
+    """
+    Check whether *src* (a resource URL from config.json) points to a file that
+    actually exists on disk.
+
+    Entries generated from a directory listing (``/cache/...`` from
+    :func:`_merge_shared_resources_into_config`, ``/api/user-resources/...``
+    from :func:`_merge_user_resources_into_config`) are trusted without a disk
+    check — they were just built from ``os.listdir()``. Only hand-authored
+    entries from ``config.json`` itself (network config or builtin fallback)
+    need verification, since those can drift from the actual files on disk
+    (renamed/deleted on the network share without updating the JSON).
+    """
+    if not src:
+        return True
+    if src.startswith('/api/user-resources/') or src.startswith('/cache/'):
+        return True
+    return (os.path.isfile(os.path.join(CACHE_DIR, src))
+            or os.path.isfile(os.path.join(NETWORK_RESOURCES_PATH, 'static', src)))
+
+
+def _prune_missing_resources(config: dict) -> dict:
+    """
+    Drop resource entries whose ``src`` file no longer exists on disk.
+
+    ``config.json`` (network or builtin fallback) is hand-authored and can
+    drift from the actual asset files an audience repo carries — a file gets
+    renamed/deleted on the network share but the JSON entry is left behind,
+    producing a broken image in the icon/divider/banner pickers. This removes
+    those stale entries so the frontend never sees them.
+    """
+    for key_path in _RESOURCE_LIST_KEYS:
+        node = config
+        for k in key_path[:-1]:
+            if not isinstance(node, dict):
+                break
+            node = node.get(k, {})
+        leaf = key_path[-1]
+        if not isinstance(node, dict):
+            continue
+        items = node.get(leaf)
+        if not isinstance(items, list):
+            continue
+        kept = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            src = item.get('src', '')
+            if _resource_file_exists(src):
+                kept.append(item)
+            else:
+                _logger.warning(
+                    'Пропущен ресурс со ссылкой на несуществующий файл: label=%r src=%r',
+                    item.get('label'), src)
+        node[leaf] = kept
     return config
 
 
