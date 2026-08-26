@@ -2,7 +2,10 @@
 
 // ===== КОНСТАНТЫ =====
 const MAX_BUTTON_COLUMNS = 4;
-const MAX_TEXT_COLUMNS = 3;
+// Общий лимит для любого не-кнопочного ряда (текст/картинки/микс) —
+// кнопки остаются отдельной сущностью со своим (более широким) лимитом,
+// т.к. это узкие "таблетки", предназначенные именно для плотного ряда.
+const MAX_MIXED_COLUMNS = 3;
 const DEFAULT_COLUMNS = 2;
 
 let columnIdCounter = 0;
@@ -27,13 +30,71 @@ function isButtonsRow(block) {
 }
 
 /**
- * Проверяет, является ли блок рядом текстов
+ * Проверяет, можно ли в этот ряд подмешивать разные типы блоков —
+ * любой контейнер колонок, КРОМЕ чистого ряда кнопок (у кнопок свой,
+ * более узкий визуальный формат и свой лимит, см. isButtonsRow). Сюда
+ * входят ряды из одного текста/картинок и уже смешанные ряды.
  */
-function isTextRow(block) {
+function isMixableRow(block) {
     if (!block || !block.columns) return false;
     const allBlocks = block.columns.flatMap(col => col.blocks);
     if (allBlocks.length === 0) return false;
-    return allBlocks.every(child => child.type === 'text');
+    return !isButtonsRow(block);
+}
+
+/**
+ * Определяет, что произойдёт, если сейчас отпустить перетаскиваемый блок
+ * НАД рядом колонок parentBlock: 'grow' — добавится новая колонка,
+ * 'below' — блок уйдёт под ряд, 'stack' — обычное поведение (положится
+ * в конкретную колонку). Единый источник истины и для самого дропа
+ * (handleDropIntoColumn), и для подсказки при наведении (dragover) —
+ * чтобы подсветка никогда не расходилась с реальным поведением.
+ *
+ * preferGrow — зависит от ТОЧКИ дропа внутри уже занятой колонки (см.
+ * isNearColumnGrowEdge): у края колонки пользователь хочет новую
+ * колонку, в остальной части — доложить блок в эту же (stack). Для
+ * дропа прямо на пустую колонку-заглушку (.column-drop-zone) или прямо
+ * на сам блок columns_container (не в конкретную колонку) вызывающий
+ * код передаёт true/false напрямую, без вычисления по координатам.
+ */
+function getRowDropOutcome(parentBlock, draggedBlock, fromColumn, preferGrow) {
+    if (!parentBlock || !parentBlock.columns || !draggedBlock) return 'stack';
+    const buttonsRow = isButtonsRow(parentBlock);
+    const mixableRow = isMixableRow(parentBlock);
+
+    if (buttonsRow) {
+        if (draggedBlock.type !== 'button') return 'below';
+        if (fromColumn || !preferGrow) return 'stack';
+        return parentBlock.columns.length < MAX_BUTTON_COLUMNS ? 'grow' : 'below';
+    }
+    if (mixableRow) {
+        if (draggedBlock.type === 'button') return 'below';
+        if (fromColumn || !preferGrow) return 'stack';
+        return parentBlock.columns.length < MAX_MIXED_COLUMNS ? 'grow' : 'below';
+    }
+    return 'stack';
+}
+
+// Ближайшие COLUMN_GROW_EDGE_RATIO ширины колонки у её правого края —
+// зона "хочу новую колонку"; остальное — "хочу доложить в эту же".
+const COLUMN_GROW_EDGE_RATIO = 0.25;
+
+function isNearColumnGrowEdge(columnEl, clientX) {
+    if (!columnEl) return false;
+    const rect = columnEl.getBoundingClientRect();
+    return (clientX - rect.left) > rect.width * (1 - COLUMN_GROW_EDGE_RATIO);
+}
+
+/**
+ * Возвращает данные перетаскиваемого блока во время drag — берётся из
+ * AppState (заполняется в dragstart), а не из dataTransfer.getData(),
+ * потому что во время dragover большинство браузеров его не отдают
+ * (доступен только на самом drop).
+ */
+function getDraggedBlock() {
+    if (AppState.draggedBlockIndex !== null) return AppState.blocks[AppState.draggedBlockIndex];
+    if (AppState.draggedFromColumnId) return AppState.findBlockById(AppState.draggedFromColumnId.blockId);
+    return null;
 }
 
 /**
@@ -188,7 +249,39 @@ function handleDragOver(e, index) {
         `);
     } else {
         AppState.setDropZone(null);
-        AppState.hideDropIndicator();
+
+        // Центр наведён прямо на сам блок columns_container — второй
+        // (наряду с dragover внутри .column-content/.column-drop-zone,
+        // см. setupCanvasDragDrop) путь роста ряда через
+        // handleTextDrop/handleImageDrop/handleButtonDrop. Подсказка та
+        // же: getRowDropOutcome решает, что реально произойдёт.
+        const targetData = AppState.blocks[index];
+        if (targetData && targetData.type === 'columns_container') {
+            const draggedBlock = getDraggedBlock();
+            // Дроп прямо на весь блок ряда (не в конкретную колонку) —
+            // тут нет "края колонки", поэтому всегда пробуем расти.
+            const outcome = getRowDropOutcome(targetData, draggedBlock, false, true);
+
+            if (outcome === 'grow') {
+                AppState.showDropIndicator(`
+                    left: ${rect.right - 3}px;
+                    top: ${rect.top}px;
+                    width: 3px;
+                    height: ${rect.height}px;
+                `);
+            } else if (outcome === 'below') {
+                AppState.showDropIndicator(`
+                    left: ${rect.left}px;
+                    top: ${rect.bottom}px;
+                    width: ${rect.width}px;
+                    height: 3px;
+                `);
+            } else {
+                AppState.hideDropIndicator();
+            }
+        } else {
+            AppState.hideDropIndicator();
+        }
     }
 }
 
@@ -301,9 +394,9 @@ function handleButtonDrop(draggedBlock, targetBlock, draggedIndex, index, blocks
 function handleTextDrop(draggedBlock, targetBlock, draggedIndex, index, blocks) {
     if (draggedBlock.type !== 'text') return false;
 
-    // Текст в существующий контейнер с текстами
-    if (targetBlock.type === 'columns_container' && isTextRow(targetBlock)) {
-        if (targetBlock.columns.length < MAX_TEXT_COLUMNS) {
+    // Текст в существующий не-кнопочный ряд (текст/картинки/микс)
+    if (targetBlock.type === 'columns_container' && isMixableRow(targetBlock)) {
+        if (targetBlock.columns.length < MAX_MIXED_COLUMNS) {
             blocks.splice(draggedIndex, 1);
             targetBlock.columns.push({
                 id: generateColumnId(),
@@ -323,6 +416,53 @@ function handleTextDrop(draggedBlock, targetBlock, draggedIndex, index, blocks) 
 
     // Текст на текст — создаём контейнер с 2 колонками
     if (targetBlock.type === 'text' && !targetBlock.columns) {
+        if (draggedIndex === index) {
+            AppState.endDrag();
+            return true;
+        }
+
+        blocks.splice(draggedIndex, 1);
+        const newIndex = draggedIndex < index ? index - 1 : index;
+        const targetData = blocks[newIndex];
+
+        blocks[newIndex] = createColumnsContainer(targetData, draggedBlock);
+
+        AppState.endDrag();
+        renderCanvas();
+        return true;
+    }
+
+    return false;
+}
+
+/**
+ * Обработка перетаскивания картинки
+ */
+function handleImageDrop(draggedBlock, targetBlock, draggedIndex, index, blocks) {
+    if (draggedBlock.type !== 'image') return false;
+
+    // Картинка в существующий не-кнопочный ряд (текст/картинки/микс)
+    if (targetBlock.type === 'columns_container' && isMixableRow(targetBlock)) {
+        if (targetBlock.columns.length < MAX_MIXED_COLUMNS) {
+            blocks.splice(draggedIndex, 1);
+            targetBlock.columns.push({
+                id: generateColumnId(),
+                width: 33,
+                blocks: [draggedBlock]
+            });
+            normalizeColumnsWidths(targetBlock);
+        } else {
+            blocks.splice(draggedIndex, 1);
+            const rowIndex = blocks.indexOf(targetBlock);
+            blocks.splice(rowIndex + 1, 0, draggedBlock);
+        }
+        AppState.endDrag();
+        renderCanvas();
+        return true;
+    }
+
+    // Картинка на картинку — создаём контейнер с 2 колонками
+    if (targetBlock.type === 'image' && !targetBlock.columns) {
         if (draggedIndex === index) {
             AppState.endDrag();
             return true;
@@ -440,6 +580,9 @@ function handleDrop(e, index) {
         // Обработка текстов
         if (handleTextDrop(draggedBlock, targetBlock, draggedIndex, index, blocks)) return;
 
+        // Обработка картинок
+        if (handleImageDrop(draggedBlock, targetBlock, draggedIndex, index, blocks)) return;
+
         // Любой другой дроп по центру — ничего не делаем
         AppState.endDrag();
         return;
@@ -477,12 +620,58 @@ function setupCanvasDragDrop(canvas) {
         if (dropZone || columnContent) {
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
+
+            // Подсветка: та же самая логика, что решает исход дропа
+            // (getRowDropOutcome), чтобы подсказка не расходилась с тем,
+            // что реально произойдёт при отпускании.
+            const zoneEl = dropZone || columnContent;
+            const parentId = parseBlockId(zoneEl.dataset.parentId);
+            const parentBlock = parentId !== null ? AppState.findBlockById(parentId) : null;
+            const draggedBlock = getDraggedBlock();
+            const preferGrow = dropZone ? false : isNearColumnGrowEdge(zoneEl.closest('.column'), e.clientX);
+            const outcome = getRowDropOutcome(parentBlock, draggedBlock, !!AppState.draggedFromColumnId, preferGrow);
+            const containerEl = zoneEl.closest('.columns-container');
+
+            if (containerEl && outcome === 'grow') {
+                // Новая колонка всегда добавляется в конец ряда
+                // (addBlockToRow делает push), независимо от того, на
+                // какую именно колонку навели — поэтому линия всегда у
+                // правого края всего ряда, а не у наведённой колонки.
+                const rect = containerEl.getBoundingClientRect();
+                AppState.showDropIndicator(`
+                    left: ${rect.right - 3}px;
+                    top: ${rect.top}px;
+                    width: 3px;
+                    height: ${rect.height}px;
+                `);
+            } else if (containerEl && outcome === 'below') {
+                const rect = containerEl.getBoundingClientRect();
+                AppState.showDropIndicator(`
+                    left: ${rect.left}px;
+                    top: ${rect.bottom}px;
+                    width: ${rect.width}px;
+                    height: 3px;
+                `);
+            } else {
+                AppState.hideDropIndicator();
+            }
         } else if (AppState.draggedFromColumnId &&
             !e.target.closest('.column-block') &&
             !e.target.closest('.email-block')) {
+            // Тащим блок, вынутый из колонки, над "пустым" канвасом (не
+            // над .email-block — там уже отработал бы per-block
+            // handleDragOver) — сюда не долетают события, где индикатор
+            // уже выставлен построчным обработчиком, поэтому гасить тут
+            // безопасно.
             e.preventDefault();
             e.dataTransfer.dropEffect = 'move';
+            AppState.hideDropIndicator();
         }
+        // Дальше — намеренно без общего else: это событие могло уже
+        // всплыть от .email-block, где per-block handleDragOver (left/
+        // right/top-зоны слияния в 2 колонки) только что выставил свой
+        // индикатор — гасить его тут нельзя, иначе слияние в 2 колонки
+        // перестанет подсвечиваться (ровно тот баг, что тут был раньше).
     });
 
     canvas.addEventListener('drop', (e) => {
@@ -568,14 +757,17 @@ function handleDropIntoColumn(e) {
     if (!draggedBlock) return;
 
     // Определяем целевую колонку
-    let parentId, columnId;
+    let parentId, columnId, preferGrow;
     const dropZone = e.target.closest('.column-drop-zone');
     const columnContent = e.target.closest('.column-content');
     const columnBlock = e.target.closest('.column-block');
 
     if (dropZone) {
+        // Пустая колонка-заглушка — дроп всегда заполняет именно её,
+        // а не растит ряд новой колонкой где-то ещё.
         parentId = parseBlockId(dropZone.dataset.parentId);
         columnId = parseBlockId(dropZone.dataset.columnId);
+        preferGrow = false;
     } else if (columnContent || columnBlock) {
         const column = (columnContent || columnBlock).closest('.column');
         if (!column) return;
@@ -583,6 +775,9 @@ function handleDropIntoColumn(e) {
         columnId = parseBlockId(column.dataset.columnId);
         const content = column.querySelector('.column-content');
         parentId = parseBlockId(content.dataset.parentId);
+        // Занятая колонка: у её правого края — растим новую колонку,
+        // в остальной части — доложить блок в эту же (см. isNearColumnGrowEdge).
+        preferGrow = isNearColumnGrowEdge(column, e.clientX);
     }
 
     if (parentId === null || columnId === null) return;
@@ -600,22 +795,21 @@ function handleDropIntoColumn(e) {
     if (!column) return;
 
     const blockCopy = cloneBlock(draggedBlock);
-    const buttonsRow = isButtonsRow(parentBlock);
-    const textRow = isTextRow(parentBlock);
+    const outcome = getRowDropOutcome(parentBlock, draggedBlock, fromColumn, preferGrow);
 
-    // ===== ОСОБЫЕ СЛУЧАИ ДЛЯ РЯДА КНОПОК =====
-
-    // Кнопка с верхнего уровня в ряд кнопок
-    if (buttonsRow && draggedBlock.type === 'button' && !fromColumn) {
-        addBlockToRow(parentBlock, parentId, blockCopy, MAX_BUTTON_COLUMNS);
+    // Ряд вырастает новой колонкой — лимит зависит от того, кнопочный
+    // это ряд (своя, более узкая "таблетка") или нет (текст/картинки/микс).
+    if (outcome === 'grow') {
+        const maxColumns = isButtonsRow(parentBlock) ? MAX_BUTTON_COLUMNS : MAX_MIXED_COLUMNS;
+        addBlockToRow(parentBlock, parentId, blockCopy, maxColumns);
         AppState.draggedFromColumnId = null;
         renderCanvas();
         selectBlock(blockCopy.id);
         return;
     }
 
-    // Не-кнопка в ряд кнопок -> блок ниже ряда
-    if (buttonsRow && draggedBlock.type !== 'button') {
+    // Блок несовместим с рядом (или ряд уже на лимите) — уходит блоком ниже
+    if (outcome === 'below') {
         const parentIndex = AppState.blocks.findIndex(b => b.id === parentId);
         if (parentIndex !== -1) {
             AppState.blocks.splice(parentIndex + 1, 0, blockCopy);
@@ -626,30 +820,7 @@ function handleDropIntoColumn(e) {
         return;
     }
 
-    // ===== ОСОБЫЕ СЛУЧАИ ДЛЯ РЯДА ТЕКСТОВ =====
-
-    // Текст с верхнего уровня в ряд текстов
-    if (textRow && draggedBlock.type === 'text' && !fromColumn) {
-        addBlockToRow(parentBlock, parentId, blockCopy, MAX_TEXT_COLUMNS);
-        AppState.draggedFromColumnId = null;
-        renderCanvas();
-        selectBlock(blockCopy.id);
-        return;
-    }
-
-    // Не-текст в ряд текстов -> блок ниже ряда
-    if (textRow && draggedBlock.type !== 'text') {
-        const parentIndex = AppState.blocks.findIndex(b => b.id === parentId);
-        if (parentIndex !== -1) {
-            AppState.blocks.splice(parentIndex + 1, 0, blockCopy);
-        }
-        AppState.draggedFromColumnId = null;
-        renderCanvas();
-        selectBlock(blockCopy.id);
-        return;
-    }
-
-    // ===== ОСТАЛЬНЫЕ СЛУЧАИ =====
+    // ===== ОСТАЛЬНЫЕ СЛУЧАИ (outcome === 'stack') =====
     // Обычное поведение: просто кладём в выбранную колонку
     column.blocks.push(blockCopy);
 

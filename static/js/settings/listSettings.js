@@ -277,6 +277,43 @@ function renderListSettings(container, block) {
     if (!hiddenSettings.includes('itemSpacing')) {
         container.appendChild(createSettingRange('Расстояние между пунктами', s.itemSpacing ?? 8, block.id, 'itemSpacing', 0, 40, 1, 'px'));
     }
+    if (!hiddenSettings.includes('leftIndent')) {
+        container.appendChild(createSettingRange('Отступ слева', s.leftIndent ?? 0, block.id, 'leftIndent', 0, 100, 1, 'px'));
+    }
+
+    // Выравнивание буллета: по всей высоте пункта (дефолт) или прижат к
+    // верху — визуально совпадает с первой строкой, когда пункт
+    // переносится на несколько строк (см. emailGenerator.js generateListHTML).
+    if (!hiddenSettings.includes('bulletAlign')) {
+        const bulletAlignGroup = document.createElement('div');
+        bulletAlignGroup.className = 'setting-group';
+
+        const bulletAlignLabel = document.createElement('label');
+        bulletAlignLabel.className = 'setting-label';
+        bulletAlignLabel.textContent = 'Выравнивание буллета';
+        bulletAlignGroup.appendChild(bulletAlignLabel);
+
+        const bulletAlignWrap = document.createElement('div');
+        bulletAlignWrap.style.cssText = 'display:flex;gap:6px;';
+        [['block', 'Весь текст'], ['first-line', 'Первая строка']].forEach(([val, txt]) => {
+            const btn = document.createElement('button');
+            const isActive = (s.bulletAlign || 'block') === val;
+            btn.textContent = txt;
+            btn.style.cssText = `flex:1;padding:5px 8px;font-size:12px;cursor:pointer;border-radius:6px;
+                background:${isActive ? 'var(--accent-primary)' : 'var(--bg-hover)'};
+                border:1px solid ${isActive ? 'var(--accent-primary)' : 'var(--border-secondary)'};
+                color:${isActive ? '#fff' : 'var(--text-secondary)'};
+                font-weight:${isActive ? '600' : 'normal'};`;
+            btn.onclick = () => {
+                s.bulletAlign = val;
+                renderCanvas();
+                renderSettings();
+            };
+            bulletAlignWrap.appendChild(btn);
+        });
+        bulletAlignGroup.appendChild(bulletAlignWrap);
+        container.appendChild(bulletAlignGroup);
+    }
 }
 
 // Хелпер для получения border-radius из настроек блока

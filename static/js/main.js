@@ -49,6 +49,7 @@ function init() {
     setupDownloadButton();
     setupCanvas();
     setupAdminUndo();
+    setupCopyHtmlShortcut();
     
     // Инициализация библиотеки шаблонов
     if (typeof TemplatesUI !== 'undefined') {
@@ -544,6 +545,31 @@ async function setupInlinePresetLibrary() {
         tabs.forEach((el) => el.classList.toggle('active', (el.dataset.scope || 'shared') === activeScope));
         render();
     };
+}
+
+/**
+ * Ctrl+Alt+H — сгенерировать финальный HTML письма (тот же generateEmailHTML(),
+ * что уходит в письмо) и скопировать в буфер обмена. Диагностический
+ * шорткат — быстрее, чем скачивать email.html и открывать его в редакторе.
+ */
+function setupCopyHtmlShortcut() {
+    document.addEventListener('keydown', async (e) => {
+        if (!e.ctrlKey || !e.altKey || e.code !== 'KeyH') return;
+        e.preventDefault();
+
+        try {
+            const html = await generateEmailHTML();
+            await navigator.clipboard.writeText(html);
+            if (typeof Toast !== 'undefined') {
+                Toast.success('HTML письма скопирован в буфер обмена');
+            }
+        } catch (err) {
+            console.error('[Ctrl+Alt+H] Не удалось скопировать HTML:', err);
+            if (typeof Toast !== 'undefined') {
+                Toast.error('Не удалось скопировать HTML — см. консоль');
+            }
+        }
+    });
 }
 
 // Функция скачивания HTML

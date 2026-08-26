@@ -341,7 +341,7 @@ function updateBlockSetting(blockId, key, value) {
 
     // ► Специальная обработка для кнопок
     if (block.type === 'button' &&
-        ['text', 'color', 'textColor', 'icon'].includes(key)) {
+        ['text', 'color', 'textColor', 'icon', 'fontSize'].includes(key)) {
 
         const parentBlock = findParentBlockWithColumns(blockId);
 

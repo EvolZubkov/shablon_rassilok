@@ -836,6 +836,71 @@ body {
   outline: none;
 }
 
+/* Списки внутри блока "Текст" — визуальная подача маркера/отступа
+   ЧИСТО через CSS (::before + attr()), а не запечённая в текст. Этот
+   contenteditable одновременно и то, что видно, и то, что сохраняется —
+   если бы маркер был реальным текстом (как в TextSanitizer.render() для
+   письма/канваса), при повторном применении он бы задваивался. Здесь
+   data-bullet хранит СЫРОЙ символ (не HTML-код) специально для attr() —
+   TextSanitizer.render()/_normalizeBulletAttr на стороне письма/канваса
+   одинаково понимает обе формы и всегда выводит HTML-код в финальном HTML. */
+.user-canvas .editable-text p {
+  margin: 0 0 0.6em 0;
+}
+.user-canvas .editable-text p:last-child {
+  margin-bottom: 0;
+}
+.user-canvas .editable-text p[data-bullet] {
+  margin: 0 0 4px 22px;
+  padding-left: 18px;
+  text-indent: -18px;
+}
+.user-canvas .editable-text p[data-bullet]:last-child {
+  margin-bottom: 0;
+}
+.user-canvas .editable-text p[data-bullet]::before {
+  content: attr(data-bullet) "\00a0\00a0";
+}
+/* Нумерованные форматы — attr() не умеет декодировать "num:1." в реальный
+   номер, поэтому номер считает CSS-счётчик (только для отображения при
+   редактировании; в письме/канвасе точный номер по-прежнему считает
+   TextSanitizer.render()). Счётчик общий на весь блок текста — в отличие
+   от render(), не сбрасывается при прерывании другим абзацем; для
+   типичного одного списка подряд разницы не видно. */
+.user-canvas .editable-text {
+  counter-reset: udot uparen ualpha ualphaparen uroman;
+}
+.user-canvas .editable-text p[data-bullet="num:1."] {
+  counter-increment: udot;
+}
+.user-canvas .editable-text p[data-bullet="num:1."]::before {
+  content: counter(udot) ".\00a0\00a0";
+}
+.user-canvas .editable-text p[data-bullet="num:1)"] {
+  counter-increment: uparen;
+}
+.user-canvas .editable-text p[data-bullet="num:1)"]::before {
+  content: counter(uparen) ")\00a0\00a0";
+}
+.user-canvas .editable-text p[data-bullet="num:a."] {
+  counter-increment: ualpha;
+}
+.user-canvas .editable-text p[data-bullet="num:a."]::before {
+  content: counter(ualpha, lower-alpha) ".\00a0\00a0";
+}
+.user-canvas .editable-text p[data-bullet="num:a)"] {
+  counter-increment: ualphaparen;
+}
+.user-canvas .editable-text p[data-bullet="num:a)"]::before {
+  content: counter(ualphaparen, lower-alpha) ")\00a0\00a0";
+}
+.user-canvas .editable-text p[data-bullet="num:I."] {
+  counter-increment: uroman;
+}
+.user-canvas .editable-text p[data-bullet="num:I."]::before {
+  content: counter(uroman, upper-roman) ".\00a0\00a0";
+}
+
 .user-canvas .editable-image,
 .user-canvas .editable-button {
   cursor: pointer;
