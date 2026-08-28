@@ -31,6 +31,7 @@ import time
 import json
 import shutil
 import hashlib
+import hmac
 from datetime import datetime
 from typing import Optional
 from flask import Flask, send_from_directory, request, jsonify, send_file
@@ -274,7 +275,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 #   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
 #
 FEATURES: dict = {
-    'bulk_mail': True,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'bulk_mail': False,   # Панель «Рассылка», кнопка {{}} в тулбаре
     'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
 }
 
@@ -2835,6 +2836,307 @@ def get_user_from_system():
     return os.environ.get('USER', os.environ.get('LOGNAME', 'unknown')).lower()
 
 
+# ============================================================================
+# Usage analytics — anonymous launch/send counters written to a shared
+# NDJSON log on the network drive, with a self-contained HTML dashboard
+# regenerated on every event. No username or other personal data is ever
+# written — only an irreversible HMAC hash, used solely to deduplicate
+# unique users.
+# ============================================================================
+
+# Not a secret — just a pepper so the hash can't be trivially reversed via a
+# dictionary of common usernames (ivanov/petrov/...).
+_STATS_PEPPER = b'pochtelie-usage-stats-v1'
+
+
+def _anon_uid() -> str:
+    """Irreversible per-user id derived from the OS username. Never store the raw name."""
+    raw = get_user_from_system().encode('utf-8')
+    return hmac.new(_STATS_PEPPER, raw, hashlib.sha256).hexdigest()[:16]
+
+
+def _stats_dir() -> str:
+    return os.path.join(NETWORK_RESOURCES_PATH, 'stats')
+
+
+def _append_stats_event(event: dict) -> bool:
+    try:
+        d = _stats_dir()
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'usage_log.ndjson'), 'a', encoding='utf-8') as f:
+            f.write(json.dumps(event, ensure_ascii=False) + '\n')
+        return True
+    except OSError as e:
+        print(f'⚠ Analytics: не удалось записать в лог: {e}')
+        return False
+
+
+def log_launch():
+    """Records one anonymous app-launch event and refreshes the dashboard."""
+    ok = _append_stats_event({
+        'ts': datetime.now().isoformat(timespec='seconds'),
+        'type': 'launch',
+        'uid': _anon_uid(),
+    })
+    if ok:
+        _regenerate_stats_dashboard()
+
+
+def log_send(recipients: int):
+    """Records one successful send action (single or bulk) with its recipient count."""
+    if recipients <= 0:
+        return
+    ok = _append_stats_event({
+        'ts': datetime.now().isoformat(timespec='seconds'),
+        'type': 'send',
+        'recipients': int(recipients),
+    })
+    if ok:
+        _regenerate_stats_dashboard()
+
+
+def _read_stats_events() -> list:
+    events = []
+    log_path = os.path.join(_stats_dir(), 'usage_log.ndjson')
+    if os.path.isfile(log_path):
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue  # skip a corrupted/torn line from a concurrent write
+    return events
+
+
+def _regenerate_stats_dashboard():
+    try:
+        events = _read_stats_events()
+        html = _render_stats_dashboard_html(events)
+        d = _stats_dir()
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, '.dashboard.html.tmp')
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(html)
+        os.replace(tmp, os.path.join(d, 'dashboard.html'))
+    except OSError as e:
+        print(f'⚠ Analytics: не удалось перегенерировать дашборд: {e}')
+
+
+_STATS_DASHBOARD_TEMPLATE = r"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Почтелье — статистика использования</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: #f4f5f7; color: #1a1a2e;
+  }
+  h1 { font-size: 20px; margin: 0 0 24px; }
+  .cards { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); min-width: 220px; flex: 1;
+  }
+  .card .num { font-size: 36px; font-weight: 700; color: #7700ff; line-height: 1.1; }
+  .card .label { font-size: 13px; color: #666; margin-top: 6px; }
+  .card .sub { font-size: 12px; color: #999; margin-top: 4px; }
+  .charts { display: flex; gap: 20px; flex-wrap: wrap; }
+  .chart-box {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); flex: 1; min-width: 380px;
+  }
+  .chart-box h2 { font-size: 15px; margin: 0 0 12px; }
+  .filters { display: flex; gap: 6px; margin-bottom: 12px; }
+  .filters button {
+    border: 1px solid #ddd; background: #fff; border-radius: 6px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer; color: #444;
+  }
+  .filters button.active { background: #7700ff; border-color: #7700ff; color: #fff; }
+  canvas { width: 100%; height: 220px; display: block; }
+  .updated { font-size: 12px; color: #999; margin-top: 24px; }
+</style>
+</head>
+<body>
+  <h1>Почтелье — статистика использования</h1>
+  <div class="cards">
+    <div class="card">
+      <div class="num" id="stat-users">0</div>
+      <div class="label">Уникальных пользователей</div>
+    </div>
+    <div class="card">
+      <div class="num" id="stat-sends">0</div>
+      <div class="label">Отправок (действий)</div>
+      <div class="sub" id="stat-recipients">0 писем отправлено всего</div>
+    </div>
+  </div>
+  <div class="filters">
+    <button data-mode="day" class="active">По дням</button>
+    <button data-mode="month">По месяцам</button>
+    <button data-mode="year">По годам</button>
+  </div>
+  <div class="charts">
+    <div class="chart-box">
+      <h2>Прирост пользователей</h2>
+      <canvas id="chart-users"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Прирост рассылок</h2>
+      <canvas id="chart-sends"></canvas>
+    </div>
+  </div>
+  <div class="updated">Обновлено: __GENERATED_AT__</div>
+
+<script>
+const EVENTS = __EVENTS_JSON__;
+
+function bucketKey(ts, mode) {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  if (mode === 'day') return d.toISOString().slice(0, 10);
+  if (mode === 'month') return d.toISOString().slice(0, 7);
+  return String(d.getFullYear());
+}
+
+function buildCumulative(dateList, mode) {
+  const counts = new Map();
+  dateList.forEach(ts => {
+    const k = bucketKey(ts, mode);
+    if (!k) return;
+    counts.set(k, (counts.get(k) || 0) + 1);
+  });
+  const keys = Array.from(counts.keys()).sort();
+  let running = 0;
+  return keys.map(k => {
+    running += counts.get(k);
+    return { bucket: k, value: running };
+  });
+}
+
+const launchEvents = EVENTS.filter(e => e.type === 'launch' && e.uid);
+const sendEvents = EVENTS.filter(e => e.type === 'send');
+
+const firstSeen = new Map();
+launchEvents.forEach(e => {
+  const prev = firstSeen.get(e.uid);
+  if (!prev || e.ts < prev) firstSeen.set(e.uid, e.ts);
+});
+
+const uniqueUsers = firstSeen.size;
+const sendCount = sendEvents.length;
+const totalRecipients = sendEvents.reduce((s, e) => s + (e.recipients || 0), 0);
+
+document.getElementById('stat-users').textContent = uniqueUsers.toLocaleString('ru-RU');
+document.getElementById('stat-sends').textContent = sendCount.toLocaleString('ru-RU');
+document.getElementById('stat-recipients').textContent =
+  totalRecipients.toLocaleString('ru-RU') + ' писем отправлено всего';
+
+function drawChart(canvas, points) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 380;
+  const h = canvas.clientHeight || 220;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  if (!points.length) {
+    ctx.fillStyle = '#999';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Нет данных', w / 2, h / 2);
+    return;
+  }
+
+  const padL = 40, padR = 12, padT = 12, padB = 24;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const maxV = Math.max(1, ...points.map(p => p.value));
+
+  ctx.strokeStyle = '#e5e5e5';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT + plotH);
+  ctx.lineTo(padL + plotW, padT + plotH);
+  ctx.stroke();
+
+  ctx.fillStyle = '#999';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(String(maxV), padL - 6, padT + 4);
+  ctx.fillText('0', padL - 6, padT + plotH + 4);
+
+  const stepX = points.length > 1 ? plotW / (points.length - 1) : 0;
+  ctx.strokeStyle = '#7700ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = padL + stepX * i;
+    const y = padT + plotH - (p.value / maxV) * plotH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = '#7700ff';
+  points.forEach((p, i) => {
+    const x = padL + stepX * i;
+    const y = padT + plotH - (p.value / maxV) * plotH;
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = '#999';
+  ctx.textAlign = 'center';
+  const labelEvery = Math.max(1, Math.ceil(points.length / 6));
+  points.forEach((p, i) => {
+    if (i % labelEvery !== 0 && i !== points.length - 1) return;
+    const x = padL + stepX * i;
+    ctx.fillText(p.bucket, x, padT + plotH + 16);
+  });
+}
+
+function render(mode) {
+  const usersPoints = buildCumulative(Array.from(firstSeen.values()), mode);
+  const sendsPoints = buildCumulative(sendEvents.map(e => e.ts), mode);
+  drawChart(document.getElementById('chart-users'), usersPoints);
+  drawChart(document.getElementById('chart-sends'), sendsPoints);
+}
+
+let currentMode = 'day';
+document.querySelectorAll('.filters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = btn.dataset.mode;
+    render(currentMode);
+  });
+});
+
+render(currentMode);
+window.addEventListener('resize', () => render(currentMode));
+</script>
+</body>
+</html>
+"""
+
+
+def _render_stats_dashboard_html(events: list) -> str:
+    payload = json.dumps(events, ensure_ascii=False)
+    generated_at = datetime.now().isoformat(timespec='seconds')
+    html = _STATS_DASHBOARD_TEMPLATE.replace('__EVENTS_JSON__', payload)
+    html = html.replace('__GENERATED_AT__', generated_at)
+    return html
+
+
 def _template_base_dir(template_type, user_key: str = ''):
     """Return the filesystem directory for a given template type."""
     templates_dir = get_templates_dir()
@@ -3528,6 +3830,55 @@ def _run_webview_or_browser() -> None:
                     _logger.error('DropAwareWebView.dropEvent error: %s', exc, exc_info=True)
 
         view = DropAwareWebView()
+
+        # Разрешаем JS доступ к буферу обмена (navigator.clipboard.writeText).
+        # Без этого шорткат «скопировать HTML письма» (Ctrl+Alt+H) молча падает
+        # внутри QtWebEngine, хотя в системном браузере работает.
+        try:
+            from PyQt5.QtWebEngineWidgets import QWebEngineSettings
+            _ws = view.settings()
+            _ws.setAttribute(QWebEngineSettings.JavascriptCanAccessClipboard, True)
+            _ws.setAttribute(QWebEngineSettings.JavascriptCanPaste, True)
+        except Exception as _clip_exc:
+            _logger.warning('[QWebEngineView] не удалось включить доступ к буферу обмена: %s', _clip_exc)
+
+        # Обработка скачивания файлов (<a download> из downloadEmailHtml()).
+        # QtWebEngine по умолчанию игнорирует такие ссылки — показываем диалог
+        # сохранения и пишем файл под именем «<Название рассылки>.html».
+        try:
+            from PyQt5.QtWebEngineWidgets import QWebEngineProfile as _QWEProfile
+            from PyQt5.QtWidgets import QFileDialog
+
+            def _on_download_requested(item):
+                suggested = ''
+                try:
+                    suggested = item.suggestedFileName()
+                except Exception:
+                    pass
+                suggested = suggested or 'email.html'
+
+                downloads = os.path.join(os.path.expanduser('~'), 'Downloads')
+                start = os.path.join(downloads if os.path.isdir(downloads) else os.path.expanduser('~'),
+                                     suggested)
+
+                target, _ = QFileDialog.getSaveFileName(
+                    window, 'Сохранить HTML письма', start, 'HTML-файл (*.html);;Все файлы (*.*)')
+                if not target:
+                    item.cancel()
+                    return
+
+                try:  # PyQt5 >= 5.14
+                    item.setDownloadDirectory(os.path.dirname(target))
+                    item.setDownloadFileName(os.path.basename(target))
+                except AttributeError:  # более старые версии
+                    item.setPath(target)
+                item.accept()
+                _logger.info('[QWebEngineView] download saved: %s', target)
+
+            _QWEProfile.defaultProfile().downloadRequested.connect(_on_download_requested)
+        except Exception as _dl_exc:
+            _logger.warning('[QWebEngineView] не удалось подключить обработчик скачивания: %s', _dl_exc)
+
         # В dev-режиме отключаем дисковый кеш чтобы изменения статики были видны сразу
         if not getattr(sys, 'frozen', False):
             from PyQt5.QtWebEngineWidgets import QWebEngineProfile
@@ -3596,6 +3947,10 @@ def main():
                 if sys.platform != 'win32':
                     globals()['_LINUX_RESOLVED'] = candidate
             print(f'✓ Репозиторий ресурсов: {candidate}')
+            try:
+                log_launch()
+            except Exception as e:
+                print(f'⚠ Analytics: log_launch упал: {e}')
         else:
             print(f'✗ Репозиторий ресурсов недоступен: {candidate} — {reason}')
             init_result['error'] = 'resource_not_found'

@@ -16,3 +16,4 @@ user-resources/
 protocol.log
 protocol.log.*
 credentials.json
+*.zip

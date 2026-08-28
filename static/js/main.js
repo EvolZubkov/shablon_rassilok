@@ -548,44 +548,23 @@ async function setupInlinePresetLibrary() {
 }
 
 /**
- * Ctrl+Alt+H — сгенерировать финальный HTML письма (тот же generateEmailHTML(),
- * что уходит в письмо) и скопировать в буфер обмена. Диагностический
- * шорткат — быстрее, чем скачивать email.html и открывать его в редакторе.
+ * Ctrl+Alt+H — скопировать финальный HTML письма (тот же generateEmailHTML(),
+ * что уходит в письмо) в буфер обмена.
+ * Ctrl+Alt+S — скачать его файлом «<Название рассылки>.html».
+ *
+ * Реализация — в shared/utils.js (setupEmailHtmlShortcuts / copyTextRobust /
+ * downloadEmailHtml), чтобы одинаково работало в admin и user режимах,
+ * в браузере и в десктопной оболочке (QtWebEngine).
  */
 function setupCopyHtmlShortcut() {
-    document.addEventListener('keydown', async (e) => {
-        if (!e.ctrlKey || !e.altKey || e.code !== 'KeyH') return;
-        e.preventDefault();
-
-        try {
-            const html = await generateEmailHTML();
-            await navigator.clipboard.writeText(html);
-            if (typeof Toast !== 'undefined') {
-                Toast.success('HTML письма скопирован в буфер обмена');
-            }
-        } catch (err) {
-            console.error('[Ctrl+Alt+H] Не удалось скопировать HTML:', err);
-            if (typeof Toast !== 'undefined') {
-                Toast.error('Не удалось скопировать HTML — см. консоль');
-            }
-        }
-    });
+    setupEmailHtmlShortcuts(() => generateEmailHTML());
 }
 
-// Функция скачивания HTML
+// Функция скачивания HTML (кнопка «Скачать» в тулбаре)
 async function downloadEmail() {
     console.log('[*] Генерация HTML для скачивания...');
-    
     const html = await generateEmailHTML();
-    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'email.html';
-    a.click();
-    
-    URL.revokeObjectURL(url);
+    downloadEmailHtml(html);
     console.log('✓ HTML файл скачан');
 }
 

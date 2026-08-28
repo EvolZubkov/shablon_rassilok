@@ -614,4 +614,10 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
             try: imap_conn.logout()
             except Exception: pass
 
+    if not is_draft and sent > 0:
+        try:
+            _m.log_send(sent)
+        except Exception:
+            _logger.warning('analytics log_send failed', exc_info=True)
+
     q.put({'type': 'done', 'sent': sent, 'skipped': skipped, 'errors': errors})
