@@ -334,6 +334,10 @@ def api_send_email():
             importance=importance,
             read_receipt=read_receipt,
         )
+        try:
+            _m.log_send(len(to) + len(cc) + len(bcc))
+        except Exception:
+            current_app.logger.warning('analytics log_send failed', exc_info=True)
         if send_at:
             send_at_utc = send_at - datetime.timedelta(hours=timezone)
             current_app.logger.info(

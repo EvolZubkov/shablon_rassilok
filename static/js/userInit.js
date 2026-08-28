@@ -265,3 +265,10 @@ function initReviewJsonImport() {
         fetch('/api/heartbeat', { method: 'POST' }).catch(() => {});
     }, 5000);
 }());
+
+// Ctrl+Alt+H — скопировать HTML письма в буфер обмена,
+// Ctrl+Alt+S — скачать файлом «<Название рассылки>.html».
+// Реализация общая с admin-режимом (shared/utils.js).
+if (typeof setupEmailHtmlShortcuts === 'function') {
+    setupEmailHtmlShortcuts(() => generateEmailHTML({ previewTheme: 'light' }));
+}
