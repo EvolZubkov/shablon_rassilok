@@ -110,7 +110,8 @@ const BLOCK_TYPE_NAMES = {
     image: 'Картинка',
     spacer: 'Отступ',
     canvas: 'Свободный блок',
-    table: 'Таблица'
+    table: 'Таблица',
+    group_container: 'Группа'
 };
 
 // === НАСТРОЙКИ ПО УМОЛЧАНИЮ ===
@@ -257,8 +258,7 @@ const DEFAULT_SETTINGS = {
         itemSpacing: 8,
         listStyle: 'bullets',
         numberFormat: 'padded',
-        leftIndent: 0,
-        bulletAlign: 'block' // 'block' — по всей высоте пункта, 'first-line' — прижат к верху
+        leftIndent: 0
     },
 
     expert: {

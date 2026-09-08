@@ -275,7 +275,7 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 #   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
 #
 FEATURES: dict = {
-    'bulk_mail': False,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'bulk_mail': True,   # Панель «Рассылка», кнопка {{}} в тулбаре
     'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
 }
 
@@ -2063,9 +2063,23 @@ def prepare_html_for_email(html_content: str) -> str:
     if not html_content:
         return ''
 
+    def _strip_cache_prefix(rel_path: str) -> str:
+        """Снимает ведущий '/' и виртуальный сегмент 'cache/' — тот, что
+        обслуживает static_files.py по маршруту '/cache/<path>' (см.
+        routes/static_files.py: actual = path[len('cache/'):]), а не
+        реальная подпапка внутри CACHE_DIR/NETWORK_RESOURCES_PATH/BUILTIN_DIR.
+        Без этого встроенные ресурсы (галерея разделителей/буллетов/иконок
+        и т.п., у которых src вида '/cache/dividers/…') не находятся тут
+        и остаются в письме битой ссылкой на локальный сервер отправителя.
+        """
+        rel = rel_path.lstrip('/')
+        if rel.startswith('cache/'):
+            rel = rel[len('cache/'):]
+        return rel
+
     def resolve(rel_path: str):
         """Возвращает полный путь к файлу или None."""
-        rel = rel_path.lstrip('/')
+        rel = _strip_cache_prefix(rel_path)
         for base in [CACHE_DIR,
                      os.path.join(NETWORK_RESOURCES_PATH, 'static'),
                      BUILTIN_DIR,
@@ -2116,9 +2130,13 @@ def prepare_html_for_email(html_content: str) -> str:
         src_val = match.group(1)
         if src_val.startswith('data:') or src_val.startswith('http'):
             return full
-        if not any(src_val.startswith(p) for p in RELATIVE_PREFIXES):
+        # Встроенные ресурсы (галерея разделителей/буллетов/иконок и т.п.)
+        # отдаются с src вида '/cache/dividers/…' (см. _strip_cache_prefix)
+        # — префиксы категорий ниже сравниваем уже без виртуального 'cache/'.
+        normalized = _strip_cache_prefix(src_val)
+        if not any(normalized.startswith(p) for p in RELATIVE_PREFIXES):
             return full
-        fp = resolve(src_val)
+        fp = resolve(normalized)
         if not fp:
             _logger.warning('prepare_html: не найден: %s', src_val)
             return full

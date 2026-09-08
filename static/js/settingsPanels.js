@@ -18,6 +18,7 @@
 //   settings/imageSettings.js      — renderImageSettings
 //   settings/spacerSettings.js       — renderSpacerSettings
 //   settings/columnsSettings.js      — renderColumnsSettings
+//   settings/groupSettings.js        — renderGroupSettings
 //   settings/canvasBlockSettings.js  — renderCanvasBlockSettings, renderCanvasBlockToDataUrl
 //
 // Все модули подключаются в index.html до этого файла.
@@ -88,11 +89,15 @@ function renderSettings() {
         case 'table':
             renderTableSettings(settingsContent, block);
             break;
+        case 'group_container':
+            renderGroupSettings(settingsContent, block);
+            break;
     }
 
-    // Если выбран контейнер с колонками, показываем настройки колонок
+    // Если выбран контейнер с колонками (но не группа — у неё своя
+    // renderGroupSettings), показываем настройки колонок
     const mainBlock = AppState.blocks.find(b => b.id === AppState.selectedBlockId);
-    if (mainBlock && mainBlock.columns) {
+    if (mainBlock && mainBlock.columns && mainBlock.type !== 'group_container') {
         renderColumnsSettings(settingsContent, mainBlock);
     }
 

@@ -68,6 +68,24 @@ class TestPrepareHtmlForEmail:
             # Должен заменить на base64
             assert 'data:image' in result or 'bullets/circle.png' in result
 
+    def test_cache_prefixed_divider_path_resolved(self, tmp_path):
+        # Встроенные ресурсы (галерея разделителей/буллетов/иконок) отдаются
+        # фронтенду с src вида '/cache/dividers/...' (см.
+        # routes/static_files.py: '/cache/<path>' -> CACHE_DIR/<path>), а не
+        # 'dividers/...' — раньше это не резолвилось (src оставался битой
+        # локальной ссылкой в письме), см. app.py: _strip_cache_prefix.
+        img_data = b'fake-divider-data'
+        divider_dir = tmp_path / 'dividers'
+        divider_dir.mkdir()
+        (divider_dir / 'Разделитель_1.png').write_bytes(img_data)
+
+        html = '<img src="/cache/dividers/Разделитель_1.png">'
+
+        with patch.object(email_app, 'CACHE_DIR', str(tmp_path)):
+            result = email_app.prepare_html_for_email(html)
+            assert 'data:image' in result
+            assert '/cache/dividers/' not in result
+
     def test_external_https_url_unchanged(self):
         html = '<img src="https://example.com/image.png">'
         result = email_app.prepare_html_for_email(html)

@@ -217,18 +217,7 @@ function renderListPreview(s) {
     const cellWidthPrev = bulletSizePrev + bulletGapPrev + 2;
     const isNumbered = s.listStyle === 'numbered';
     const leftIndentPrev = Number(s.leftIndent) || 0;
-    // Канвас должен ПРЕДСКАЗЫВАТЬ реальное письмо. Подтверждено на реальном
-    // отправленном письме: Word/Outlook даже с valign="top" всё равно
-    // частично перераспределяет "лишнюю" высоту (похоже на центрирование),
-    // поэтому вычисляемый отступ для 'first-line' убран — просто top, без
-    // точного центрирования по первой строке (см. emailGenerator.js
-    // generateListHTML). 'block' пока оставлен с оценкой числа строк.
-    const isFirstLinePrev = s.bulletAlign === 'first-line';
     const lineHeightPxPrev = Math.round(fontSizePrev * lineHeightPrev);
-    const cpPrev = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded) ? ProfileLoader.getContentPadding() : 27;
-    const availableTextWidthPrev = Math.max(20, (LAYOUT.TABLE_WIDTH - cpPrev * 2) - leftIndentPrev - cellWidthPrev);
-    const measureCtxPrev = document.createElement('canvas').getContext('2d');
-    measureCtxPrev.font = `${fontSizePrev}px Arial`;
 
     return `
         <div style="padding: 8px 8px 8px ${8 + leftIndentPrev}px;">
@@ -240,17 +229,6 @@ function renderListPreview(s) {
                             ? item
                             : TextSanitizer.sanitize(item || '', true)
                     );
-
-                    let bulletTopExtraPrev;
-                    if (isFirstLinePrev) {
-                        bulletTopExtraPrev = 0;
-                    } else {
-                        const plainText = _measurableListItemText(item);
-                        const textWidth = plainText ? measureCtxPrev.measureText(plainText).width : 0;
-                        const estimatedLines = Math.max(1, Math.ceil(textWidth / availableTextWidthPrev));
-                        const blockHeight = estimatedLines * lineHeightPxPrev;
-                        bulletTopExtraPrev = Math.max(0, (blockHeight - bulletSizePrev) / 2);
-                    }
 
                     let bulletHTML;
 
@@ -285,10 +263,10 @@ function renderListPreview(s) {
 
                     return `
                         <tr>
-                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2 + bulletTopExtraPrev}px ${bulletGapPrev}px ${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: top;">
+                            <td style="width:${cellWidthPrev}px; padding:${(s.itemSpacing ?? 8) / 2}px ${bulletGapPrev}px; vertical-align: middle;">
                                 ${bulletHTML}
                             </td>
-                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPxPrev}px; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0; vertical-align: top;">
+                            <td style="font-size:${fontSizePrev}px; line-height:${lineHeightPxPrev}px; color:#e5e7eb; padding:${(s.itemSpacing ?? 8) / 2}px 0; vertical-align: middle;">
                                 ${formatted}
                             </td>
                         </tr>

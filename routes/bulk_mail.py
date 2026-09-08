@@ -410,6 +410,7 @@ def api_bulk_send_cancel(job_id):
 def _resolve_attachment(folder: str, filename_tpl: str, mapping: dict, row: dict) -> str | None:
     """Return the full path to an attachment file, or None if not found/not configured."""
     if not folder or not filename_tpl:
+        _logger.warning('bulk_send: attach folder/template empty: folder=%r filename_tpl=%r', folder, filename_tpl)
         return None
     # Substitute placeholders in filename template (plain text, no HTML escape)
     fname = filename_tpl
@@ -418,7 +419,16 @@ def _resolve_attachment(folder: str, filename_tpl: str, mapping: dict, row: dict
     # Sanitize: remove characters that are illegal in filenames
     fname = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', fname)
     path = os.path.join(folder, fname)
-    return path if os.path.isfile(path) else None
+    found = os.path.isfile(path)
+    if not found:
+        # TEMP DEBUG (remove once root cause is confirmed) — dumps exact
+        # resolved values so a mismatch (quotes, trailing space, wrong
+        # mapping key, stale template) is visible instead of a silent None.
+        _logger.warning(
+            'bulk_send: attachment NOT found — folder=%r filename_tpl=%r mapping=%r fname=%r path=%r',
+            folder, filename_tpl, mapping, fname, path,
+        )
+    return path if found else None
 
 
 def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):

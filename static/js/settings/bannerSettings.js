@@ -170,7 +170,7 @@ function renderBannerSettings(container, block) {
 
         // Поворот и масштаб
         rightImageSection.appendChild(createSettingRange('Поворот', s.rightImageRotate || 0, block.id, 'rightImageRotate', -45, 45, 1, '°'));
-        rightImageSection.appendChild(createSettingRange('Масштаб', s.rightImageScale || 100, block.id, 'rightImageScale', 50, 150, 1, '%'));
+        rightImageSection.appendChild(createSettingRange('Масштаб', s.rightImageScale || 100, block.id, 'rightImageScale', 5, 150, 1, '%'));
     }
 
     if (!hiddenSettings.includes('rightImage')) {

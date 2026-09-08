@@ -24,6 +24,7 @@ function generateColumnId() {
  */
 function isButtonsRow(block) {
     if (!block || !block.columns) return false;
+    if (block.type === 'group_container') return false;
     const allBlocks = block.columns.flatMap(col => col.blocks);
     if (allBlocks.length === 0) return false;
     return allBlocks.every(child => child.type === 'button');
@@ -37,6 +38,7 @@ function isButtonsRow(block) {
  */
 function isMixableRow(block) {
     if (!block || !block.columns) return false;
+    if (block.type === 'group_container') return false;
     const allBlocks = block.columns.flatMap(col => col.blocks);
     if (allBlocks.length === 0) return false;
     return !isButtonsRow(block);

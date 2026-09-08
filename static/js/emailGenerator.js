@@ -29,31 +29,6 @@ let CURRENT_EMAIL_RENDER_CONTEXT = null;
 // Устанавливается в generateEmailHTML() с учётом padding (3-колонный layout).
 let _emailContentWidth = LAYOUT.TABLE_WIDTH;
 
-// Общий 2D-контекст canvas для оценки ширины текста (см. generateListHTML)
-// — переиспользуем один раз созданный, а не создаём canvas на каждый пункт.
-let _textMeasureCtx = null;
-function _getTextMeasureCtx() {
-    if (!_textMeasureCtx) {
-        _textMeasureCtx = document.createElement('canvas').getContext('2d');
-    }
-    return _textMeasureCtx;
-}
-
-// Текст пункта списка для оценки ширины (см. generateListHTML/renderListPreview)
-// — TextSanitizer.toPlainText() конвертирует <a href="URL">текст</a> в
-// markdown [текст](URL), сохраняя URL в строке. Если мерить эту строку
-// как есть, длинная ссылка (которая физически не рендерится — виден
-// только текст текст ссылки) сильно раздувает оценённую ширину и,
-// соответственно, оценённое число строк. Досюда убираем markdown-обёртки
-// ссылок и жирного текста, оставляя только то, что реально видно.
-function _measurableListItemText(item) {
-    return TextSanitizer.toPlainText(item || '')
-        .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-        .replace(/\*\*([^*]+)\*\*/g, '$1')
-        .replace(/\s+/g, ' ')
-        .trim();
-}
-
 const EmailPreviewTheme = {
     LIGHT: EMAIL_THEME.LIGHT,
     DARK: EMAIL_THEME.DARK,
@@ -393,6 +368,17 @@ function resolveBlockTextColor(s, ctx, colorField) {
 
 // ===== РАБОТА СО ШРИФТАМИ =====
 
+// RostelecomBasis подключён через @font-face только в CSS редактора
+// (modular-styles.css) — в HTML письма этот @font-face никогда не попадает,
+// так что у получателя (в любом клиенте) шрифта физически нет. Ставить его
+// первым в font-family всё равно бессмысленно: правильный fallback (Arial)
+// сработает и без него, а Outlook desktop (движок Word) на нераспознанном
+// первом имени шрифта иногда вообще не перебирает список и падает на
+// Times New Roman вместо второго варианта. Поэтому в письме сразу
+// используем Arial — в редакторе (blockPreview.js) превью, где
+// RostelecomBasis реально загружен, это не трогаем.
+const EMAIL_SAFE_FONT_FAMILY = "Arial, sans-serif";
+
 /**
  * Резолвит font-family из настроек блока
  */
@@ -406,15 +392,11 @@ function resolveTextFontFamily(s) {
 
     switch (type) {
         case 'rt-regular':
-            return "'RostelecomBasis-Regular', Arial, sans-serif";
         case 'rt-medium':
-            return "'RostelecomBasis-Medium', Arial, sans-serif";
         case 'rt-bold':
-            return "'RostelecomBasis-Bold', Arial, sans-serif";
         case 'rt-light':
-            return "'RostelecomBasis-Light', Arial, sans-serif";
         default:
-            return EMAIL_STYLES ? EMAIL_STYLES.FONT_FAMILY : "Arial, sans-serif";
+            return EMAIL_SAFE_FONT_FAMILY;
     }
 }
 
@@ -426,7 +408,8 @@ function resolveTextFontFamily(s) {
  * Генерирует полный HTML email
  */
 async function generateEmailHTML(options = {}) {
-    const { TABLE_WIDTH, FONT_FAMILY } = EMAIL_STYLES;
+    const { TABLE_WIDTH } = EMAIL_STYLES;
+    const FONT_FAMILY = EMAIL_SAFE_FONT_FAMILY;
     const context = buildEmailRenderContext(options);
     CURRENT_EMAIL_RENDER_CONTEXT = context;
 
@@ -477,7 +460,7 @@ ${buildEmailThemeStyles()}
         const blockHtml = generateBlockHTML(block);
         // Баннер — полная ширина.
         // Остальные — симметричный отступ через 3 колонки (CSS padding игнорируется Outlook).
-        const isFullWidthColumns = block.type === 'columns_container'
+        const isFullWidthColumns = (block.type === 'columns_container' || block.type === 'group_container')
             && block.settings?.bgEnabled !== false
             && block.settings?.bgColor
             && block.settings?.bgFullWidth;
@@ -485,9 +468,19 @@ ${buildEmailThemeStyles()}
             // Баннер, разделитель и колонки с full-width фоном — полная ширина
             // (их HTML уже сам компенсирует боковой отступ изнутри при необходимости).
             // При 3-колоночной раскладке первый <td> должен охватить все 3 колонки.
-            html += (_cp > 0)
-                ? blockHtml.replace(/(<td\b)/, '$1 colspan="3"')
-                : blockHtml;
+            let patchedHtml = blockHtml;
+            if (_cp > 0) {
+                patchedHtml = isFullWidthColumns
+                    // background.js: wrapEmail() при bgRadius>0 выводит ДВЕ
+                    // параллельные <tr>-альтернативы (обычная CSS-скруглённая
+                    // + Outlook-версия с картиночными углами, см.
+                    // capabilities/background.js) — colspan нужен на обеих, а
+                    // не только на первой попавшейся <td>, поэтому патчим по
+                    // общему для них маркеру внешней <td>, а не по /(<td\b)/.
+                    ? blockHtml.replace(/<td style="padding:0">/g, '<td colspan="3" style="padding:0">')
+                    : blockHtml.replace(/(<td\b)/, '$1 colspan="3"');
+            }
+            html += patchedHtml;
             return;
         }
         if (_cp === 0) {
@@ -771,38 +764,12 @@ function generateListHTML(s) {
     const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const itemSpacing = s.itemSpacing ?? 8;
     const leftIndent = Number(s.leftIndent) || 0;
-    // Подтверждено на реальном отправленном письме: Word/Outlook даже с
-    // valign="top" не ведёт себя как честный top-anchor — "лишняя" высота
-    // строки (когда буллет короче текста) всё равно частично
-    // перераспределяется чем-то похожим на центрирование, независимо от
-    // того, что мы просим. Поэтому для 'first-line' точный расчёт отступа
-    // (по высоте первой строки) отброшен — упрощено до простого
-    // valign="top" без вычисляемого padding-top: буллет прижат к верху,
-    // без точного центрирования по первой строке, зато предсказуемо
-    // одинаково во всех клиентах (это стандартный приём в email-рассылках).
-    // 'block' (дефолт) всё ещё оценивает число строк и добавляет padding —
-    // если тот же эффект перераспределения проявится и здесь, эту ветку
-    // тоже нужно будет упростить аналогично.
-    const isFirstLine = s.bulletAlign === 'first-line';
     // Word игнорирует unitless line-height и считает его по метрикам
     // подставленного шрифта — фиксируем явным пикселем +
     // mso-line-height-rule:exactly (тот же приём, что уже используется в
     // этом файле для колонок-отступов), чтобы высота строки была именно
     // той, что мы посчитали, а не тем, что Word решит сам.
     const lineHeightPx = Math.round(fontSize * lineHeight);
-
-    // Ширина, доступная тексту пункта (сама колонка минус буллет-ячейка) —
-    // нужна для оценки числа строк. ctx.parentContentWidth — реальная
-    // ширина колонки, если список лежит в columns_container (см.
-    // generateColumnsHTML); иначе _emailContentWidth — ширина контента
-    // письма верхнего уровня (уже учитывает боковые отступы).
-    const availableTextWidth = Math.max(20, (ctx.parentContentWidth || _emailContentWidth) - leftIndent - cellWidth);
-    // Word реально подставляет Arial вместо кастомного шрифта (см.
-    // resolveTextFontFamily — Arial всегда указан фолбэком) — меряем текст
-    // в Arial, а не в кастомном шрифте, чтобы оценка числа строк была
-    // ближе к тому, что увидит получатель в реальном письме.
-    const measureCtx = _getTextMeasureCtx();
-    measureCtx.font = `${fontSize}px Arial`;
 
     const isNumbered = s.listStyle === 'numbered';
 
@@ -813,17 +780,6 @@ function generateListHTML(s) {
                 : TextSanitizer.sanitize(item || '', true),
             ctx.linkColor
         );
-
-        let bulletTopExtra;
-        if (isFirstLine) {
-            bulletTopExtra = 0;
-        } else {
-            const plainText = _measurableListItemText(item);
-            const textWidth = plainText ? measureCtx.measureText(plainText).width : 0;
-            const estimatedLines = Math.max(1, Math.ceil(textWidth / availableTextWidth));
-            const blockHeight = estimatedLines * lineHeightPx;
-            bulletTopExtra = Math.max(0, (blockHeight - bulletSize) / 2);
-        }
 
         let bulletHTML;
 
@@ -868,10 +824,10 @@ function generateListHTML(s) {
 
         return `
             <tr>
-                <td valign="top" width="${cellWidth}" style="padding:${itemSpacing / 2 + bulletTopExtra}px ${bulletGap}px ${itemSpacing / 2}px ${bulletGap}px;">
+                <td valign="middle" width="${cellWidth}" style="padding:${itemSpacing / 2}px ${bulletGap}px;">
                     ${bulletHTML}
                 </td>
-                <td valign="top" class="email-text" style="font-size:${fontSize}px; line-height:${lineHeightPx}px; mso-line-height-rule:exactly; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
+                <td valign="middle" class="email-text" style="font-size:${fontSize}px; line-height:${lineHeightPx}px; mso-line-height-rule:exactly; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
                     ${formatted}
                 </td>
             </tr>
@@ -1404,7 +1360,7 @@ function generateColumnsHTML(block) {
                 <td width="${cp}" style="width:${cp}px;min-width:${cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
             </tr>
         ` : innerRow;
-        return bgCap.wrapEmail(contentRow, s);
+        return bgCap.wrapEmail(contentRow, s, targetWidth);
     }
 
     if (bgActive) return bgCap.wrapEmail(innerRow, s);

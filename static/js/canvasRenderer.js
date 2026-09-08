@@ -113,17 +113,28 @@ function createBlockHeader(block) {
     header.className = 'block-header';
 
     const splitBtn = !block.columns ? `
-        <button class="block-action-btn split" 
-                onclick="splitBlockIntoColumns(${block.id}); event.stopPropagation();" 
+        <button class="block-action-btn split"
+                onclick="splitBlockIntoColumns(${block.id}); event.stopPropagation();"
                 title="Разбить на колонки">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="4" y="4" width="7" height="16"></rect>
                 <rect x="13" y="4" width="7" height="16"></rect>
             </svg>
         </button>
+    ` : block.type === 'group_container' ? `
+        <button class="block-action-btn ungroup"
+                onclick="ungroupBlock(${block.id}); event.stopPropagation();"
+                title="Разгруппировать">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="4" y="4" width="7" height="7"></rect>
+                <rect x="13" y="4" width="7" height="7"></rect>
+                <rect x="4" y="13" width="7" height="7"></rect>
+                <rect x="13" y="13" width="7" height="7"></rect>
+            </svg>
+        </button>
     ` : `
-        <button class="block-action-btn merge" 
-                onclick="mergeColumns(${block.id}); event.stopPropagation();" 
+        <button class="block-action-btn merge"
+                onclick="mergeColumns(${block.id}); event.stopPropagation();"
                 title="Объединить колонки">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="5" y="4" width="14" height="16"></rect>

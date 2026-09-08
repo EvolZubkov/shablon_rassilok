@@ -167,6 +167,15 @@ function deleteColumnBlock(parentId, columnId, blockId) {
 
     column.blocks = column.blocks.filter(b => b.id !== blockId);
     cancelBannerRender(blockId);
+
+    // Пустую группу (в отличие от ряда колонок) не оставляем висеть на холсте
+    if (parentBlock.type === 'group_container' && column.blocks.length === 0) {
+        AppState.removeBlock(parentId);
+        if (AppState.selectedBlockId === parentId) AppState.clearSelection();
+        if (AppState.multiSelectAnchorId === parentId) AppState.multiSelectAnchorId = null;
+        renderSettings();
+    }
+
     renderCanvas();
 }
 
@@ -197,6 +206,7 @@ function selectBlock(blockId) {
 
     // Обновляем CSS-классы выделения (selected + multi-selected)
     refreshSelectionStyles();
+    refreshGroupToolbar();
 
     renderSettings();
 }
@@ -217,6 +227,7 @@ function handleBlockSelectionClick(blockId, event) {
 
         renderCanvas();
         refreshSelectionStyles();
+        refreshGroupToolbar();
         renderSettings();
         return;
     }
@@ -232,6 +243,7 @@ function handleBlockSelectionClick(blockId, event) {
 
         renderCanvas();
         refreshSelectionStyles();
+        refreshGroupToolbar();
         renderSettings();
         return;
     }
