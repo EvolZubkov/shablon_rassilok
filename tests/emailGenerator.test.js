@@ -308,3 +308,60 @@ describe('buildEmailThemeStyles', () => {
         expect(css).toContain(DEFAULT_COLORS.BORDER);
     });
 });
+
+
+// ─── full-width подложка (generateColumnsHTML) ─────────────────────────────
+//
+// Регресс на баг: при большом "Отступе" подложки (bgPadding) цель по ширине
+// (targetWidth = TABLE_WIDTH - bgPadding*2) может стать меньше стандартной
+// ширины контента (emailContentWidth) — тогда боковой зазор cp уходит в 0/
+// отрицательное значение. До фикса emailGenerator.js в этом случае колонки
+// всё равно рендерились на полной emailContentWidth (без учёта targetWidth),
+// и итоговая плашка подложки вылезала за пределы письма (реального 600px) —
+// см. переписку с пользователем со скриншотом "Превью письма".
+//
+// Копия геометрии из emailGenerator.js: generateColumnsHTML() /
+// capabilities/background.js: wrapEmail() — сам файл не ES-модуль (см. шапку
+// файла), поэтому расчёт воспроизведён здесь как чистая функция.
+
+function computeFullWidthBgGeometry(emailContentWidth, bgPadding) {
+    const targetWidth = Math.max(1, LAYOUT.TABLE_WIDTH - bgPadding * 2);
+    // Фикс: если стандартная ширина контента не помещается в targetWidth,
+    // колонки заранее сжимаются до targetWidth — как в emailGenerator.js.
+    const effectiveContentWidth = Math.min(emailContentWidth, targetWidth);
+    const cp = Math.round((targetWidth - effectiveContentWidth) / 2);
+    // boxW — финальная видимая ширина плашки подложки (background.js: boxW).
+    const boxW = targetWidth + bgPadding * 2;
+    return { targetWidth, effectiveContentWidth, cp, boxW };
+}
+
+describe('full-width подложка: геометрия не вылезает за TABLE_WIDTH', () => {
+
+    test('обычный bgPadding (16) — как раньше, cp положительный', () => {
+        const { cp, effectiveContentWidth, boxW } = computeFullWidthBgGeometry(546, 16);
+        expect(cp).toBeGreaterThan(0);
+        expect(effectiveContentWidth).toBe(546);
+        expect(boxW).toBe(LAYOUT.TABLE_WIDTH);
+    });
+
+    test('большой bgPadding (40) — cp не уходит в минус, контент сжимается', () => {
+        const { cp, effectiveContentWidth, targetWidth, boxW } = computeFullWidthBgGeometry(546, 40);
+        expect(cp).toBeGreaterThanOrEqual(0);
+        expect(effectiveContentWidth).toBeLessThanOrEqual(targetWidth);
+        expect(effectiveContentWidth).toBe(targetWidth); // 546 не помещается -> сжат до targetWidth
+        expect(boxW).toBe(LAYOUT.TABLE_WIDTH); // плашка всё равно ровно 600px, не шире
+    });
+
+    test('граничный bgPadding (27) при contentPadding=27 — cp ровно 0', () => {
+        const { cp, boxW } = computeFullWidthBgGeometry(546, 27);
+        expect(cp).toBe(0);
+        expect(boxW).toBe(LAYOUT.TABLE_WIDTH);
+    });
+
+    test('boxW никогда не превышает TABLE_WIDTH при любом допустимом bgPadding (0-48)', () => {
+        for (let bgPadding = 0; bgPadding <= 48; bgPadding++) {
+            const { boxW } = computeFullWidthBgGeometry(546, bgPadding);
+            expect(boxW).toBeLessThanOrEqual(LAYOUT.TABLE_WIDTH);
+        }
+    });
+});

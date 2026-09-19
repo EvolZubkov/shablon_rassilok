@@ -107,16 +107,29 @@ function addBlock(type, parentId = null, position = null) {
     }
 }
 
+// Рендерится ДВАЖДЫ: один раз для письма (forEmail=true — всегда тёмный
+// текст без фона, т.к. письмо почти всегда светлое, см. getExpertTextColor
+// в imageRenderers.js) и один раз только для отображения в канвасе
+// (forEmail=false — текст подстраивается под текущую тему интерфейса
+// админки, чтобы карточка была читаема при редактировании независимо от
+// того, каким получится письмо). Первый результат — renderedExpert/Width
+// (уходит в шаблон и в письмо, читает generateExpertHTML), второй —
+// renderedExpertPreview (только для canvas, читает blockPreview.js).
 function renderExpertBlock(block) {
     if (!block || block.type !== 'expert') return;
 
     const renderToken = (block.settings._expertRenderToken || 0) + 1;
     block.settings._expertRenderToken = renderToken;
 
-    const applyResult = (result) => {
+    const applyEmailResult = (result) => {
         if (block.settings._expertRenderToken !== renderToken) return;
         block.settings.renderedExpert = result?.dataUrl || null;
         block.settings.renderedExpertWidth = result?.width || null;
+        renderCanvas();
+    };
+    const applyPreviewResult = (result) => {
+        if (block.settings._expertRenderToken !== renderToken) return;
+        block.settings.renderedExpertPreview = result?.dataUrl || null;
         renderCanvas();
     };
 
@@ -129,11 +142,13 @@ function renderExpertBlock(block) {
                 break;
             }
         }
-        renderExpertVerticalToDataUrl(block, columnWidth, applyResult);
+        renderExpertVerticalToDataUrl(block, columnWidth, applyEmailResult, true);
+        renderExpertVerticalToDataUrl(block, columnWidth, applyPreviewResult, false);
         return;
     }
 
-    renderExpertToDataUrl(block, applyResult);
+    renderExpertToDataUrl(block, applyEmailResult, true);
+    renderExpertToDataUrl(block, applyPreviewResult, false);
 }
 
 function deleteBlock(blockId) {
@@ -600,3 +615,49 @@ function insertBlocksAfterSelection(blocksToInsert) {
 // делаем доступным для templatesUI
 window.insertBlocksAfterSelection = insertBlocksAfterSelection;
 window.handleBlockSelectionClick = handleBlockSelectionClick;
+
+// ===== Буфер обмена блоков (Ctrl+C/Ctrl+V, см. setupBlockClipboardShortcuts в main.js) =====
+// In-memory, не navigator.clipboard — блоки это структурированный JSON, а не
+// текст, системный clipboard внутри QtWebEngine не нужен и ненадёжен. Живёт
+// только в рамках текущего запуска приложения — это ожидаемо.
+let _blockClipboard = null; // Array<Block> | null — глубокая копия, не ссылки на живые блоки
+
+function copySelectedBlocksToClipboard() {
+    let blocksToCopy;
+
+    if (AppState.multiSelectedBlockIds && AppState.multiSelectedBlockIds.size > 0) {
+        // Тот же резолв к верхнему уровню, что и группировка (groupOperations.js) —
+        // предсказуемый, уже знакомый пользователю набор "что считается выделенным".
+        const owners = new Map();
+        for (const id of AppState.multiSelectedBlockIds) {
+            const owner = getTopLevelOwnerForGroup(id);
+            if (owner) owners.set(owner.id, owner);
+        }
+        blocksToCopy = Array.from(owners.values())
+            .sort((a, b) => AppState.blocks.indexOf(a) - AppState.blocks.indexOf(b));
+    } else if (AppState.selectedBlockId != null) {
+        const container = _findBlockContainer(AppState.selectedBlockId);
+        blocksToCopy = container ? [container.list[container.index]] : [];
+    } else {
+        blocksToCopy = [];
+    }
+
+    if (blocksToCopy.length === 0) {
+        Toast.warning('Нечего копировать — выделите блок');
+        return;
+    }
+
+    _blockClipboard = JSON.parse(JSON.stringify(blocksToCopy)); // снимок, не ссылки
+    Toast.success(blocksToCopy.length === 1 ? 'Блок скопирован' : `Скопировано блоков: ${blocksToCopy.length}`);
+}
+
+function pasteBlocksFromClipboard() {
+    if (!_blockClipboard || _blockClipboard.length === 0) {
+        Toast.warning('Буфер обмена блоков пуст');
+        return;
+    }
+    insertBlocksAfterSelection(_blockClipboard); // сам клонирует с новыми id — можно вставлять многократно
+}
+
+window.copySelectedBlocksToClipboard = copySelectedBlocksToClipboard;
+window.pasteBlocksFromClipboard = pasteBlocksFromClipboard;

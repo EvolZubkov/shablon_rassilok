@@ -855,15 +855,32 @@ function getBannerFontFamily(fontKey) {
     return fontMap[fontKey] || fontMap['rt-regular'];
 }
 
+// Контраст к теме ИНТЕРФЕЙСА АДМИНКИ — карточка без своего фона на холсте
+// сидит на --canvas-bg (theme-variables.css), которая сама тёмная/светлая
+// в зависимости от темы. Используется ТОЛЬКО для превью в канвасе
+// (renderedExpertPreview) — держит карточку читаемой во время редактирования.
+// НЕ используется для того, что реально уходит в письмо (renderedExpert,
+// см. getExpertTextColor forEmail=true) — тема редактора и тема письма
+// независимые вещи, и то, что было видно при СОЗДАНИИ карточки в тёмной теме
+// админки, не обязано остаться видно на светлом фоне письма у получателя.
 function getUiThemeAwareDefaultTextColor() {
     const theme = document.documentElement?.getAttribute('data-theme') || 'dark';
     return theme === 'light' ? '#1D2533' : '#ffffff';
 }
 
 // Возвращает цвет текста для блока эксперт по цвету фона.
-// Прозрачный фон берёт контрастный цвет от текущей темы интерфейса.
-function getExpertTextColor(bgColor) {
-    if (!bgColor || bgColor === 'transparent' || bgColor === '') return getUiThemeAwareDefaultTextColor();
+// forEmail=true (по умолчанию) — рендер, который реально уходит в письмо
+// (renderedExpert): без фона — всегда фиксированный тёмный, письмо почти
+// всегда светлое, независимо от темы интерфейса, в которой карточку создали
+// (тот же принцип, что у adaptColorForWhiteBackground() в emailGenerator.js).
+// forEmail=false — рендер только для отображения в канвасе редактора
+// (renderedExpertPreview, см. blockOperations.js renderExpertBlock): без
+// фона — подстраивается под ТЕКУЩУЮ тему интерфейса, чтобы было видно при
+// редактировании на тёмной "бумаге" холста.
+function getExpertTextColor(bgColor, forEmail = true) {
+    if (!bgColor || bgColor === 'transparent' || bgColor === '') {
+        return forEmail ? '#1D2533' : getUiThemeAwareDefaultTextColor();
+    }
 
     let r, g, b;
     const hex = bgColor.trim();
@@ -887,7 +904,7 @@ function getExpertTextColor(bgColor) {
     return brightness > 160 ? '#1D2533' : '#ffffff';
 }
 
-function renderExpertToDataUrl(block, callback) {
+function renderExpertToDataUrl(block, callback, forEmail = true) {
     console.log('[EXPERT RENDER] Horizontal layout started', {
         blockId: block.id,
         photo: block.settings.photo ? 'loaded' : 'missing',
@@ -905,10 +922,17 @@ function renderExpertToDataUrl(block, callback) {
     const logicalHeight = 203;
     const realHeight = logicalHeight * SCALE_FACTOR;
 
-    // Ширина: full = 600, lite = ровно под фото-контейнер
+    // Ширина: full = ширина контента письма (TABLE_WIDTH - 2×contentPadding,
+    // как у текста/заголовка — карточка вписывается в обычные поля, а не
+    // растягивается на всю ширину письма как баннер), lite = ровно под
+    // фото-контейнер. Раньше full всегда рендерилась на LOGICAL_WIDTH (600) —
+    // блок не входит в список full-width исключений в generateEmailHTML,
+    // так что 600px-картинка раздувала 546px-слот (см. emailGenerator.js).
     // containerX=16, containerSize=171, rightPadding=16 => 203
     const liteWidth = 16 + 171 + 16;
-    const logicalWidth = isLite ? liteWidth : LOGICAL_WIDTH;
+    const contentPadding = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getContentPadding() : 27;
+    const logicalWidth = isLite ? liteWidth : (LOGICAL_WIDTH - contentPadding * 2);
     const realWidth = logicalWidth * SCALE_FACTOR;
 
     const canvas = document.createElement('canvas');
@@ -1039,7 +1063,7 @@ function renderExpertToDataUrl(block, callback) {
             const isLite = (s.variant || 'full') === 'lite';
 
             if (!isLite) {
-                const textColor = getExpertTextColor(s.bgColor);
+                const textColor = getExpertTextColor(s.bgColor, forEmail);
                 const nameLineHeight = 18;
                 const titleTop = textY + 22;
                 const titleLineHeight = 16;
@@ -1069,7 +1093,7 @@ function renderExpertToDataUrl(block, callback) {
             const dataUrl = canvas.toDataURL('image/png');
             callback({
                 dataUrl: dataUrl,
-                width: LOGICAL_WIDTH  // горизонтальный всегда 600
+                width: logicalWidth  // full = ширина контента (546 при дефолте), lite = liteWidth
             });
         };
 
@@ -1624,7 +1648,7 @@ function renderImageToDataUrl(block, callback) {
     img.src = imageSrc;
 }
 // Вертикальный рендеринг эксперта для колонок
-function renderExpertVerticalToDataUrl(block, columnWidth, callback) {
+function renderExpertVerticalToDataUrl(block, columnWidth, callback, forEmail = true) {
     console.log('[EXPERT RENDER] Vertical layout started', {
         blockId: block.id,
         columnWidth: columnWidth,
@@ -1756,7 +1780,7 @@ function renderExpertVerticalToDataUrl(block, columnWidth, callback) {
             const titleLineHeight = 16;
             const bioGap = 8;
 
-            const textColorV = getExpertTextColor(s.bgColor);
+            const textColorV = getExpertTextColor(s.bgColor, forEmail);
             // Имя (слева)
             ctx.font = 'bold 15px Arial, sans-serif';
             ctx.fillStyle = textColorV;

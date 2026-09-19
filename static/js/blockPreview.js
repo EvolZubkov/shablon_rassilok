@@ -14,6 +14,38 @@ function getThemeAwarePreviewTextColor() {
     return theme === 'light' ? '#1D2533' : '#ffffff';
 }
 
+/**
+ * Цвет текста для Текст/Заголовок в канвасе.
+ *
+ * Случаи 1-2 (свой фон блока / фон родителя-контейнера): фон тут — реальный,
+ * фиксированный цвет, одинаковый и на холсте, и в письме (не зависящий от темы
+ * админки) — поэтому просто повторяем resolveBlockTextColor() из
+ * emailGenerator.js 1-в-1, включая DEFAULT_COLORS.TEXT (там же, доступна
+ * глобально — оба файла подключены обычными <script>, не модулями).
+ *
+ * Случай 3 (фона нет вообще): тут НЕТ единственно верного ответа — "бумага"
+ * холста сама зависит от темы админки (--canvas-bg: тёмно-синяя в тёмной теме,
+ * светлая в светлой, см. theme-variables.css), а финальное письмо всегда
+ * светлое. Раньше здесь всегда адаптировали под светлое письмо
+ * (adaptColorForWhiteBackground) — из-за этого дефолтный светлый цвет текста
+ * (#e5e7eb/#f9fafb, definitions.js — специально рассчитан на тёмную "бумагу")
+ * принудительно темнел и тускнел на тёмном холсте. Решили: холст — рабочий
+ * вид, подстраивается под СВОЮ тему админки, а не пытается предсказать
+ * финальное письмо — точный WYSIWYG для этого остаётся за "Превью письма"
+ * (реальный generateEmailHTML(), не зависит от темы админки).
+ */
+function resolvePreviewTextColor(s, colorField) {
+    if (s.bgEnabled !== false && s.bgColor) {
+        return isLightColorPreview(s.bgColor) ? DEFAULT_COLORS.TEXT : '#ffffff';
+    }
+    if (window._previewParentBg) {
+        return isLightColorPreview(window._previewParentBg) ? DEFAULT_COLORS.TEXT : '#ffffff';
+    }
+    const theme = document.documentElement?.getAttribute('data-theme') || 'dark';
+    const saved = s[colorField || 'color'];
+    return theme === 'light' ? adaptColorForWhiteBackground(saved) : (saved || '#ffffff');
+}
+
 function resolveTextFontFamily(s) {
     if (!s) return "inherit";
     const type = s.fontFamily || 'default';
@@ -199,7 +231,7 @@ function renderTextPreview(s) {
             font-size:${s.fontSize}px;
             line-height:${s.lineHeight};
             text-align:${s.align};
-            color:${s.color};
+            color:${resolvePreviewTextColor(s)};
             font-family:${fontFamily};
             padding:8px;
         ">
@@ -411,9 +443,9 @@ function renderBannerPreview(s) {
 
 function renderHeadingPreview(s) {
     return `
-        <h3 style="font-size: ${s.size}px; 
-                   font-weight: ${s.weight}; 
-                   color: ${s.color}; 
+        <h3 style="font-size: ${s.size}px;
+                   font-weight: ${s.weight};
+                   color: ${resolvePreviewTextColor(s)};
                    text-align: ${s.align || 'left'};
                    font-family:${resolveTextFontFamily(s)};
                    margin: 0; 
@@ -502,7 +534,7 @@ function renderExpertPreview(s) {
 
         return `
             <div style="background: ${bg}; border-radius: 6px; padding: 8px; display:flex; justify-content:${justify};">
-                <img src="${s.renderedExpert}" style="display:block; width:100%; max-width:${w}px; height:auto;">
+                <img src="${s.renderedExpertPreview || s.renderedExpert}" style="display:block; width:100%; max-width:${w}px; height:auto;">
             </div>
         `;
     }

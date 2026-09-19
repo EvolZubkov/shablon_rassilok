@@ -1253,6 +1253,37 @@ function generateColumnsHTML(block) {
         );
     }
 
+    // Подложка (capability "background") добавляет свой padding (s.bgPadding)
+    // СНАРУЖИ контента колонок — если сами колонки построить на полный
+    // доступный слот (_emailContentWidth), после того как wrapEmail() добавит
+    // padding, итоговая ширина превысит слот на 2×bgPadding и раздует общую
+    // <table> письма (см. подробный разбор бага в коммите фикса). Поэтому
+    // считаем effectiveContentWidth — ширину, под которую реально нужно
+    // построить колонки, — ДО их построения, а не патчим готовый HTML постфактум.
+    const bgCap = typeof CapabilityRegistry !== 'undefined' ? CapabilityRegistry.get('background') : null;
+    const bgActive = !!(bgCap && bgCap.wrapEmail && s.bgEnabled !== false && s.bgColor);
+    const bgPadding = bgActive ? (Number(s.bgPadding) || 0) : 0;
+    let effectiveContentWidth = _emailContentWidth;
+    let targetWidth = null; // используется только full-width веткой для wrapEmail(..., targetWidth)
+    let cp = 0;
+    if (bgActive && s.bgFullWidth) {
+        // Фон full-width целится в TABLE_WIDTH за вычетом будущего padding
+        // подложки — так после wrapEmail() сумма снова точно совпадёт с
+        // TABLE_WIDTH (иначе получится TABLE_WIDTH + 2×bgPadding).
+        targetWidth = Math.max(1, LAYOUT.TABLE_WIDTH - bgPadding * 2);
+        // Колонки остаются на обычной позиции (effectiveContentWidth = слот),
+        // но не шире targetWidth — иначе именно это раздувание и есть баг.
+        effectiveContentWidth = Math.min(_emailContentWidth, targetWidth);
+        cp = Math.max(0, Math.round((targetWidth - effectiveContentWidth) / 2));
+    } else if (bgActive) {
+        // Обычный (не full-width) блок с подложкой: колонки должны уместиться
+        // в слот за вычетом padding подложки, иначе wrapEmail() добавит его
+        // сверх уже полной ширины слота и раздует общую таблицу письма.
+        effectiveContentWidth = Math.max(1, _emailContentWidth - bgPadding * 2);
+    }
+    const savedEmailContentWidth = _emailContentWidth;
+    _emailContentWidth = effectiveContentWidth;
+
     // Спейсер-строка между блоками внутри одной колонки — сами блоки
     // выводятся как <tr> (email-таблица), склеить их напрямую как div'ы
     // с CSS gap нельзя, поэтому вставляем отдельную строку нужной высоты.
@@ -1319,6 +1350,12 @@ function generateColumnsHTML(block) {
 
     // Восстанавливаем контекст после рендера детей
     CURRENT_EMAIL_RENDER_CONTEXT = savedCtx;
+    // Восстанавливаем _emailContentWidth ДО финальных вызовов wrapEmail() ниже —
+    // обычная (не full-width) ветка вызывает wrapEmail(innerRow, s) без явного
+    // widthPx, и сама wrapEmail() трактует текущее значение _emailContentWidth
+    // как ширину ВСЕГО слота (из которой сама вычтет 2×bgPadding); если не
+    // восстановить здесь, получится двойное сжатие.
+    _emailContentWidth = savedEmailContentWidth;
 
     const innerRow = `
         <tr>
@@ -1331,29 +1368,19 @@ function generateColumnsHTML(block) {
             </td>
         </tr>
     `;
-    const bgCap = typeof CapabilityRegistry !== 'undefined' ? CapabilityRegistry.get('background') : null;
-    const bgActive = !!(bgCap && bgCap.wrapEmail && s.bgEnabled !== false && s.bgColor);
 
     if (bgActive && s.bgFullWidth) {
         // Фон растягивается на всю ширину письма (TABLE_WIDTH), а сами колонки
         // остаются на текущей позиции: боковой contentPadding переносим внутрь фона —
         // сам блок выводится с colspan="3" в generateEmailHTML() (как баннер).
-        //
-        // bgCap.wrapEmail() ниже добавляет padding подложки (s.bgPadding)
-        // СНАРУЖИ переданного контента — если строить [cp][content][cp] на
-        // полные TABLE_WIDTH (600), после обёртки в wrapEmail итоговая
-        // ширина станет 600 + 2×bgPadding, вылезая за пределы письма.
-        // Поэтому здесь целимся не в TABLE_WIDTH, а в TABLE_WIDTH за
-        // вычетом будущего padding подложки — так после wrapEmail сумма
-        // снова точно совпадёт с TABLE_WIDTH.
-        const bgPadding = Number(s.bgPadding) || 0;
-        const targetWidth = Math.max(1, LAYOUT.TABLE_WIDTH - bgPadding * 2);
-        const cp = Math.round((targetWidth - _emailContentWidth) / 2);
+        // targetWidth/cp уже посчитаны выше (до построения колонок) — колонки
+        // (columnsContent/innerRow) построены на effectiveContentWidth, которая
+        // никогда не превышает targetWidth, так что размеры здесь всегда согласованы.
         const contentRow = cp > 0 ? `
             <tr>
                 <td width="${cp}" style="width:${cp}px;min-width:${cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
-                <td width="${_emailContentWidth}" style="width:${_emailContentWidth}px;padding:0;">
-                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${_emailContentWidth}">
+                <td width="${effectiveContentWidth}" style="width:${effectiveContentWidth}px;padding:0;">
+                    <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${effectiveContentWidth}">
                         ${innerRow}
                     </table>
                 </td>
@@ -1363,6 +1390,10 @@ function generateColumnsHTML(block) {
         return bgCap.wrapEmail(contentRow, s, targetWidth);
     }
 
+    // Обычная (не full-width) ветка: columnsContent/innerRow уже построены на
+    // effectiveContentWidth = _emailContentWidth - 2×bgPadding (см. выше), так
+    // что после того как wrapEmail() добавит свой padding:bgPadding, итоговая
+    // ширина блока снова точно равна слоту (_emailContentWidth) — без переполнения.
     if (bgActive) return bgCap.wrapEmail(innerRow, s);
     return innerRow;
 }

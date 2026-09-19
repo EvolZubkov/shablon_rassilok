@@ -757,3 +757,15 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
 });
+
+// Ctrl+Alt+A — показать/скрыть кнопку "Аудитории" в тулбаре (по умолчанию скрыта,
+// см. style="display:none" в index.html). Без localStorage — состояние не
+// переживает перезапуск приложения (в отличие от Ctrl+Alt+K для Kerberos).
+// e.code (не e.key) — не зависит от раскладки клавиатуры, см. аналогичный
+// комментарий в shared/utils.js про AltGr на части раскладок.
+document.addEventListener('keydown', (e) => {
+    if (!e.ctrlKey || !e.altKey || e.code !== 'KeyA') return;
+    e.preventDefault();
+    const btn = document.getElementById('btn-profiles-admin');
+    if (btn) btn.style.display = btn.style.display === 'none' ? '' : 'none';
+});

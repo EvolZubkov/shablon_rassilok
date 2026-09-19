@@ -96,6 +96,101 @@ function showUnsavedChangesDialog(templateName) {
     });
 }
 
+/**
+ * Confirm-with-checkbox gate before overwriting an existing template's
+ * content. Unlike showConfirmDialog() (a thin window.confirm() wrapper,
+ * trivially dismissed with one click), the "Перезаписать" button here
+ * starts disabled and only enables once the user explicitly ticks the
+ * "Перезаписать в текущий шаблон" checkbox — a deliberate extra step so
+ * the destructive action can't be blown through on autopilot.
+ *
+ * @param {string} templateName - Name shown in the default message.
+ * @param {{message?: string}} [options] - Optional custom body text.
+ * @returns {Promise<boolean>} Resolves to true only when confirmed with the checkbox ticked.
+ */
+function showOverwriteTemplateDialog(templateName, options = {}) {
+    return new Promise((resolve) => {
+        const dlg = document.createElement('dialog');
+        dlg.className = 'app-dialog';
+
+        const dialog = document.createElement('div');
+        dialog.style.cssText = 'width:100%;';
+
+        const title = document.createElement('h3');
+        title.textContent = 'Перезаписать шаблон';
+        title.style.cssText = 'margin:0 0 16px 0;font-size:18px;color:#f9fafb;font-weight:600;';
+        dialog.appendChild(title);
+
+        const text = document.createElement('p');
+        text.textContent = options.message
+            || `Вы собираетесь заменить содержимое шаблона «${templateName}» текущим содержимым холста. Это действие нельзя отменить.`;
+        text.style.cssText = 'margin:0 0 16px 0;font-size:14px;line-height:1.5;color:#cbd5e1;';
+        dialog.appendChild(text);
+
+        const checkboxRow = document.createElement('label');
+        checkboxRow.style.cssText = 'display:flex;align-items:center;gap:8px;margin-bottom:20px;font-size:14px;color:#e5e7eb;cursor:pointer;';
+
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.style.cssText = 'width:16px;height:16px;cursor:pointer;flex-shrink:0;';
+
+        const checkboxLabel = document.createElement('span');
+        checkboxLabel.textContent = 'Перезаписать в текущий шаблон';
+
+        checkboxRow.appendChild(checkbox);
+        checkboxRow.appendChild(checkboxLabel);
+        dialog.appendChild(checkboxRow);
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:10px;justify-content:flex-end;';
+
+        const btnCancel = document.createElement('button');
+        btnCancel.type = 'button';
+        btnCancel.textContent = 'Отмена';
+        btnCancel.style.cssText = 'padding:9px 18px;background:#374151;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:13px;';
+
+        const btnConfirm = document.createElement('button');
+        btnConfirm.type = 'button';
+        btnConfirm.textContent = 'Перезаписать';
+        btnConfirm.disabled = true;
+        btnConfirm.style.cssText = 'padding:9px 18px;background:#f97316;color:#fff;border:none;border-radius:6px;cursor:pointer;font-size:13px;font-weight:600;opacity:0.4;';
+
+        checkbox.addEventListener('change', () => {
+            btnConfirm.disabled = !checkbox.checked;
+            btnConfirm.style.opacity = checkbox.checked ? '1' : '0.4';
+            btnConfirm.style.cursor = checkbox.checked ? 'pointer' : 'not-allowed';
+        });
+
+        actions.appendChild(btnCancel);
+        actions.appendChild(btnConfirm);
+        dialog.appendChild(actions);
+
+        dlg.appendChild(dialog);
+        document.body.appendChild(dlg);
+
+        const closeWith = (result) => {
+            dlg.close();
+            dlg.remove();
+            resolve(result);
+        };
+
+        btnCancel.addEventListener('click', () => closeWith(false));
+        btnConfirm.addEventListener('click', () => {
+            if (!checkbox.checked) return;
+            closeWith(true);
+        });
+        dlg.addEventListener('click', (e) => {
+            if (e.target === dlg) closeWith(false);
+        });
+        dlg.addEventListener('cancel', (e) => {
+            e.preventDefault();
+            closeWith(false);
+        });
+
+        dlg.showModal();
+    });
+}
+
 function isPresetTemplate(t) {
     // Используем явное поле isPreset (не эмодзи в имени)
     if (!t) return false;
@@ -1172,9 +1267,7 @@ const TemplatesUI = {
             return false;
         }
         if (confirm) {
-            const confirmed = await showConfirmDialog(
-                `Обновить шаблон «${decodeHtml(template.name)}» текущим содержимым холста?\n\nСодержимое шаблона будет заменено.`
-            );
+            const confirmed = await showOverwriteTemplateDialog(decodeHtml(template.name));
             if (!confirmed) return false;
         }
 
@@ -1770,20 +1863,27 @@ async function generateTemplatePreview() {
     }
 }
 
-// Подключаем кнопку сохранения
-document.addEventListener('DOMContentLoaded', () => {
-    const btnSave = document.getElementById('btn-save-template');
-    if (btnSave) {
-        btnSave.addEventListener('click', async () => {
-            const current = TemplatesUI.currentTemplate;
-            if (current && !isPresetTemplate(current)) {
-                await TemplatesUI.updateTemplateFromCanvas(current, { confirm: false });
-                return;
-            }
-            await saveCurrentTemplate();
-        });
+/**
+ * "Сохранить" action: overwrites the currently open (non-preset) template
+ * in place — via the checkbox-gated showOverwriteTemplateDialog() inside
+ * updateTemplateFromCanvas() — or falls back to the "Сохранить как" create
+ * flow when nothing is open / a preset is open. No longer wired to a
+ * toolbar button (that button was removed to reduce the temptation to
+ * overwrite by accident) — reachable only via «Файл → Сохранить» and the
+ * per-card «⋮ → Обновить из холста» action.
+ */
+async function saveOrOverwriteCurrentTemplate() {
+    const current = TemplatesUI.currentTemplate;
+    if (current && !isPresetTemplate(current)) {
+        await TemplatesUI.updateTemplateFromCanvas(current);
+        return;
     }
+    await saveCurrentTemplate();
+}
+window.saveOrOverwriteCurrentTemplate = saveOrOverwriteCurrentTemplate;
 
+// Подключаем кнопку "Сохранить как"
+document.addEventListener('DOMContentLoaded', () => {
     const btnSaveAs = document.getElementById('btn-save-as-template');
     if (btnSaveAs) {
         btnSaveAs.addEventListener('click', saveCurrentTemplate);

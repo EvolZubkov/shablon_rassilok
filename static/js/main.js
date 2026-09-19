@@ -49,6 +49,7 @@ function init() {
     setupDownloadButton();
     setupCanvas();
     setupAdminUndo();
+    setupBlockClipboardShortcuts();
     setupCopyHtmlShortcut();
     
     // Инициализация библиотеки шаблонов
@@ -268,7 +269,7 @@ function setupAdminMenu() {
             const action = item.dataset.action;
             switch (action) {
                 case 'save':
-                    document.getElementById('btn-save-template')?.click();
+                    window.saveOrOverwriteCurrentTemplate?.();
                     break;
                 case 'save-as':
                     document.getElementById('btn-save-as-template')?.click();
@@ -588,6 +589,28 @@ function setupAdminUndo() {
         renderCanvas();
         renderSettings();
         showAdminUndoToast();
+    });
+}
+
+/**
+ * Ctrl+C/Ctrl+V для копирования/вставки блоков холста (одиночного выделения
+ * или мультивыбора — Ctrl/Shift-клик). Тот же guard на текстовые поля, что и
+ * у setupAdminUndo() выше — иначе сломаем нативный copy/paste текста внутри
+ * текстовых блоков и обычных input/textarea. Сама логика копирования/вставки —
+ * в blockOperations.js (copySelectedBlocksToClipboard/pasteBlocksFromClipboard).
+ */
+function setupBlockClipboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        if (e.code !== 'KeyC' && e.code !== 'KeyV') return;
+
+        const el = document.activeElement;
+        const tag = el?.tagName?.toLowerCase();
+        if (el?.isContentEditable || tag === 'input' || tag === 'textarea') return;
+
+        e.preventDefault();
+        if (e.code === 'KeyC') copySelectedBlocksToClipboard();
+        else pasteBlocksFromClipboard();
     });
 }
 

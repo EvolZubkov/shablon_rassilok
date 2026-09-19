@@ -274,8 +274,12 @@ const DEFAULT_SETTINGS = {
         badgeIcon: '',
         badgePositionX: 85,  // ДОБАВИТЬ
         badgePositionY: 85,  // ДОБАВИТЬ
-        bgColor: '#0f172a',
-        renderedExpert: null
+        // Раньше был '#0f172a' — тот же hex, что --canvas-bg тёмной темы
+        // (theme-variables.css), карточка визуально сливалась с холстом.
+        // Бесцветный по умолчанию — как у остальных блоков.
+        bgColor: 'transparent',
+        renderedExpert: null,
+        renderedExpertPreview: null
     },
 
     important: {
