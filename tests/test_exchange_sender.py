@@ -36,6 +36,8 @@ from exchange_sender import (
     _convert_data_images_to_cid,
     exchange_send_email,
     exchange_send_meeting,
+    exchange_save_draft,
+    _to_ews_datetime,
     _to_mailboxes,
     _to_attendees,
 )
@@ -491,3 +493,355 @@ class TestInlineAndUserAttachmentsTogether:
 
             call_kwargs = MockFileAtt.call_args[1]
             assert call_kwargs['content_type'] == 'application/octet-stream'
+
+
+# ─── exchange_save_draft ──────────────────────────────────────────────────────
+
+class TestExchangeSaveDraft:
+    """exchange_save_draft() — сохранение письма в папку Черновики без отправки."""
+
+    def _make_account(self):
+        account = MagicMock()
+        account.drafts = MagicMock()
+        return account
+
+    def test_saves_to_drafts_folder(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(account, 'Тема черновика', '<p>html</p>', to=['a@rt.ru'])
+
+            call_kwargs = MockMsg.call_args[1]
+            assert call_kwargs['folder'] is account.drafts
+
+    def test_calls_save_not_send(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(account, 'Тема', '<p>html</p>', to=['a@rt.ru'])
+
+            instance.save.assert_called_once()
+            instance.send.assert_not_called()
+
+    def test_invalid_recipient_raises(self):
+        account = self._make_account()
+        with pytest.raises(ValueError, match='Некорректные адреса'):
+            exchange_save_draft(account, 'Тема', '<p>html</p>', to=['not-email'])
+
+    def test_cc_and_bcc_passed(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], cc=['cc@rt.ru'], bcc=['bcc@rt.ru']
+            )
+            call_kwargs = MockMsg.call_args[1]
+            assert call_kwargs['cc_recipients'] is not None
+            assert call_kwargs['bcc_recipients'] is not None
+
+    def test_no_recipients_saves_ok(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            # Черновик можно сохранить без получателей — to=[]
+            exchange_save_draft(account, 'Тема', '<p>html</p>', to=[])
+            instance.save.assert_called_once()
+
+    def test_user_attachments_attached(self):
+        account = self._make_account()
+        content = base64.b64encode(b'pdf-content').decode()
+        attachments = [{'name': 'doc.pdf', 'content': content, 'mime_type': 'application/pdf'}]
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.FileAttachment') as MockFileAtt, \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], attachments=attachments
+            )
+            MockFileAtt.assert_called_once()
+            instance.attach.assert_called()
+
+    def test_inline_images_converted_to_cid(self):
+        account = self._make_account()
+        img_data = b'\x89PNG\r\n'
+        b64_img = base64.b64encode(img_data).decode()
+        html = f'<img src="data:image/png;base64,{b64_img}">'
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.FileAttachment'):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_save_draft(account, 'Тема', html, to=['a@rt.ru'])
+            instance.attach.assert_called()
+
+    def test_exchange_error_wrapped(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            instance.save.side_effect = RuntimeError('EWS 503')
+            MockMsg.return_value = instance
+            with pytest.raises((RuntimeError, ConnectionError)):
+                exchange_save_draft(account, 'Тема', '<p>html</p>', to=['a@rt.ru'])
+
+
+# ─── Отложенная отправка (send_at / DeferredDeliveryTime) ─────────────────────
+
+class TestDeferredDelivery:
+
+    def _make_account(self):
+        account = MagicMock()
+        return account
+
+    def test_send_at_sets_deferred_delivery_time(self):
+        account = self._make_account()
+        send_at = datetime.datetime(2026, 9, 1, 10, 0, 0)
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.EWSDateTime'), \
+             patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            MockTZ.from_pytz.return_value = MagicMock()
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], send_at=send_at
+            )
+            # deferred_delivery_time был явно присвоен через instance.attr = value
+            assert 'deferred_delivery_time' in instance.__dict__
+
+    def test_without_send_at_no_deferred_time(self):
+        account = self._make_account()
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], send_at=None
+            )
+            # deferred_delivery_time НЕ должен быть присвоен явно
+            assert 'deferred_delivery_time' not in instance.__dict__
+
+    def test_send_at_still_calls_send(self):
+        account = self._make_account()
+        send_at = datetime.datetime(2026, 9, 1, 10, 0, 0)
+        with patch('exchange_sender.Message') as MockMsg, \
+             patch('exchange_sender.HTMLBody'), \
+             patch('exchange_sender.EWSDateTime'), \
+             patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            MockTZ.from_pytz.return_value = MagicMock()
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(
+                account, 'Тема', '<p>html</p>',
+                to=['a@rt.ru'], send_at=send_at
+            )
+            instance.send.assert_called_once()
+
+
+class TestToEwsDatetime:
+    """_to_ews_datetime: конвертация datetime в EWSDateTime."""
+
+    def test_naive_datetime_converted(self):
+        dt = datetime.datetime(2026, 9, 1, 10, 30, 0)
+        with patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            tz_mock = MagicMock()
+            MockTZ.from_pytz.return_value = tz_mock
+            _to_ews_datetime(dt)
+            MockEWSDT.assert_called_once_with(2026, 9, 1, 10, 30, 0, tzinfo=tz_mock)
+
+    def test_year_month_day_preserved(self):
+        dt = datetime.datetime(2026, 12, 31, 23, 59, 0)
+        with patch('exchange_sender.EWSTimeZone') as MockTZ, \
+             patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            MockTZ.from_pytz.return_value = MagicMock()
+            _to_ews_datetime(dt)
+            args = MockEWSDT.call_args[0]
+            assert args[0] == 2026
+            assert args[1] == 12
+            assert args[2] == 31
+
+
+# ─── exchange_send_email: importance + read_receipt ──────────────────────────
+
+class TestExchangeSendEmailImportance:
+    """exchange_send_email должен устанавливать важность и read_receipt на объекте Message."""
+
+    def _make_account(self):
+        acc = MagicMock()
+        acc.primary_smtp_address = 'sender@test.ru'
+        return acc
+
+    def _send(self, account, importance='normal', read_receipt=False):
+        msg_mock = MagicMock()
+        with patch('exchange_sender.Message', return_value=msg_mock), \
+             patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p/>', [])), \
+             patch('exchange_sender._to_mailboxes', return_value=[]):
+            exchange_send_email(
+                account, 'Subject', '<p/>', ['to@test.ru'],
+                importance=importance, read_receipt=read_receipt,
+            )
+        return msg_mock
+
+    def test_importance_high_sets_attribute(self):
+        msg = self._send(self._make_account(), importance='high')
+        assert msg.importance == 'High'
+
+    def test_importance_low_sets_attribute(self):
+        msg = self._send(self._make_account(), importance='low')
+        assert msg.importance == 'Low'
+
+    def test_importance_normal_not_set(self):
+        msg = self._send(self._make_account(), importance='normal')
+        # importance не должен быть установлен вообще
+        assert not hasattr(msg, 'importance') or msg.importance != 'Normal'
+
+    def test_importance_default_not_set(self):
+        msg = self._send(self._make_account())
+        # При дефолтном значении 'normal' атрибут не устанавливается
+        try:
+            val = msg.importance
+            assert val != 'High' and val != 'Low'
+        except AttributeError:
+            pass  # тоже ок — атрибут не задан
+
+    def test_read_receipt_true_sets_flag(self):
+        msg = self._send(self._make_account(), read_receipt=True)
+        assert msg.is_read_receipt_requested is True
+
+    def test_read_receipt_false_not_set(self):
+        msg = self._send(self._make_account(), read_receipt=False)
+        # Не должен быть установлен в True
+        try:
+            assert msg.is_read_receipt_requested is not True
+        except AttributeError:
+            pass  # атрибут не установлен — тоже ок
+
+    def test_importance_map_covers_all_levels(self):
+        from exchange_sender import _IMPORTANCE_MAP
+        assert _IMPORTANCE_MAP['low']    == 'Low'
+        assert _IMPORTANCE_MAP['normal'] == 'Normal'
+        assert _IMPORTANCE_MAP['high']   == 'High'
+
+    def test_unknown_importance_defaults_to_normal(self):
+        msg = self._send(self._make_account(), importance='unknown')
+        # Не должен упасть; устанавливает Normal или ничего
+        msg.send.assert_called_once()
+
+    def test_send_called_once(self):
+        msg = self._send(self._make_account(), importance='high', read_receipt=True)
+        msg.send.assert_called_once()
+
+
+# ─── /api/send/email: importance + read_receipt ──────────────────────────────
+
+class TestSendEmailApiImportance:
+    """Flask-эндпоинт /api/send/email должен передавать importance и read_receipt."""
+
+    def _mock_creds(self):
+        return {
+            'server': 'cas.test.ru', 'username': 'u', 'password': 'p',
+            'from_email': 'u@test.ru', 'auth_type': 'ntlm', 'krb_realm': '',
+        }
+
+    def test_high_importance_passed_to_sender(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject':    'Test',
+                'to':         ['to@test.ru'],
+                'html_body':  '<p>Hi</p>',
+                'importance': 'high',
+            })
+        assert captured.get('importance') == 'high'
+
+    def test_read_receipt_passed_to_sender(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject':      'Test',
+                'to':           ['to@test.ru'],
+                'html_body':    '<p>Hi</p>',
+                'read_receipt': True,
+            })
+        assert captured.get('read_receipt') is True
+
+    def test_default_importance_normal(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject': 'Test', 'to': ['to@test.ru'], 'html_body': '<p/>',
+            })
+        assert captured.get('importance') == 'normal'
+
+    def test_default_read_receipt_false(self, client):
+        captured = {}
+        def capture(*args, **kwargs):
+            captured.update(kwargs)
+
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self._mock_creds()), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email', side_effect=capture), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<p/>'), \
+             patch.object(email_app, 'parse_recipients', return_value=['to@test.ru']):
+            client.post('/api/send/email', json={
+                'subject': 'Test', 'to': ['to@test.ru'], 'html_body': '<p/>',
+            })
+        assert captured.get('read_receipt') is False

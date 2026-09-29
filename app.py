@@ -31,6 +31,7 @@ import time
 import json
 import shutil
 import hashlib
+import hmac
 from datetime import datetime
 from typing import Optional
 from flask import Flask, send_from_directory, request, jsonify, send_file
@@ -261,6 +262,22 @@ else:
 # Создаём необходимые директории
 os.makedirs(CACHE_BASE, exist_ok=True)
 os.makedirs(CACHE_DIR, exist_ok=True)
+
+# ============================================================================
+# FEATURE FLAGS — управление функциональностью при сборке
+# ============================================================================
+# Меняй эти значения перед PyInstaller-упаковкой чтобы получить нужную версию.
+# True  = функция включена (полная версия)
+# False = функция скрыта в UI (код остаётся, просто не отображается)
+#
+# Пример для «упрощённой» сборки:
+#   FEATURES['bulk_mail']      = False   # убирает панель «Рассылка»
+#   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
+#
+FEATURES: dict = {
+    'bulk_mail': True,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
+}
 
 # ============================================================================
 # ЛОГИРОВАНИЕ В ФАЙЛ (protocol.log)
@@ -1382,6 +1399,49 @@ def _initialize_cache_locked():
         shutil.copy2(network_config, cache_config)
         print("✓ Config.json скопирован")
 
+    # 1a. Копируем профили аудиторий
+    network_profiles = os.path.join(NETWORK_RESOURCES_PATH, 'profiles')
+    cache_profiles   = os.path.join(CACHE_DIR, 'profiles')
+    # Пропускаем если network и cache указывают на одну папку (dev-режим на Windows)
+    if os.path.exists(network_profiles) and os.path.normcase(os.path.abspath(network_profiles)) != os.path.normcase(os.path.abspath(cache_profiles)):
+        print("\n📥 Загрузка profiles/...")
+        os.makedirs(cache_profiles, exist_ok=True)
+        for fname in os.listdir(network_profiles):
+            if fname.endswith('.json'):
+                shutil.copy2(
+                    os.path.join(network_profiles, fname),
+                    os.path.join(cache_profiles, fname),
+                )
+        print("✓ Профили скопированы")
+
+    # 1b. Синхронизируем shared-шаблоны (только изменившиеся файлы)
+    network_shared = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'shared')
+    cache_shared   = os.path.join(CACHE_DIR, 'templates', 'shared')
+    if os.path.exists(network_shared) and os.path.normcase(os.path.abspath(network_shared)) != os.path.normcase(os.path.abspath(cache_shared)):
+        print("\n📥 Загрузка templates/shared/...")
+        os.makedirs(cache_shared, exist_ok=True)
+        changed = _sync_dir_quiet(network_shared, cache_shared)
+        # Удаляем из кеша файлы, которых больше нет в сети
+        net_names = set(os.listdir(network_shared))
+        for fname in os.listdir(cache_shared):
+            if fname.endswith('.json') and fname not in net_names:
+                try:
+                    os.remove(os.path.join(cache_shared, fname))
+                except OSError:
+                    pass
+        print(f"✓ Шаблоны синхронизированы ({changed} изменено)")
+
+    # 1c. Копируем categories.json
+    network_cat = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+    cache_cat   = os.path.join(CACHE_DIR, 'templates', 'categories.json')
+    if os.path.isfile(network_cat) and os.path.normcase(os.path.abspath(network_cat)) != os.path.normcase(os.path.abspath(cache_cat)):
+        os.makedirs(os.path.dirname(cache_cat), exist_ok=True)
+        shutil.copy2(network_cat, cache_cat)
+        print("✓ Категории скопированы")
+
+    _invalidate_template_cache('shared')
+    _invalidate_categories_cache()
+
     # 2. Копируем только папки с картинками
     folders_to_cache = ['icons', 'expert-badges', 'bullets', 'button-icons',
                         'images', 'dividers', 'banner-backgrounds', 'banner-logos', 'banner-icons', 'fonts']
@@ -1713,6 +1773,31 @@ def _sync_cache_quiet() -> bool:
                 os.path.join(CACHE_DIR, folder),
             )
 
+        # Sync shared templates (new/changed files + deletions).
+        net_shared   = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'shared')
+        cache_shared = os.path.join(CACHE_DIR, 'templates', 'shared')
+        tpl_changed  = _sync_dir_quiet(net_shared, cache_shared)
+        if os.path.isdir(net_shared) and os.path.isdir(cache_shared):
+            net_names = set(os.listdir(net_shared))
+            for fname in list(os.listdir(cache_shared)):
+                if fname.endswith('.json') and fname not in net_names:
+                    try:
+                        os.remove(os.path.join(cache_shared, fname))
+                        tpl_changed += 1
+                    except OSError:
+                        pass
+        if tpl_changed:
+            _invalidate_template_cache('shared')
+        total += tpl_changed
+
+        # Sync categories.json.
+        net_cat   = os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
+        cache_cat = os.path.join(CACHE_DIR, 'templates', 'categories.json')
+        if os.path.isfile(net_cat):
+            if _copy_if_changed(net_cat, cache_cat):
+                _invalidate_categories_cache()
+                total += 1
+
         # config.json is updated last: the UI always sees a config that is
         # consistent with the already-cached assets.
         cfg_src = os.path.join(static_src, 'config.json')
@@ -1767,6 +1852,44 @@ _config_cache_data  = None   # last successfully parsed config dict
 _config_cache_mtime = None   # os.path.getmtime() value at the time of last read
 
 
+def _load_builtin_config() -> dict:
+    """Return the built-in config.json (ships with the app) as a dict, or {}."""
+    builtin_path = os.path.join(BUILTIN_DIR, 'config.json')
+    try:
+        with open(builtin_path, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _merge_builtin_defaults(config: dict) -> dict:
+    """
+    Fill in missing or empty list fields from the built-in config.json.
+
+    The cache/network config may be empty or have blank lists (e.g. when the
+    network resource catalog was created without bullet definitions).  The
+    built-in config ships with the app and provides fallback entries that
+    include ``id`` fields required for bullet/icon type matching on the
+    frontend.  Cache values win when non-empty; builtin fills the gaps.
+    """
+    builtin = _load_builtin_config()
+    if not builtin:
+        return config
+    result = dict(config)
+    for key, builtin_val in builtin.items():
+        if key not in result:
+            result[key] = builtin_val
+        elif isinstance(builtin_val, list) and not result[key]:
+            # Cache has an empty list — use builtin entries as defaults
+            result[key] = builtin_val
+        elif isinstance(builtin_val, dict) and isinstance(result.get(key), dict):
+            # Shallow-merge dicts (e.g. "icons": {"important": [...]})
+            for sub_key, sub_val in builtin_val.items():
+                if sub_key not in result[key] or (isinstance(sub_val, list) and not result[key][sub_key]):
+                    result[key][sub_key] = sub_val
+    return result
+
+
 def load_config():
     """
     Load config.json from the local cache (fast path) or from the network share
@@ -1782,6 +1905,10 @@ def load_config():
     :func:`initialize_cache` on startup, so reading from the network on
     every API call is unnecessary and causes visible latency on Linux FUSE
     mounts (kio-fuse / gvfs).
+
+    Missing or empty list fields are filled in from the built-in config.json
+    so that entries like bullet type ``id`` fields are always available even
+    when the network catalog does not define them.
     """
     global _config_cache_data, _config_cache_mtime
 
@@ -1797,6 +1924,7 @@ def load_config():
                     return dict(_config_cache_data)  # shallow copy — safe for read-only callers
             with open(cache_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            config = _merge_builtin_defaults(config)
             with _config_cache_lock:
                 _config_cache_data  = config
                 _config_cache_mtime = mtime
@@ -1809,6 +1937,7 @@ def load_config():
         try:
             with open(network_config_path, 'r', encoding='utf-8') as f:
                 config = json.load(f)
+            config = _merge_builtin_defaults(config)
             _logger.info('Config.json загружен с сервера (кеш отсутствовал)')
             os.makedirs(os.path.dirname(cache_config_path), exist_ok=True)
             with open(cache_config_path, 'w', encoding='utf-8') as f:
@@ -1818,7 +1947,7 @@ def load_config():
             _logger.warning('Ошибка чтения config.json с сервера: %s', e)
 
     _logger.error('Не удалось загрузить config.json!')
-    return {"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []}
+    return _merge_builtin_defaults({"version": "1.0", "icons": {}, "expertBadges": [], "bullets": [], "buttonIcons": []})
 
 # ============================================================================
 # ФУНКЦИИ ОБРАБОТКИ ИЗОБРАЖЕНИЙ И ШРИФТОВ
@@ -1934,9 +2063,23 @@ def prepare_html_for_email(html_content: str) -> str:
     if not html_content:
         return ''
 
+    def _strip_cache_prefix(rel_path: str) -> str:
+        """Снимает ведущий '/' и виртуальный сегмент 'cache/' — тот, что
+        обслуживает static_files.py по маршруту '/cache/<path>' (см.
+        routes/static_files.py: actual = path[len('cache/'):]), а не
+        реальная подпапка внутри CACHE_DIR/NETWORK_RESOURCES_PATH/BUILTIN_DIR.
+        Без этого встроенные ресурсы (галерея разделителей/буллетов/иконок
+        и т.п., у которых src вида '/cache/dividers/…') не находятся тут
+        и остаются в письме битой ссылкой на локальный сервер отправителя.
+        """
+        rel = rel_path.lstrip('/')
+        if rel.startswith('cache/'):
+            rel = rel[len('cache/'):]
+        return rel
+
     def resolve(rel_path: str):
         """Возвращает полный путь к файлу или None."""
-        rel = rel_path.lstrip('/')
+        rel = _strip_cache_prefix(rel_path)
         for base in [CACHE_DIR,
                      os.path.join(NETWORK_RESOURCES_PATH, 'static'),
                      BUILTIN_DIR,
@@ -1987,9 +2130,13 @@ def prepare_html_for_email(html_content: str) -> str:
         src_val = match.group(1)
         if src_val.startswith('data:') or src_val.startswith('http'):
             return full
-        if not any(src_val.startswith(p) for p in RELATIVE_PREFIXES):
+        # Встроенные ресурсы (галерея разделителей/буллетов/иконок и т.п.)
+        # отдаются с src вида '/cache/dividers/…' (см. _strip_cache_prefix)
+        # — префиксы категорий ниже сравниваем уже без виртуального 'cache/'.
+        normalized = _strip_cache_prefix(src_val)
+        if not any(normalized.startswith(p) for p in RELATIVE_PREFIXES):
             return full
-        fp = resolve(src_val)
+        fp = resolve(normalized)
         if not fp:
             _logger.warning('prepare_html: не найден: %s', src_val)
             return full
@@ -2135,18 +2282,7 @@ def _dedup_config_resources(config: dict) -> dict:
     from appearing twice when it is referenced by different URL patterns
     (e.g. ``/cache/…`` vs ``/api/user-resources/file/…``).
     """
-    list_keys = [
-        ('icons', 'important'),
-        ('expertBadges',),
-        ('bullets',),
-        ('buttonIcons',),
-        ('dividers',),
-        ('bannerBackgrounds',),
-        ('bannerLogos',),
-        ('bannerIcons',),
-        ('images',),
-    ]
-    for key_path in list_keys:
+    for key_path in _RESOURCE_LIST_KEYS:
         node = config
         for k in key_path[:-1]:
             if not isinstance(node, dict):
@@ -2171,6 +2307,77 @@ def _dedup_config_resources(config: dict) -> dict:
                 seen.add(fname)
             deduped.append(item)
         node[leaf] = deduped
+    return config
+
+
+_RESOURCE_LIST_KEYS = [
+    ('icons', 'important'),
+    ('expertBadges',),
+    ('bullets',),
+    ('buttonIcons',),
+    ('dividers',),
+    ('bannerBackgrounds',),
+    ('bannerLogos',),
+    ('bannerIcons',),
+    ('images',),
+]
+
+
+def _resource_file_exists(src: str) -> bool:
+    """
+    Check whether *src* (a resource URL from config.json) points to a file that
+    actually exists on disk.
+
+    Entries generated from a directory listing (``/cache/...`` from
+    :func:`_merge_shared_resources_into_config`, ``/api/user-resources/...``
+    from :func:`_merge_user_resources_into_config`) are trusted without a disk
+    check — they were just built from ``os.listdir()``. Only hand-authored
+    entries from ``config.json`` itself (network config or builtin fallback)
+    need verification, since those can drift from the actual files on disk
+    (renamed/deleted on the network share without updating the JSON).
+    """
+    if not src:
+        return True
+    if src.startswith('/api/user-resources/') or src.startswith('/cache/'):
+        return True
+    return (os.path.isfile(os.path.join(CACHE_DIR, src))
+            or os.path.isfile(os.path.join(NETWORK_RESOURCES_PATH, 'static', src)))
+
+
+def _prune_missing_resources(config: dict) -> dict:
+    """
+    Drop resource entries whose ``src`` file no longer exists on disk.
+
+    ``config.json`` (network or builtin fallback) is hand-authored and can
+    drift from the actual asset files an audience repo carries — a file gets
+    renamed/deleted on the network share but the JSON entry is left behind,
+    producing a broken image in the icon/divider/banner pickers. This removes
+    those stale entries so the frontend never sees them.
+    """
+    for key_path in _RESOURCE_LIST_KEYS:
+        node = config
+        for k in key_path[:-1]:
+            if not isinstance(node, dict):
+                break
+            node = node.get(k, {})
+        leaf = key_path[-1]
+        if not isinstance(node, dict):
+            continue
+        items = node.get(leaf)
+        if not isinstance(items, list):
+            continue
+        kept = []
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            src = item.get('src', '')
+            if _resource_file_exists(src):
+                kept.append(item)
+            else:
+                _logger.warning(
+                    'Пропущен ресурс со ссылкой на несуществующий файл: label=%r src=%r',
+                    item.get('label'), src)
+        node[leaf] = kept
     return config
 
 
@@ -2547,22 +2754,95 @@ def _remove_from_config_json(category: str, pub_url: str) -> None:
 
 
 def get_templates_dir():
-    """Returns the path to the shared templates directory (network resource)."""
+    """Returns the LOCAL CACHE path for shared templates (fast disk reads).
+
+    Shared templates are synced from the network at startup and on every
+    version update, so reads always hit local disk — never the network share.
+    Admin write routes mirror changes back to the network via
+    :func:`_mirror_template_to_network`.
+    """
+    path = os.path.join(CACHE_DIR, 'templates')
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _network_templates_dir() -> str:
+    """Authoritative NETWORK path for shared templates (admin writes + sync source)."""
     return os.path.join(NETWORK_RESOURCES_PATH, 'templates')
 
 
-def get_personal_templates_dir():
-    """
-    Returns the path to the personal templates directory (local, per-user).
+def _network_categories_file() -> str:
+    """Authoritative NETWORK path for categories.json."""
+    return os.path.join(NETWORK_RESOURCES_PATH, 'templates', 'categories.json')
 
-    Personal templates are stored locally so they are:
-    * available offline (no network required)
-    * private to the OS user account
-    * never written to the shared network resource
 
-    Path: ``CACHE_BASE/templates/``
+def _mirror_template_to_network(cache_filepath: str, data: dict) -> None:
+    """Replicate a template written to local cache to the authoritative network path.
+
+    Called by admin routes after every write so that other clients' background
+    sync can pick up the change.  Failures are logged and swallowed — the
+    local cache write has already succeeded.
     """
-    path = os.path.join(CACHE_BASE, 'templates')
+    try:
+        cache_base = os.path.join(CACHE_DIR, 'templates')
+        net_base   = _network_templates_dir()
+        if os.path.normcase(os.path.abspath(cache_base)) == os.path.normcase(os.path.abspath(net_base)):
+            return  # dev mode: cache and network are the same directory
+        rel      = os.path.relpath(cache_filepath, cache_base)
+        net_path = os.path.join(net_base, rel)
+        _write_template_atomic(net_path, data)
+    except Exception as exc:
+        _logger.warning('Ошибка репликации шаблона в сеть: %s', exc)
+
+
+def _delete_template_from_network(cache_filepath: str) -> None:
+    """Delete a template from the authoritative network path after removing from cache.
+
+    Failures are logged and swallowed.
+    """
+    try:
+        cache_base = os.path.join(CACHE_DIR, 'templates')
+        net_base   = _network_templates_dir()
+        if os.path.normcase(os.path.abspath(cache_base)) == os.path.normcase(os.path.abspath(net_base)):
+            return
+        rel      = os.path.relpath(cache_filepath, cache_base)
+        net_path = os.path.join(net_base, rel)
+        if os.path.isfile(net_path):
+            os.remove(net_path)
+    except Exception as exc:
+        _logger.warning('Ошибка удаления шаблона из сети: %s', exc)
+
+
+def _personal_user_slug(user_key: str) -> str:
+    """Return a filesystem-safe slug from a user key (email or login name).
+
+    Rules:
+    * If it looks like an email, take the local part (before @).
+    * Replace any non-alphanumeric/dash/dot/underscore characters with ``_``.
+    * Truncate to 64 characters.
+    * Fall back to ``'default'`` when the result would be empty.
+    """
+    key = (user_key or '').strip().lower()
+    if '@' in key:
+        key = key.split('@')[0]
+    # Strip AD "domain\user" prefix if present
+    if '\\' in key:
+        key = key.split('\\')[-1]
+    slug = re.sub(r'[^\w.\-]', '_', key)[:64].strip('_')
+    return slug or 'default'
+
+
+def get_personal_templates_dir(user_key: str = '') -> str:
+    """Return the personal templates directory for *user_key*.
+
+    Each unique user key gets its own subdirectory under
+    ``CACHE_BASE/templates/``, so that different users' personal
+    templates never mix.
+
+    Falls back to the ``'default'`` subdirectory when no key is supplied.
+    """
+    slug = _personal_user_slug(user_key)
+    path = os.path.join(CACHE_BASE, 'templates', slug)
     os.makedirs(path, exist_ok=True)
     return path
 
@@ -2574,12 +2854,313 @@ def get_user_from_system():
     return os.environ.get('USER', os.environ.get('LOGNAME', 'unknown')).lower()
 
 
-def _template_base_dir(template_type):
+# ============================================================================
+# Usage analytics — anonymous launch/send counters written to a shared
+# NDJSON log on the network drive, with a self-contained HTML dashboard
+# regenerated on every event. No username or other personal data is ever
+# written — only an irreversible HMAC hash, used solely to deduplicate
+# unique users.
+# ============================================================================
+
+# Not a secret — just a pepper so the hash can't be trivially reversed via a
+# dictionary of common usernames (ivanov/petrov/...).
+_STATS_PEPPER = b'pochtelie-usage-stats-v1'
+
+
+def _anon_uid() -> str:
+    """Irreversible per-user id derived from the OS username. Never store the raw name."""
+    raw = get_user_from_system().encode('utf-8')
+    return hmac.new(_STATS_PEPPER, raw, hashlib.sha256).hexdigest()[:16]
+
+
+def _stats_dir() -> str:
+    return os.path.join(NETWORK_RESOURCES_PATH, 'stats')
+
+
+def _append_stats_event(event: dict) -> bool:
+    try:
+        d = _stats_dir()
+        os.makedirs(d, exist_ok=True)
+        with open(os.path.join(d, 'usage_log.ndjson'), 'a', encoding='utf-8') as f:
+            f.write(json.dumps(event, ensure_ascii=False) + '\n')
+        return True
+    except OSError as e:
+        print(f'⚠ Analytics: не удалось записать в лог: {e}')
+        return False
+
+
+def log_launch():
+    """Records one anonymous app-launch event and refreshes the dashboard."""
+    ok = _append_stats_event({
+        'ts': datetime.now().isoformat(timespec='seconds'),
+        'type': 'launch',
+        'uid': _anon_uid(),
+    })
+    if ok:
+        _regenerate_stats_dashboard()
+
+
+def log_send(recipients: int):
+    """Records one successful send action (single or bulk) with its recipient count."""
+    if recipients <= 0:
+        return
+    ok = _append_stats_event({
+        'ts': datetime.now().isoformat(timespec='seconds'),
+        'type': 'send',
+        'recipients': int(recipients),
+    })
+    if ok:
+        _regenerate_stats_dashboard()
+
+
+def _read_stats_events() -> list:
+    events = []
+    log_path = os.path.join(_stats_dir(), 'usage_log.ndjson')
+    if os.path.isfile(log_path):
+        with open(log_path, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    events.append(json.loads(line))
+                except ValueError:
+                    continue  # skip a corrupted/torn line from a concurrent write
+    return events
+
+
+def _regenerate_stats_dashboard():
+    try:
+        events = _read_stats_events()
+        html = _render_stats_dashboard_html(events)
+        d = _stats_dir()
+        os.makedirs(d, exist_ok=True)
+        tmp = os.path.join(d, '.dashboard.html.tmp')
+        with open(tmp, 'w', encoding='utf-8') as f:
+            f.write(html)
+        os.replace(tmp, os.path.join(d, 'dashboard.html'))
+    except OSError as e:
+        print(f'⚠ Analytics: не удалось перегенерировать дашборд: {e}')
+
+
+_STATS_DASHBOARD_TEMPLATE = r"""<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>Почтелье — статистика использования</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 32px;
+    font-family: -apple-system, Segoe UI, Roboto, Arial, sans-serif;
+    background: #f4f5f7; color: #1a1a2e;
+  }
+  h1 { font-size: 20px; margin: 0 0 24px; }
+  .cards { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; }
+  .card {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); min-width: 220px; flex: 1;
+  }
+  .card .num { font-size: 36px; font-weight: 700; color: #7700ff; line-height: 1.1; }
+  .card .label { font-size: 13px; color: #666; margin-top: 6px; }
+  .card .sub { font-size: 12px; color: #999; margin-top: 4px; }
+  .charts { display: flex; gap: 20px; flex-wrap: wrap; }
+  .chart-box {
+    background: #fff; border-radius: 12px; padding: 20px 24px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.08); flex: 1; min-width: 380px;
+  }
+  .chart-box h2 { font-size: 15px; margin: 0 0 12px; }
+  .filters { display: flex; gap: 6px; margin-bottom: 12px; }
+  .filters button {
+    border: 1px solid #ddd; background: #fff; border-radius: 6px;
+    padding: 4px 12px; font-size: 12px; cursor: pointer; color: #444;
+  }
+  .filters button.active { background: #7700ff; border-color: #7700ff; color: #fff; }
+  canvas { width: 100%; height: 220px; display: block; }
+  .updated { font-size: 12px; color: #999; margin-top: 24px; }
+</style>
+</head>
+<body>
+  <h1>Почтелье — статистика использования</h1>
+  <div class="cards">
+    <div class="card">
+      <div class="num" id="stat-users">0</div>
+      <div class="label">Уникальных пользователей</div>
+    </div>
+    <div class="card">
+      <div class="num" id="stat-sends">0</div>
+      <div class="label">Отправок (действий)</div>
+      <div class="sub" id="stat-recipients">0 писем отправлено всего</div>
+    </div>
+  </div>
+  <div class="filters">
+    <button data-mode="day" class="active">По дням</button>
+    <button data-mode="month">По месяцам</button>
+    <button data-mode="year">По годам</button>
+  </div>
+  <div class="charts">
+    <div class="chart-box">
+      <h2>Прирост пользователей</h2>
+      <canvas id="chart-users"></canvas>
+    </div>
+    <div class="chart-box">
+      <h2>Прирост рассылок</h2>
+      <canvas id="chart-sends"></canvas>
+    </div>
+  </div>
+  <div class="updated">Обновлено: __GENERATED_AT__</div>
+
+<script>
+const EVENTS = __EVENTS_JSON__;
+
+function bucketKey(ts, mode) {
+  const d = new Date(ts);
+  if (isNaN(d.getTime())) return null;
+  if (mode === 'day') return d.toISOString().slice(0, 10);
+  if (mode === 'month') return d.toISOString().slice(0, 7);
+  return String(d.getFullYear());
+}
+
+function buildCumulative(dateList, mode) {
+  const counts = new Map();
+  dateList.forEach(ts => {
+    const k = bucketKey(ts, mode);
+    if (!k) return;
+    counts.set(k, (counts.get(k) || 0) + 1);
+  });
+  const keys = Array.from(counts.keys()).sort();
+  let running = 0;
+  return keys.map(k => {
+    running += counts.get(k);
+    return { bucket: k, value: running };
+  });
+}
+
+const launchEvents = EVENTS.filter(e => e.type === 'launch' && e.uid);
+const sendEvents = EVENTS.filter(e => e.type === 'send');
+
+const firstSeen = new Map();
+launchEvents.forEach(e => {
+  const prev = firstSeen.get(e.uid);
+  if (!prev || e.ts < prev) firstSeen.set(e.uid, e.ts);
+});
+
+const uniqueUsers = firstSeen.size;
+const sendCount = sendEvents.length;
+const totalRecipients = sendEvents.reduce((s, e) => s + (e.recipients || 0), 0);
+
+document.getElementById('stat-users').textContent = uniqueUsers.toLocaleString('ru-RU');
+document.getElementById('stat-sends').textContent = sendCount.toLocaleString('ru-RU');
+document.getElementById('stat-recipients').textContent =
+  totalRecipients.toLocaleString('ru-RU') + ' писем отправлено всего';
+
+function drawChart(canvas, points) {
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const w = canvas.clientWidth || 380;
+  const h = canvas.clientHeight || 220;
+  canvas.width = w * dpr;
+  canvas.height = h * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, w, h);
+
+  if (!points.length) {
+    ctx.fillStyle = '#999';
+    ctx.font = '13px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Нет данных', w / 2, h / 2);
+    return;
+  }
+
+  const padL = 40, padR = 12, padT = 12, padB = 24;
+  const plotW = w - padL - padR;
+  const plotH = h - padT - padB;
+  const maxV = Math.max(1, ...points.map(p => p.value));
+
+  ctx.strokeStyle = '#e5e5e5';
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  ctx.moveTo(padL, padT);
+  ctx.lineTo(padL, padT + plotH);
+  ctx.lineTo(padL + plotW, padT + plotH);
+  ctx.stroke();
+
+  ctx.fillStyle = '#999';
+  ctx.font = '11px sans-serif';
+  ctx.textAlign = 'right';
+  ctx.fillText(String(maxV), padL - 6, padT + 4);
+  ctx.fillText('0', padL - 6, padT + plotH + 4);
+
+  const stepX = points.length > 1 ? plotW / (points.length - 1) : 0;
+  ctx.strokeStyle = '#7700ff';
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  points.forEach((p, i) => {
+    const x = padL + stepX * i;
+    const y = padT + plotH - (p.value / maxV) * plotH;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  });
+  ctx.stroke();
+
+  ctx.fillStyle = '#7700ff';
+  points.forEach((p, i) => {
+    const x = padL + stepX * i;
+    const y = padT + plotH - (p.value / maxV) * plotH;
+    ctx.beginPath();
+    ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.fillStyle = '#999';
+  ctx.textAlign = 'center';
+  const labelEvery = Math.max(1, Math.ceil(points.length / 6));
+  points.forEach((p, i) => {
+    if (i % labelEvery !== 0 && i !== points.length - 1) return;
+    const x = padL + stepX * i;
+    ctx.fillText(p.bucket, x, padT + plotH + 16);
+  });
+}
+
+function render(mode) {
+  const usersPoints = buildCumulative(Array.from(firstSeen.values()), mode);
+  const sendsPoints = buildCumulative(sendEvents.map(e => e.ts), mode);
+  drawChart(document.getElementById('chart-users'), usersPoints);
+  drawChart(document.getElementById('chart-sends'), sendsPoints);
+}
+
+let currentMode = 'day';
+document.querySelectorAll('.filters button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filters button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentMode = btn.dataset.mode;
+    render(currentMode);
+  });
+});
+
+render(currentMode);
+window.addEventListener('resize', () => render(currentMode));
+</script>
+</body>
+</html>
+"""
+
+
+def _render_stats_dashboard_html(events: list) -> str:
+    payload = json.dumps(events, ensure_ascii=False)
+    generated_at = datetime.now().isoformat(timespec='seconds')
+    html = _STATS_DASHBOARD_TEMPLATE.replace('__EVENTS_JSON__', payload)
+    html = html.replace('__GENERATED_AT__', generated_at)
+    return html
+
+
+def _template_base_dir(template_type, user_key: str = ''):
     """Return the filesystem directory for a given template type."""
     templates_dir = get_templates_dir()
     if template_type == 'shared':
         return os.path.join(templates_dir, 'shared')
-    return get_personal_templates_dir()
+    return get_personal_templates_dir(user_key)
 
 
 def _validate_template_id(tid):
@@ -2679,12 +3260,21 @@ def _invalidate_template_cache(template_type=None):
     After invalidation the next :func:`_get_template_index` call will rebuild
     synchronously (cold-cache path) rather than serving stale data.
     Thread-safe.
+
+    The cache is keyed by *base_dir* (filesystem path), so invalidating
+    ``'personal'`` removes all user-specific personal template caches.
     """
+    shared_dir = os.path.join(get_templates_dir(), 'shared')
     with _template_cache_lock:
-        if template_type:
-            _template_cache.pop(template_type, None)
-        else:
+        if template_type is None:
             _template_cache.clear()
+        elif template_type == 'shared':
+            _template_cache.pop(shared_dir, None)
+        else:
+            # Remove every personal-templates entry (keyed by their base_dir).
+            for k in list(_template_cache.keys()):
+                if k != shared_dir:
+                    del _template_cache[k]
 
 
 def _build_index_from_dir(base_dir, template_type):
@@ -2762,10 +3352,10 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     try:
         meta, index, fp = _build_index_from_dir(base_dir, template_type)
         with _template_cache_lock:
-            existing = _template_cache.get(template_type)
+            existing = _template_cache.get(base_dir)
             if existing is None or existing.get('ts', 0) <= started_at:
                 # No fresher entry — safe to store our result.
-                _template_cache[template_type] = {
+                _template_cache[base_dir] = {
                     'meta': meta, 'index': index, 'fp': fp,
                     'ts': time.time(), '_rebuilding': False,
                 }
@@ -2776,7 +3366,7 @@ def _rebuild_template_index_bg(template_type: str, base_dir: str) -> None:
     except Exception as exc:
         _logger.warning('Фоновый rebuild индекса [%s] упал: %s', template_type, exc)
         with _template_cache_lock:
-            entry = _template_cache.get(template_type)
+            entry = _template_cache.get(base_dir)
             if entry:
                 entry['_rebuilding'] = False
 
@@ -2802,8 +3392,10 @@ def _get_template_index(template_type: str, base_dir: str):
     now = time.time()
     ttl = _TEMPLATE_CACHE_TTL.get(template_type, 10.0)
 
+    # Cache is keyed by base_dir so that different personal-templates
+    # directories (one per user) each get their own independent cache entry.
     with _template_cache_lock:
-        cached = _template_cache.get(template_type)
+        cached = _template_cache.get(base_dir)
 
         if cached:
             if (now - cached['ts']) < ttl:
@@ -2824,7 +3416,7 @@ def _get_template_index(template_type: str, base_dir: str):
     # Cold cache — synchronous rebuild (first request only).
     meta, index, fp = _build_index_from_dir(base_dir, template_type)
     with _template_cache_lock:
-        _template_cache[template_type] = {
+        _template_cache[base_dir] = {
             'meta': meta, 'index': index, 'fp': fp,
             'ts': time.time(), '_rebuilding': False,
         }
@@ -2941,6 +3533,26 @@ def save_categories(categories: list) -> None:
             pass
         raise
     _invalidate_categories_cache()
+
+    # Replicate to network so other clients' background sync picks up the change.
+    try:
+        net_cat = _network_categories_file()
+        net_dir = os.path.dirname(net_cat)
+        if os.path.normcase(os.path.abspath(net_dir)) != os.path.normcase(os.path.abspath(os.path.dirname(categories_file))):
+            os.makedirs(net_dir, exist_ok=True)
+            fd2, tmp2 = tempfile.mkstemp(dir=net_dir, suffix='.tmp')
+            try:
+                with os.fdopen(fd2, 'w', encoding='utf-8') as f2:
+                    json.dump({'categories': categories}, f2, ensure_ascii=False, indent=2)
+                os.replace(tmp2, net_cat)
+            except Exception:
+                try:
+                    os.unlink(tmp2)
+                except OSError:
+                    pass
+                raise
+    except Exception as exc:
+        _logger.warning('Ошибка репликации категорий в сеть: %s', exc)
 
 
 # ============================================================================
@@ -3081,7 +3693,215 @@ def _run_webview_or_browser() -> None:
         except Exception:
             pass
 
-        view = QWebEngineView()
+        class DropAwareWebView(QWebEngineView):
+            """QWebEngineView that forwards file drops to JavaScript instead of navigating."""
+
+            def __init__(self, *args, **kwargs):
+                super().__init__(*args, **kwargs)
+                self.setAcceptDrops(True)
+
+            def dragEnterEvent(self, event):
+                _logger.info('DropAwareWebView: dragEnter hasUrls=%s', event.mimeData().hasUrls())
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                else:
+                    super().dragEnterEvent(event)
+
+            def dragMoveEvent(self, event):
+                if event.mimeData().hasUrls():
+                    event.acceptProposedAction()
+                    pos = event.pos()
+                    self.page().runJavaScript(
+                        f'(function(){{'
+                        # clear all highlights
+                        f'  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){{'
+                        f'    var t=w.querySelector(".exc-drop-target");'
+                        f'    var h=w.querySelector(".exc-drag-hint");'
+                        f'    var b=w.querySelector(".exc-pick-btn");'
+                        f'    if(t)t.classList.remove("exc-drop-target--over");'
+                        f'    if(h)h.style.display="none";'
+                        f'    if(b)b.style.borderColor="";'
+                        f'  }});'
+                        f'  var bz=document.getElementById("bm-file-zone");'
+                        f'  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                        # find element under cursor
+                        f'  var _dpr=window.devicePixelRatio||1;'
+                        f'  var el=document.elementFromPoint({pos.x()}/_dpr,{pos.y()}/_dpr);'
+                        # bulk mail zone
+                        f'  var bel=el;'
+                        f'  while(bel&&bel.id!=="bm-file-zone"){{bel=bel.parentElement;}}'
+                        f'  if(bel){{bel.classList.add("bm-file-zone--drag");return;}}'
+                        # exchange drop targets
+                        f'  while(el&&!el.classList.contains("exc-drop-target")){{el=el.parentElement;}}'
+                        f'  if(el){{'
+                        f'    el.classList.add("exc-drop-target--over");'
+                        f'    var w=el.closest(".exc-drop-wrap");'
+                        f'    if(w){{'
+                        f'      var h=w.querySelector(".exc-drag-hint");'
+                        f'      var b=w.querySelector(".exc-pick-btn");'
+                        f'      if(h)h.style.display="flex";'
+                        f'      if(b)b.style.borderColor="#a78bfa";'
+                        f'    }}'
+                        f'  }}'
+                        f'}})()'
+                    )
+                else:
+                    super().dragMoveEvent(event)
+
+            def dragLeaveEvent(self, event):
+                _logger.info('DropAwareWebView: dragLeave')
+                self.page().runJavaScript(
+                    '(function(){'
+                    '  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){'
+                    '    var t=w.querySelector(".exc-drop-target");'
+                    '    var h=w.querySelector(".exc-drag-hint");'
+                    '    var b=w.querySelector(".exc-pick-btn");'
+                    '    if(t)t.classList.remove("exc-drop-target--over");'
+                    '    if(h)h.style.display="none";'
+                    '    if(b)b.style.borderColor="";'
+                    '  });'
+                    '  var bz=document.getElementById("bm-file-zone");'
+                    '  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                    '})()'
+                )
+                super().dragLeaveEvent(event)
+
+            def dropEvent(self, event):
+                urls = event.mimeData().urls() if event.mimeData().hasUrls() else []
+                files = [u.toLocalFile() for u in urls if u.isLocalFile()]
+                _logger.info('DropAwareWebView: dropEvent files=%s', files)
+                if not files:
+                    _logger.info('DropAwareWebView: no local files, delegating to super')
+                    super().dropEvent(event)
+                    return
+                event.acceptProposedAction()
+                filepath = files[0]
+                pos = event.pos()
+                _logger.info('DropAwareWebView: processing file=%s pos=(%s,%s)', filepath, pos.x(), pos.y())
+                try:
+                    import json as _json, os as _os, requests as _req
+                    fname = _os.path.basename(filepath)
+                    _allowed = ('.xlsx', '.xlsm', '.xls', '.ods', '.csv')
+                    if not fname.lower().endswith(_allowed):
+                        _err = _json.dumps(
+                            f'Неподдерживаемый формат «{fname}». '
+                            f'Разрешены: .xlsx, .xls, .ods, .csv',
+                            ensure_ascii=False)
+                        self.page().runJavaScript(
+                            '(function(){'
+                            '  document.querySelectorAll(".exc-drop-wrap").forEach(function(w){'
+                            '    var t=w.querySelector(".exc-drop-target");'
+                            '    var h=w.querySelector(".exc-drag-hint");'
+                            '    var b=w.querySelector(".exc-pick-btn");'
+                            '    if(t)t.classList.remove("exc-drop-target--over");'
+                            '    if(h)h.style.display="none";'
+                            '    if(b)b.style.borderColor="";'
+                            '  });'
+                            '  var bz=document.getElementById("bm-file-zone");'
+                            '  if(bz)bz.classList.remove("bm-file-zone--drag");'
+                            f'  if(typeof Toast!=="undefined") Toast.error({_err});'
+                            '})()'
+                        )
+                        return
+                    _logger.info('DropAwareWebView: POST /api/bulk/parse fname=%s', fname)
+                    with open(filepath, 'rb') as fh:
+                        resp = _req.post(
+                            f'http://127.0.0.1:{PORT}/api/bulk/parse',
+                            files={'file': (fname, fh)},
+                            timeout=30,
+                        )
+                    _logger.info('DropAwareWebView: parse response status=%s', resp.status_code)
+                    data = resp.json()
+                    _logger.info('DropAwareWebView: parsed headers=%s rows=%d',
+                                 data.get('headers'), len(data.get('rows', [])))
+                    fname_js = _json.dumps(fname, ensure_ascii=False)
+                    data_js = _json.dumps(data, ensure_ascii=False).replace('\\', '\\\\').replace('`', '\\`')
+                    js = (
+                        f'(function(){{'
+                        f'  var dpr=window.devicePixelRatio||1;'
+                        f'  var cx={pos.x()}/dpr, cy={pos.y()}/dpr;'
+                        f'  var el=document.elementFromPoint(cx,cy);'
+                        # — bulk mail drop zone —
+                        f'  var bz=el;'
+                        f'  while(bz&&bz.id!=="bm-file-zone"){{bz=bz.parentElement;}}'
+                        f'  if(bz&&typeof BulkMailPanel!=="undefined"){{'
+                        f'    BulkMailPanel.loadParsed({fname_js},JSON.parse(`{data_js}`));'
+                        f'    return;'
+                        f'  }}'
+                        # — exchange email/meeting fields —
+                        f'  while(el&&!el.classList.contains("exc-drop-target")){{el=el.parentElement;}}'
+                        f'  if(!el){{return;}}'
+                        f'  el.classList.remove("exc-drop-target--over");'
+                        f'  var w=el.closest(".exc-drop-wrap");'
+                        f'  if(w){{'
+                        f'    var h=w.querySelector(".exc-drag-hint");'
+                        f'    var b=w.querySelector(".exc-pick-btn");'
+                        f'    if(h)h.style.display="none";'
+                        f'    if(b)b.style.borderColor="";'
+                        f'  }}'
+                        f'  if(typeof ExchangeModals!=="undefined")'
+                        f'    ExchangeModals._xlsxProcessParsed(JSON.parse(`{data_js}`),el.id);'
+                        f'}})()'
+                    )
+                    self.page().runJavaScript(js)
+                except Exception as exc:
+                    _logger.error('DropAwareWebView.dropEvent error: %s', exc, exc_info=True)
+
+        view = DropAwareWebView()
+
+        # Разрешаем JS доступ к буферу обмена (navigator.clipboard.writeText).
+        # Без этого шорткат «скопировать HTML письма» (Ctrl+Alt+H) молча падает
+        # внутри QtWebEngine, хотя в системном браузере работает.
+        try:
+            from PyQt5.QtWebEngineWidgets import QWebEngineSettings
+            _ws = view.settings()
+            _ws.setAttribute(QWebEngineSettings.JavascriptCanAccessClipboard, True)
+            _ws.setAttribute(QWebEngineSettings.JavascriptCanPaste, True)
+        except Exception as _clip_exc:
+            _logger.warning('[QWebEngineView] не удалось включить доступ к буферу обмена: %s', _clip_exc)
+
+        # Обработка скачивания файлов (<a download> из downloadEmailHtml()).
+        # QtWebEngine по умолчанию игнорирует такие ссылки — показываем диалог
+        # сохранения и пишем файл под именем «<Название рассылки>.html».
+        try:
+            from PyQt5.QtWebEngineWidgets import QWebEngineProfile as _QWEProfile
+            from PyQt5.QtWidgets import QFileDialog
+
+            def _on_download_requested(item):
+                suggested = ''
+                try:
+                    suggested = item.suggestedFileName()
+                except Exception:
+                    pass
+                suggested = suggested or 'email.html'
+
+                downloads = os.path.join(os.path.expanduser('~'), 'Downloads')
+                start = os.path.join(downloads if os.path.isdir(downloads) else os.path.expanduser('~'),
+                                     suggested)
+
+                target, _ = QFileDialog.getSaveFileName(
+                    window, 'Сохранить HTML письма', start, 'HTML-файл (*.html);;Все файлы (*.*)')
+                if not target:
+                    item.cancel()
+                    return
+
+                try:  # PyQt5 >= 5.14
+                    item.setDownloadDirectory(os.path.dirname(target))
+                    item.setDownloadFileName(os.path.basename(target))
+                except AttributeError:  # более старые версии
+                    item.setPath(target)
+                item.accept()
+                _logger.info('[QWebEngineView] download saved: %s', target)
+
+            _QWEProfile.defaultProfile().downloadRequested.connect(_on_download_requested)
+        except Exception as _dl_exc:
+            _logger.warning('[QWebEngineView] не удалось подключить обработчик скачивания: %s', _dl_exc)
+
+        # В dev-режиме отключаем дисковый кеш чтобы изменения статики были видны сразу
+        if not getattr(sys, 'frozen', False):
+            from PyQt5.QtWebEngineWidgets import QWebEngineProfile
+            profile = QWebEngineProfile.defaultProfile()
+            profile.setHttpCacheType(QWebEngineProfile.NoCache)
         view.load(QUrl(url))
         window.setCentralWidget(view)
         window.show()
@@ -3145,6 +3965,10 @@ def main():
                 if sys.platform != 'win32':
                     globals()['_LINUX_RESOLVED'] = candidate
             print(f'✓ Репозиторий ресурсов: {candidate}')
+            try:
+                log_launch()
+            except Exception as e:
+                print(f'⚠ Analytics: log_launch упал: {e}')
         else:
             print(f'✗ Репозиторий ресурсов недоступен: {candidate} — {reason}')
             init_result['error'] = 'resource_not_found'
@@ -3243,11 +4067,16 @@ def main():
 try:
     from credentials_manager import (
         get_credentials_path, save_credentials, load_credentials,
-        credentials_exist, validate_credentials_data,
+        credentials_exist, validate_credentials_data, validate_smtp_credentials_data,
     )
     from exchange_sender import (
         connect_exchange, exchange_send_email, exchange_send_meeting,
-        parse_datetime, parse_recipients,
+        exchange_save_draft,
+        parse_datetime, parse_recipients, _wrap_exchange_error,
+    )
+    from smtp_sender import (
+        connect_smtp, smtp_send_email, test_smtp_connection,
+        connect_imap, imap_save_sent,
     )
     EXCHANGE_AVAILABLE = True
 except ImportError:
@@ -3341,13 +4170,19 @@ from routes.resources import bp as resources_bp
 from routes.templates import bp as templates_bp
 from routes.exchange import bp as exchange_bp
 from routes.settings import bp as settings_bp
+from routes.profile import bp as profile_bp
+from routes.profiles_admin import bp as profiles_admin_bp
+from routes.bulk_mail import bp as bulk_mail_bp
 
 app.register_blueprint(utility_bp)
 app.register_blueprint(static_files_bp)
+app.register_blueprint(bulk_mail_bp)
 app.register_blueprint(resources_bp)
 app.register_blueprint(templates_bp)
 app.register_blueprint(exchange_bp)
 app.register_blueprint(settings_bp)
+app.register_blueprint(profile_bp)
+app.register_blueprint(profiles_admin_bp)
 
 
 if __name__ == '__main__':

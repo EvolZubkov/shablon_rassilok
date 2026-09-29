@@ -2,6 +2,8 @@
 
 function renderButtonSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('button') : [];
 
     // Определяем МИФ/Альпина по тексту
     const autoStyle = getButtonAutoStyle(s);
@@ -36,8 +38,8 @@ function renderButtonSettings(container, block) {
     container.appendChild(textGroup);
     container.appendChild(createSettingInput('Ссылка', s.url, block.id, 'url', 'url'));
 
-    // Цвет фона кнопки — скрываем для МИФ/Альпина
-    if (!isMifOrAlpina) {
+    // Цвет фона кнопки — скрываем для МИФ/Альпина и по профилю
+    if (!isMifOrAlpina && !hiddenSettings.includes('color')) {
         const colorGroup = document.createElement('div');
         colorGroup.className = 'setting-group';
 
@@ -81,7 +83,18 @@ function renderButtonSettings(container, block) {
         container.appendChild(infoGroup);
     }
 
-    container.appendChild(createSettingSelect('Положение кнопки', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
+    if (!hiddenSettings.includes('align')) {
+        container.appendChild(createSettingSelect('Положение кнопки', s.align || 'center', block.id, 'align', SELECT_OPTIONS.align));
+    }
+
+    // null — не задано вручную, рендер сам выбирает 14px (или 12px в
+    // 4-колоночной раскладке). Явный выбор тут переопределяет автоматику.
+    if (!hiddenSettings.includes('fontSize')) {
+        container.appendChild(
+            createSettingFontSize('Размер шрифта', s.fontSize || 14, block.id, 'fontSize',
+                [10, 11, 12, 13, 14, 16, 18, 20, 22, 24])
+        );
+    }
 
     // Иконка кнопки — скрываем для МИФ/Альпина
     if (!isMifOrAlpina) {

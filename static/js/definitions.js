@@ -4,9 +4,10 @@
 // Статические данные ниже — FALLBACK на случай если config.json недоступен
 // (нет сети, нет сетевого диска). ConfigLoader перезапишет их при загрузке.
 
-let BANNERS = [];
+// var (не let) — чтобы window.X = ... в configLoader перезаписывал ту же переменную
+var BANNERS = [];
 
-let IMPORTANT_ICONS = [
+var IMPORTANT_ICONS = [
     { id: 'i1', src: 'icons/Геометка с картой.png', label: 'Геометрия' },
     { id: 'i2', src: 'icons/Звездочки нейрошлюза.png', label: 'Звездочки' },
     { id: 'i3', src: 'icons/Знак вопроса.png', label: 'Вопрос' },
@@ -22,7 +23,7 @@ let IMPORTANT_ICONS = [
     { id: 'i13', src: 'icons/Файл.png', label: 'Файл' },
 ];
 
-let EXPERT_BADGE_ICONS = [
+var EXPERT_BADGE_ICONS = [
     { id: 'e1', src: 'expert-badges/Сообщение.png', label: 'Сообщение' },
     { id: 'e2', src: 'expert-badges/Важно или лучшие.png', label: 'Важно или лучшие' },
     { id: 'e3', src: 'expert-badges/Кодинг.png', label: 'Кодинг' },
@@ -35,19 +36,19 @@ let EXPERT_BADGE_ICONS = [
     { id: 'e10', src: 'expert-badges/grey.png', label: 'Серый' },
 ];
 
-let BULLET_TYPES = [
-    { id: 'circle',  src: 'bullets/Буллет.png',   label: 'Буллет' },
+var BULLET_TYPES = [
+    { id: 'circle',  src: 'bullets/Буллет.png',   label: 'Буллет 1' },
     { id: 'circle2', src: 'bullets/Буллет 2.png', label: 'Буллет 2' },
     { id: 'circle3', src: 'bullets/Буллет 3.png', label: 'Буллет 3' },
     { id: 'circle4', src: 'bullets/Буллет 4.png', label: 'Буллет 4' },
 ];
 
-let BUTTON_ICONS = [
+var BUTTON_ICONS = [
     { id: 'none',     src: '',                        label: 'Без иконки' },
     { id: 'download', src: 'button-icons/Знак.png',  label: 'Лого' },
 ];
 
-let DIVIDER_IMAGES = [];
+var DIVIDER_IMAGES = [];
 
 
 // === НАСТРОЙКИ РЕНДЕРИНГА ===
@@ -107,7 +108,10 @@ const BLOCK_TYPE_NAMES = {
     important: 'Важно',
     divider: 'Разделитель',
     image: 'Картинка',
-    spacer: 'Отступ'
+    spacer: 'Отступ',
+    canvas: 'Свободный блок',
+    table: 'Таблица',
+    group_container: 'Группа'
 };
 
 // === НАСТРОЙКИ ПО УМОЛЧАНИЮ ===
@@ -208,7 +212,10 @@ const DEFAULT_SETTINGS = {
         align: 'left',
         color: '#e5e7eb',
         fontFamily: 'rt-light',
-        customFontFamily: ''
+        customFontFamily: '',
+        listBulletSize: null,   // null = маркер наследует fontSize блока
+        listBulletColor: null,  // null = маркер наследует цвет текста
+        listItemSpacing: 4      // px между соседними пунктами списка
     },
 
     heading: {
@@ -226,7 +233,12 @@ const DEFAULT_SETTINGS = {
         url: 'https://example.com',
         color: '#ff4f12',
         icon: '',
-        align: 'center'
+        align: 'center',
+        // null — не задано вручную: рендер сам решает (14px, либо 12px
+        // в 4-колоночной раскладке, см. imageRenderers.js
+        // renderButtonToDataUrl / emailGenerator.js generateButtonHTML /
+        // blockPreview.js renderButtonPreview).
+        fontSize: null
     },
 
     list: {
@@ -244,7 +256,9 @@ const DEFAULT_SETTINGS = {
         bulletSize: 20,
         bulletGap: 10,
         itemSpacing: 8,
-        listStyle: 'bullets'
+        listStyle: 'bullets',
+        numberFormat: 'padded',
+        leftIndent: 0
     },
 
     expert: {
@@ -260,8 +274,12 @@ const DEFAULT_SETTINGS = {
         badgeIcon: '',
         badgePositionX: 85,  // ДОБАВИТЬ
         badgePositionY: 85,  // ДОБАВИТЬ
-        bgColor: '#0f172a',
-        renderedExpert: null
+        // Раньше был '#0f172a' — тот же hex, что --canvas-bg тёмной темы
+        // (theme-variables.css), карточка визуально сливалась с холстом.
+        // Бесцветный по умолчанию — как у остальных блоков.
+        bgColor: 'transparent',
+        renderedExpert: null,
+        renderedExpertPreview: null
     },
 
     important: {
@@ -302,6 +320,65 @@ const DEFAULT_SETTINGS = {
 
     spacer: {
         height: 32
+    },
+
+    canvas: {
+        height: 250,
+        bgEnabled: true,
+        bgColor: '#1D2533',
+        freeElements: [],
+        renderedCanvas: null,
+    },
+
+    table: {
+        // Заголовок-плашка — «по принципу баннера»: сплошной цвет ИЛИ
+        // градиент (titleGradientEnabled) + опциональная картинка справа,
+        // всё растрируется в PNG (renderedTitleBar), см. imageRenderers.js
+        title: 'Заголовок',
+        titleColor: '#ffffff',
+        titleGradientEnabled: true,
+        titleBgColor: '#0E059A',
+        titleGradientStart: '#0E059A',
+        titleGradientEnd: '#AA1FE6',
+        titleGradientAngle: 90,
+        titleRightImage: '',
+        titleRadius: 24,
+        titleFontSize: 32,
+        renderedTitleBar: null,
+
+        // Колонки и строки данных таблицы
+        columns: ['Название', 'Для кого', 'Что сделано'],
+        columnWidths: [33, 16, 51],   // % ширины колонок, сумма ~100
+        rows: [
+            ['', '', ''],
+            ['', '', '']
+        ],
+
+        // Карточка (фон под плашкой и таблицей)
+        containerBg: '#EBF1F6',
+        containerRadius: 28,
+        // Нижняя "крышка" карточки — узкая полоса с скруглёнными нижними
+        // углами, растрируется в PNG по тому же принципу, что и
+        // renderedTitleBar (Outlook игнорирует CSS border-radius), см.
+        // imageRenderers.js renderTableBottomCapToDataUrl
+        renderedBottomCap: null,
+
+        // Стили тела таблицы — данные лежат на фоне карточки, ячейки
+        // разделены белыми grid-линиями (не заливкой/зеброй).
+        // headerTextColor/textColor: null — не "белый по умолчанию", а
+        // "не задано вручную": пока пользователь не выберет цвет явно,
+        // generateTableHTML/renderTablePreview/renderUserTable сами
+        // посчитают контраст под containerBg (см. isLightColorPreview).
+        headerTextColor: null,
+        headerFontSize: 18,
+        textColor: null,
+        fontSize: 15,
+        lineHeight: 1.5,
+        dividerColor: '#FFFFFF',
+        cellPaddingV: 22,
+        cellPaddingH: 40,
+        cellTextAlign: 'left', // 'left' | 'center' | 'right' — выравнивание текста в ячейках (шапка + тело)
+        fontFamily: 'rt-light'
     }
 };
 

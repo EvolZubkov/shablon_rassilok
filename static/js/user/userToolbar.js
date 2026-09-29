@@ -24,6 +24,13 @@ function showTextToolbar(element) {
 
     // Обновляем состояние кнопок
     updateToolbarState();
+
+    // Инициализируем кнопку подложки (если ещё не создана) и обновляем её видимость
+    initBackgroundButton();
+    updateBgButtonVisibility();
+
+    // Кнопки списков (маркированный/нумерованный) — если ещё не созданы
+    initListButtons();
 }
 
 /**
@@ -364,6 +371,9 @@ function initToolbarHandlers() {
             updateToolbarState();
         }
     });
+
+    // Кнопка вставки плейсхолдера (добавляется только один раз)
+    initBulkMailFieldButton();
 }
 
 /**
@@ -593,7 +603,7 @@ function initBulkMailFieldButton() {
             opt.addEventListener('mousedown', (ev) => {
                 ev.preventDefault();
                 insertField(opt.dataset.col);
-                hideFieldDropdown();
+                // Keep dropdown open so the user can insert multiple fields in a row
             });
         });
 
@@ -642,22 +652,423 @@ function insertField(columnName) {
     selection.removeAllRanges();
     selection.addRange(newRange);
 
-    if (currentEditableElement) saveTextChanges(currentEditableElement);
+    // Update savedSelection so the next field insertion from the open dropdown
+    // lands at the current cursor position (right after the span just inserted)
+    savedSelection = newRange.cloneRange();
+
+    // Re-scan the canvas so the bulk-mail panel picks up the newly inserted placeholder
+    if (typeof BulkMailPanel !== 'undefined' && typeof BulkMailPanel.detectPlaceholders === 'function') {
+        BulkMailPanel.detectPlaceholders();
+    }
 }
 
 function setBulkMailColumnsAvailable(available) {
-    const btn = document.getElementById('toolbar-btn-field');
-    if (btn) btn.style.display = available ? 'flex' : 'none';
+    const fieldBtn = document.getElementById('toolbar-btn-field');
+    if (fieldBtn) fieldBtn.style.display = available ? 'flex' : 'none';
     if (!available) hideFieldDropdown();
+    const sendBtn = document.getElementById('btn-bulk-send');
+    if (sendBtn) sendBtn.style.display = available ? '' : 'none';
+    // Скрываем кнопки одиночной отправки когда активна рассылка
+    const display = available ? 'none' : '';
+    document.getElementById('btn-send-outlook')?.style.setProperty('display', display, available ? 'important' : '');
+    document.getElementById('btn-send-meeting')?.style.setProperty('display', display, available ? 'important' : '');
+}
+
+// ============================================================================
+// Кнопка «Подложка» — управление capability background прямо из тулбара
+// ============================================================================
+
+function initBackgroundButton() {
+    const formatMode = document.getElementById('toolbar-format-mode');
+    if (!formatMode || document.getElementById('toolbar-btn-bg')) return;
+
+    // Разделитель перед кнопкой
+    const sep = document.createElement('div');
+    sep.className = 'toolbar-divider';
+    formatMode.appendChild(sep);
+
+    // Кнопка с иконкой «квадрат с заливкой»
+    const btn = document.createElement('button');
+    btn.type  = 'button';
+    btn.id    = 'toolbar-btn-bg';
+    btn.className = 'toolbar-btn';
+    btn.title = 'Подложка блока';
+    btn.style.display = 'none';
+    btn.innerHTML = `<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="3" stroke-width="2"/>
+        <rect x="7" y="7" width="10" height="10" rx="1" fill="currentColor" stroke="none"/>
+    </svg>`;
+    formatMode.appendChild(btn);
+
+    // Попап-панель
+    const panel = document.createElement('div');
+    panel.id = 'bg-cap-panel';
+    panel.style.cssText = `
+        display:none; position:fixed; z-index:99999;
+        background:var(--bg-secondary,#1e293b);
+        border:1px solid var(--border-color,#334155);
+        border-radius:10px; width:220px;
+        box-shadow:0 8px 32px rgba(0,0,0,.55);
+        padding:12px 14px; box-sizing:border-box;
+    `;
+    document.body.appendChild(panel);
+
+    // Закрытие по клику вне панели
+    document.addEventListener('mousedown', (e) => {
+        if (!panel.contains(e.target) && e.target !== btn) {
+            panel.style.display = 'none';
+        }
+    }, true);
+
+    btn.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (panel.style.display === 'block') { panel.style.display = 'none'; return; }
+        _openBgPanel(panel, btn);
+    });
+}
+
+function _getActiveBlock() {
+    if (!currentEditableElement) return null;
+    const el = currentEditableElement.closest('[data-block-id]');
+    if (!el) return null;
+    const id = parseInt(el.dataset.blockId);
+    return findBlockByIdDeep(UserAppState.blocks, id) || null;
+}
+
+function _openBgPanel(panel, btn) {
+    const block = _getActiveBlock();
+    if (!block) return;
+
+    // Показываем кнопку только если у блока есть capability background
+    const caps = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getCapabilities(block.type)
+        : [];
+    if (!caps.includes('background')) return;
+
+    const s       = block.settings || {};
+    const enabled = s.bgEnabled !== false;
+    const color   = s.bgColor   || '#1e293b';
+    const radius  = s.bgRadius  ?? 8;
+    const padding = s.bgPadding ?? 16;
+
+    panel.innerHTML = `
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+            <span style="font-size:12px;font-weight:600;color:var(--text-secondary,#e5e7eb)">Подложка</span>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:12px;color:var(--text-muted,#9ca3af)">
+                <input type="checkbox" id="bgcap-enabled" ${enabled ? 'checked' : ''}>
+                ${enabled ? 'Вкл' : 'Выкл'}
+            </label>
+        </div>
+        <div id="bgcap-controls" style="display:${enabled ? 'flex' : 'none'};flex-direction:column;gap:10px">
+            <div>
+                <div style="font-size:11px;color:var(--text-muted,#9ca3af);margin-bottom:4px">Цвет</div>
+                <div style="display:flex;align-items:center;gap:8px">
+                    <button type="button" id="bgcap-color-trigger"
+                            style="width:36px;height:28px;border:none;border-radius:5px;cursor:pointer;flex-shrink:0;background:${color}"></button>
+                    <span id="bgcap-color-hex"
+                          style="flex:1;height:28px;line-height:28px;padding:0 8px;border:1px solid var(--border-color,#334155);
+                                 border-radius:5px;background:var(--bg-primary,#0f172a);
+                                 color:var(--text-primary,#f9fafb);font-size:12px;font-family:monospace">${color.toUpperCase()}</span>
+                </div>
+            </div>
+            <div>
+                <div style="display:flex;justify-content:space-between;font-size:11px;color:var(--text-muted,#9ca3af);margin-bottom:4px">
+                    <span>Отступ</span><span id="bgcap-padding-val">${padding}px</span>
+                </div>
+                <input type="range" id="bgcap-padding" min="0" max="48" step="1" value="${padding}"
+                       style="width:100%;accent-color:var(--accent-primary,#f97316)">
+            </div>
+        </div>
+    `;
+
+    // Позиционируем под кнопкой
+    const r = btn.getBoundingClientRect();
+    panel.style.display = 'block';
+    let left = r.left;
+    if (left + 220 > window.innerWidth - 8) left = window.innerWidth - 228;
+    panel.style.left = left + 'px';
+    panel.style.top  = (r.bottom + 6) + 'px';
+
+    // Хелпер: обновить настройку + перерисовать
+    function applyBg(key, val) {
+        block.settings[key] = val;
+        UserAppState.isDirty = true;
+        if (typeof renderUserCanvas === 'function') renderUserCanvas();
+    }
+
+    // Авто-цвет текста под фон (использует isLightColorPreview из blockPreview.js)
+    function adaptTextColor(bgHex) {
+        if (typeof isLightColorPreview !== 'function') return;
+        block.settings.color = isLightColorPreview(bgHex) ? '#1D2533' : '#ffffff';
+    }
+
+    // Чекбокс вкл/выкл
+    panel.querySelector('#bgcap-enabled').addEventListener('change', function () {
+        applyBg('bgEnabled', this.checked);
+        if (this.checked) adaptTextColor(block.settings.bgColor || '#1e293b');
+        panel.querySelector('#bgcap-controls').style.display = this.checked ? 'flex' : 'none';
+        this.nextSibling.textContent = this.checked ? ' Вкл' : ' Выкл';
+    });
+
+    // Цвет — используем кастомную палитру (colorPicker.js)
+    bindColorTrigger({
+        trigger:   panel.querySelector('#bgcap-color-trigger'),
+        valueNode: panel.querySelector('#bgcap-color-hex'),
+        title: 'Цвет подложки',
+        currentColor: color,
+        allowTransparent: false,
+        onApply: (chosen) => {
+            applyBg('bgColor', chosen);
+            adaptTextColor(chosen);
+        },
+    });
+
+    // Отступ
+    panel.querySelector('#bgcap-padding').addEventListener('input', function () {
+        panel.querySelector('#bgcap-padding-val').textContent = this.value + 'px';
+        applyBg('bgPadding', parseInt(this.value));
+    });
+}
+
+/** Показывать/скрывать кнопку подложки в зависимости от выбранного блока */
+function updateBgButtonVisibility() {
+    const btn = document.getElementById('toolbar-btn-bg');
+    if (!btn) return;
+
+    const block = _getActiveBlock();
+    if (!block) { btn.style.display = 'none'; return; }
+
+    const caps = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getCapabilities(block.type)
+        : [];
+
+    btn.style.display = caps.includes('background') ? 'flex' : 'none';
+
+    // Подсвечиваем кнопку если подложка включена
+    const enabled = block.settings?.bgEnabled !== false && block.settings?.bgColor;
+    btn.style.background = enabled ? 'rgba(249,115,22,.18)' : '';
+    btn.style.color      = enabled ? 'var(--accent-primary,#f97316)' : '';
+}
+
+// ============================================================================
+// Кнопки «Список» / «Нумерованный список» — портированы из admin
+// (settings/textSettings.js _openListMarkerModal/_applyListMarker), только
+// здесь редактирование через contenteditable, а не textarea, поэтому
+// применение маркера работает через выделенные DOM-узлы <p>, а не строки.
+// ============================================================================
+
+function initListButtons() {
+    const formatMode = document.getElementById('toolbar-format-mode');
+    if (!formatMode || document.getElementById('toolbar-btn-bullet-list')) return;
+
+    const sep = document.createElement('div');
+    sep.className = 'toolbar-divider';
+    formatMode.appendChild(sep);
+
+    const btnBullet = document.createElement('button');
+    btnBullet.type = 'button';
+    btnBullet.id = 'toolbar-btn-bullet-list';
+    btnBullet.className = 'toolbar-btn';
+    btnBullet.title = 'Маркированный список';
+    btnBullet.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <circle cx="4" cy="6" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="9" y1="6" x2="20" y2="6"/>
+            <circle cx="4" cy="12" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="9" y1="12" x2="20" y2="12"/>
+            <circle cx="4" cy="18" r="1.5" fill="currentColor" stroke="none"/>
+            <line x1="9" y1="18" x2="20" y2="18"/>
+        </svg>`;
+    formatMode.appendChild(btnBullet);
+
+    const btnNumbered = document.createElement('button');
+    btnNumbered.type = 'button';
+    btnNumbered.id = 'toolbar-btn-numbered-list';
+    btnNumbered.className = 'toolbar-btn';
+    btnNumbered.title = 'Нумерованный список';
+    btnNumbered.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+            <line x1="9" y1="6" x2="20" y2="6"/>
+            <line x1="9" y1="12" x2="20" y2="12"/>
+            <line x1="9" y1="18" x2="20" y2="18"/>
+            <text x="1" y="8.5" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">1</text>
+            <text x="1" y="14.5" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">2</text>
+            <text x="1" y="20.5" font-size="7" fill="currentColor" stroke="none" font-family="sans-serif">3</text>
+        </svg>`;
+    formatMode.appendChild(btnNumbered);
+
+    const popup = document.createElement('div');
+    popup.id = 'toolbar-list-popup';
+    popup.style.cssText = `
+        display:none; position:fixed; z-index:99999;
+        background:var(--bg-secondary,#1e293b);
+        border:1px solid var(--border-color,#334155);
+        border-radius:10px; min-width:200px;
+        box-shadow:0 8px 32px rgba(0,0,0,.55);
+        padding:10px; box-sizing:border-box;
+    `;
+    document.body.appendChild(popup);
+
+    document.addEventListener('mousedown', (e) => {
+        if (!popup.contains(e.target) && !btnBullet.contains(e.target) && !btnNumbered.contains(e.target)) {
+            popup.style.display = 'none';
+        }
+    }, true);
+
+    function openListPopup(anchorBtn, mode) {
+        // Сохраняем выделение ДО построения попапа — клики по его кнопкам
+        // идут с preventDefault, но само выделение нужно захватить, пока
+        // contenteditable ещё точно в фокусе.
+        saveSelection();
+
+        popup.innerHTML = '';
+
+        if (mode === 'bullet') {
+            const grid = document.createElement('div');
+            grid.style.cssText = 'display:flex; flex-wrap:wrap; gap:6px;';
+            TextSanitizer.LIST_BULLET_MAP.forEach(entry => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.title = entry.title;
+                btn.textContent = entry.glyph;
+                btn.style.cssText = 'width:36px; height:36px; font-size:16px; background:var(--bg-primary,#0f172a); border:1px solid var(--border-color,#334155); border-radius:6px; color:var(--text-primary,#f9fafb); cursor:pointer;';
+                btn.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    // Сырой символ, не entry.code — атрибут data-bullet тут
+                    // читает CSS через attr() для визуальной отрисовки
+                    // (см. user-styles.css), а CSS не умеет декодировать
+                    // HTML-код вида "&#9702;" сам. TextSanitizer уже умеет
+                    // обе формы (_normalizeBulletAttr) и всегда выводит
+                    // HTML-код в письме/канвасе — на итоговый результат не влияет.
+                    applyListMarkerToSelection(entry.glyph);
+                    popup.style.display = 'none';
+                });
+                grid.appendChild(btn);
+            });
+            popup.appendChild(grid);
+        } else {
+            const list = document.createElement('div');
+            list.style.cssText = 'display:flex; flex-direction:column; gap:5px;';
+            TextSanitizer.LIST_NUMBER_STYLES.forEach(numStyle => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                const preview = [1, 2].map(n => TextSanitizer.formatListNumber(n, numStyle)).join('  ');
+                btn.textContent = `${preview}  Текст`;
+                btn.style.cssText = 'text-align:left; padding:6px 8px; background:var(--bg-primary,#0f172a); border:1px solid var(--border-color,#334155); border-radius:6px; color:var(--text-primary,#f9fafb); cursor:pointer; font-size:12px;';
+                btn.addEventListener('mousedown', (e) => {
+                    e.preventDefault();
+                    applyListMarkerToSelection(`num:${numStyle}`);
+                    popup.style.display = 'none';
+                });
+                list.appendChild(btn);
+            });
+            popup.appendChild(list);
+        }
+
+        const removeBtn = document.createElement('button');
+        removeBtn.type = 'button';
+        removeBtn.textContent = mode === 'bullet' ? 'Убрать маркер' : 'Убрать нумерацию';
+        removeBtn.style.cssText = 'width:100%; margin-top:8px; padding:6px 8px; background:none; border:1px solid var(--border-color,#334155); border-radius:6px; color:var(--text-secondary,#e5e7eb); cursor:pointer; font-size:12px;';
+        removeBtn.addEventListener('mousedown', (e) => {
+            e.preventDefault();
+            applyListMarkerToSelection('');
+            popup.style.display = 'none';
+        });
+        popup.appendChild(removeBtn);
+
+        const r = anchorBtn.getBoundingClientRect();
+        popup.style.display = 'block';
+        const pw = popup.offsetWidth || 200;
+        let left = r.left;
+        if (left + pw > window.innerWidth - 8) left = window.innerWidth - pw - 8;
+        popup.style.left = left + 'px';
+        popup.style.top = (r.bottom + 6) + 'px';
+    }
+
+    btnBullet.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (popup.style.display === 'block' && popup.dataset.mode === 'bullet') {
+            popup.style.display = 'none';
+            return;
+        }
+        popup.dataset.mode = 'bullet';
+        openListPopup(btnBullet, 'bullet');
+    });
+
+    btnNumbered.addEventListener('mousedown', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (popup.style.display === 'block' && popup.dataset.mode === 'number') {
+            popup.style.display = 'none';
+            return;
+        }
+        popup.dataset.mode = 'number';
+        openListPopup(btnNumbered, 'number');
+    });
 }
 
 /**
- * Показать/скрыть кнопку в зависимости от того загружен ли файл
+ * Ставит/снимает маркер списка (data-bullet) на <p>-элементах, затронутых
+ * текущим выделением в contenteditable. prefixValue — сырой символ маркера
+ * (напр. "◦") или "num:<style>" для нумерации, '' — снять маркер.
+ *
+ * Маркер/отступ отображаются ЧИСТО через CSS (::before + attr(), см.
+ * user-styles.css) — innerHTML контентеditable-а НЕ трогаем и не
+ * перерисовываем: этот div одновременно и то, что видно, и то, что
+ * сохраняется, а TextSanitizer.render() запекает маркер в реальный текст —
+ * если бы использовали его здесь для превью, при повторном применении
+ * старый запечённый маркер оставался бы в тексте, а новый добавлялся
+ * поверх (задвоение). Проставленного атрибута достаточно — CSS покажет
+ * маркер сам, browser сразу перерисует после изменения атрибута.
  */
-function setBulkMailColumnsAvailable(available) {
-    const btn = document.getElementById('toolbar-btn-field');
-    if (btn) btn.style.display = available ? 'flex' : 'none';
+function applyListMarkerToSelection(prefixValue) {
+    if (!currentEditableElement) return;
+
+    currentEditableElement.focus();
+    if (savedSelection) restoreSelection();
+
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0) return;
+
+    let paragraphs = Array.from(currentEditableElement.children).filter(
+        el => el.tagName === 'P' && selection.containsNode(el, true)
+    );
+
+    if (paragraphs.length === 0) {
+        // Голый текст без <p>-обёртки (напр. только что созданный блок) —
+        // оборачиваем всё содержимое целиком в один <p>.
+        const p = document.createElement('p');
+        while (currentEditableElement.firstChild) {
+            p.appendChild(currentEditableElement.firstChild);
+        }
+        currentEditableElement.appendChild(p);
+        paragraphs = [p];
+    }
+
+    paragraphs.forEach(p => {
+        if (prefixValue) {
+            p.setAttribute('data-bullet', prefixValue);
+        } else {
+            p.removeAttribute('data-bullet');
+        }
+    });
+
+    // Точный отступ под конкретный маркер (см. _adjustListMarkerIndents в
+    // userEditor.js) иначе применяется только при следующей полной
+    // перерисовке канваса — считаем сразу, чтобы не ждать её для feedback.
+    if (typeof _adjustListMarkerIndents === 'function') {
+        _adjustListMarkerIndents();
+    }
+
+    saveTextChanges(currentEditableElement);
+    savedSelection = null;
 }
 
 // Инициализируем toolbar при загрузке
-document.addEventListener('DOMContentLoaded', initTextToolbar);
+document.addEventListener('DOMContentLoaded', () => {
+    initTextToolbar();
+    // initBackgroundButton вызывается после того как toolbar создан
+    setTimeout(initBackgroundButton, 0);
+});

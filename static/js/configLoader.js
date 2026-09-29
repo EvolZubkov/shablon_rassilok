@@ -29,6 +29,11 @@ const ConfigLoader = {
                 window.BANNER_BACKGROUNDS = this.config.bannerBackgrounds || [];
                 window.BANNER_LOGOS = this.config.bannerLogos || [];
                 window.BANNER_ICONS = this.config.bannerIcons || [];
+                window.PRESET_IMAGES = this.config.images || [];
+
+                // Feature flags
+                window.FEATURES = Object.assign({ bulk_mail: true, exchange_send: true }, this.config.features || {});
+                _applyFeatureClasses(window.FEATURES);
 
                 console.log('[OK] Конфигурация загружена:');
                 console.log(`   - Баннеров: ${window.BANNERS.length}`);
@@ -70,6 +75,7 @@ const ConfigLoader = {
         window.BANNER_BACKGROUNDS = [];
         window.BANNER_LOGOS = [];
         window.BANNER_ICONS = [];
+        window.PRESET_IMAGES = [];
 
         this.loaded = true;
     },
@@ -97,6 +103,15 @@ const ConfigLoader = {
         return value;
     }
 };
+
+// Применяем CSS-классы на <body> для отключённых фич.
+// CSS-правила для скрытия живут в основном stylesheet приложения.
+function _applyFeatureClasses(features) {
+    const body = document.body;
+    if (!body) return;
+    if (features.bulk_mail     === false) body.classList.add('feature-no-bulk-mail');
+    if (features.exchange_send === false) body.classList.add('feature-no-exchange-send');
+}
 
 // Экспортируем глобально
 window.ConfigLoader = ConfigLoader;

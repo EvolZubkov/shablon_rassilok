@@ -2,10 +2,14 @@
 
 function renderExpertSettings(container, block) {
     const s = block.settings;
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('expert') : [];
 
-    container.appendChild(
-        createExpertVariantToggle('Режим блока', s.variant || 'full', block.id)
-    );
+    if (!hiddenSettings.includes('variant')) {
+        container.appendChild(
+            createExpertVariantToggle('Режим блока', s.variant || 'full', block.id)
+        );
+    }
 
     // Выравнивание (актуально для lite)
     if ((s.variant || 'full') === 'lite') {
@@ -188,10 +192,9 @@ function renderExpertSettings(container, block) {
     });
 
     bgColorGroup.appendChild(noBgBtn);
-    container.appendChild(bgColorGroup);
-
-
-
+    if (!hiddenSettings.includes('bgColor')) {
+        container.appendChild(bgColorGroup);
+    }
 }
 
 function createExpertAlignToggle(label, value, blockId) {

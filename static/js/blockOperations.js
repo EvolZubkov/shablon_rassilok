@@ -42,7 +42,7 @@ function addBlock(type, parentId = null, position = null) {
             let inserted = false;
             if (sid !== null) {
                 // Full-width block types must not go inside a column — insert after the parent row instead
-                const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer', 'image', 'heading', 'text', 'list', 'important'];
+                const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer', 'image', 'heading', 'text', 'list', 'important', 'table'];
                 const insertIntoColumn = !FULL_WIDTH_TYPES.includes(type);
 
                 outer: for (let rowIdx = 0; rowIdx < AppState.blocks.length; rowIdx++) {
@@ -81,21 +81,55 @@ function addBlock(type, parentId = null, position = null) {
         return;
     }
 
+    if (type === 'table') {
+        renderTableTitleToDataUrl(newBlock, (dataUrl) => {
+            newBlock.settings.renderedTitleBar = dataUrl || null;
+            requestAnimationFrame(() => renderCanvas());
+        });
+        renderTableBottomCapToDataUrl(newBlock, (dataUrl) => {
+            newBlock.settings.renderedBottomCap = dataUrl || null;
+            requestAnimationFrame(() => renderCanvas());
+        });
+        return;
+    }
+
     if (type === 'expert') {
         requestAnimationFrame(() => renderExpertBlock(newBlock));
     }
+
+    if (type === 'canvas') {
+        if (typeof renderCanvasBlockToDataUrl === 'function') {
+            renderCanvasBlockToDataUrl(newBlock, (dataUrl) => {
+                newBlock.settings.renderedCanvas = dataUrl || null;
+                renderCanvas();
+            });
+        }
+    }
 }
 
+// Рендерится ДВАЖДЫ: один раз для письма (forEmail=true — всегда тёмный
+// текст без фона, т.к. письмо почти всегда светлое, см. getExpertTextColor
+// в imageRenderers.js) и один раз только для отображения в канвасе
+// (forEmail=false — текст подстраивается под текущую тему интерфейса
+// админки, чтобы карточка была читаема при редактировании независимо от
+// того, каким получится письмо). Первый результат — renderedExpert/Width
+// (уходит в шаблон и в письмо, читает generateExpertHTML), второй —
+// renderedExpertPreview (только для canvas, читает blockPreview.js).
 function renderExpertBlock(block) {
     if (!block || block.type !== 'expert') return;
 
     const renderToken = (block.settings._expertRenderToken || 0) + 1;
     block.settings._expertRenderToken = renderToken;
 
-    const applyResult = (result) => {
+    const applyEmailResult = (result) => {
         if (block.settings._expertRenderToken !== renderToken) return;
         block.settings.renderedExpert = result?.dataUrl || null;
         block.settings.renderedExpertWidth = result?.width || null;
+        renderCanvas();
+    };
+    const applyPreviewResult = (result) => {
+        if (block.settings._expertRenderToken !== renderToken) return;
+        block.settings.renderedExpertPreview = result?.dataUrl || null;
         renderCanvas();
     };
 
@@ -108,11 +142,13 @@ function renderExpertBlock(block) {
                 break;
             }
         }
-        renderExpertVerticalToDataUrl(block, columnWidth, applyResult);
+        renderExpertVerticalToDataUrl(block, columnWidth, applyEmailResult, true);
+        renderExpertVerticalToDataUrl(block, columnWidth, applyPreviewResult, false);
         return;
     }
 
-    renderExpertToDataUrl(block, applyResult);
+    renderExpertToDataUrl(block, applyEmailResult, true);
+    renderExpertToDataUrl(block, applyPreviewResult, false);
 }
 
 function deleteBlock(blockId) {
@@ -146,6 +182,15 @@ function deleteColumnBlock(parentId, columnId, blockId) {
 
     column.blocks = column.blocks.filter(b => b.id !== blockId);
     cancelBannerRender(blockId);
+
+    // Пустую группу (в отличие от ряда колонок) не оставляем висеть на холсте
+    if (parentBlock.type === 'group_container' && column.blocks.length === 0) {
+        AppState.removeBlock(parentId);
+        if (AppState.selectedBlockId === parentId) AppState.clearSelection();
+        if (AppState.multiSelectAnchorId === parentId) AppState.multiSelectAnchorId = null;
+        renderSettings();
+    }
+
     renderCanvas();
 }
 
@@ -176,6 +221,7 @@ function selectBlock(blockId) {
 
     // Обновляем CSS-классы выделения (selected + multi-selected)
     refreshSelectionStyles();
+    refreshGroupToolbar();
 
     renderSettings();
 }
@@ -196,6 +242,7 @@ function handleBlockSelectionClick(blockId, event) {
 
         renderCanvas();
         refreshSelectionStyles();
+        refreshGroupToolbar();
         renderSettings();
         return;
     }
@@ -211,6 +258,7 @@ function handleBlockSelectionClick(blockId, event) {
 
         renderCanvas();
         refreshSelectionStyles();
+        refreshGroupToolbar();
         renderSettings();
         return;
     }
@@ -306,9 +354,21 @@ function updateBlockSetting(blockId, key, value) {
         return;
     }
 
+    // ► Специальная обработка для свободного блока
+    if (block.type === 'canvas') {
+        renderCanvas();
+        if (typeof renderCanvasBlockToDataUrl === 'function') {
+            renderCanvasBlockToDataUrl(block, (dataUrl) => {
+                block.settings.renderedCanvas = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        return;
+    }
+
     // ► Специальная обработка для кнопок
     if (block.type === 'button' &&
-        ['text', 'color', 'textColor', 'icon'].includes(key)) {
+        ['text', 'color', 'textColor', 'icon', 'fontSize'].includes(key)) {
 
         const parentBlock = findParentBlockWithColumns(blockId);
 
@@ -338,7 +398,7 @@ function updateBlockSetting(blockId, key, value) {
 
     // Специальная обработка для списков
     if (block.type === 'list' &&
-        ['items', 'bulletType', 'bulletCustom', 'bulletSize', 'listStyle'].includes(key)) {
+        ['items', 'bulletType', 'bulletCustom', 'bulletSize', 'listStyle', 'numberFormat', 'startNumber'].includes(key)) {
 
         renderListBulletsToDataUrls(block, () => {
             renderCanvas();
@@ -380,6 +440,32 @@ function updateBlockSetting(blockId, key, value) {
             });
             return;
         }
+    }
+
+    // Специальная обработка для блока "Таблица" — перерисовываем градиентную
+    // плашку-заголовок и нижнюю "крышку" карточки в canvas только когда
+    // меняются относящиеся к ним поля.
+    if (block.type === 'table') {
+        const titleKeys = ['title', 'titleColor', 'titleGradientEnabled', 'titleBgColor', 'titleGradientStart', 'titleGradientEnd', 'titleGradientAngle', 'titleRightImage', 'titleRadius', 'titleFontSize'];
+        // containerBg триггерит перерисовку ОБЕИХ картинок: и крышки, и
+        // плашки — PNG плашки тоже запекает containerBg в свои нижние
+        // скруглённые уголки (см. imageRenderers.js renderTableTitleToDataUrl).
+        const needsTitleRerender = titleKeys.includes(key) || key === 'containerBg';
+        const needsCapRerender = key === 'containerBg' || key === 'containerRadius';
+
+        if (needsTitleRerender) {
+            renderTableTitleToDataUrl(block, (dataUrl) => {
+                block.settings.renderedTitleBar = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        if (needsCapRerender) {
+            renderTableBottomCapToDataUrl(block, (dataUrl) => {
+                block.settings.renderedBottomCap = dataUrl || null;
+                renderCanvas();
+            });
+        }
+        if (needsTitleRerender || needsCapRerender) return;
     }
 
     renderCanvas();
@@ -529,3 +615,49 @@ function insertBlocksAfterSelection(blocksToInsert) {
 // делаем доступным для templatesUI
 window.insertBlocksAfterSelection = insertBlocksAfterSelection;
 window.handleBlockSelectionClick = handleBlockSelectionClick;
+
+// ===== Буфер обмена блоков (Ctrl+C/Ctrl+V, см. setupBlockClipboardShortcuts в main.js) =====
+// In-memory, не navigator.clipboard — блоки это структурированный JSON, а не
+// текст, системный clipboard внутри QtWebEngine не нужен и ненадёжен. Живёт
+// только в рамках текущего запуска приложения — это ожидаемо.
+let _blockClipboard = null; // Array<Block> | null — глубокая копия, не ссылки на живые блоки
+
+function copySelectedBlocksToClipboard() {
+    let blocksToCopy;
+
+    if (AppState.multiSelectedBlockIds && AppState.multiSelectedBlockIds.size > 0) {
+        // Тот же резолв к верхнему уровню, что и группировка (groupOperations.js) —
+        // предсказуемый, уже знакомый пользователю набор "что считается выделенным".
+        const owners = new Map();
+        for (const id of AppState.multiSelectedBlockIds) {
+            const owner = getTopLevelOwnerForGroup(id);
+            if (owner) owners.set(owner.id, owner);
+        }
+        blocksToCopy = Array.from(owners.values())
+            .sort((a, b) => AppState.blocks.indexOf(a) - AppState.blocks.indexOf(b));
+    } else if (AppState.selectedBlockId != null) {
+        const container = _findBlockContainer(AppState.selectedBlockId);
+        blocksToCopy = container ? [container.list[container.index]] : [];
+    } else {
+        blocksToCopy = [];
+    }
+
+    if (blocksToCopy.length === 0) {
+        Toast.warning('Нечего копировать — выделите блок');
+        return;
+    }
+
+    _blockClipboard = JSON.parse(JSON.stringify(blocksToCopy)); // снимок, не ссылки
+    Toast.success(blocksToCopy.length === 1 ? 'Блок скопирован' : `Скопировано блоков: ${blocksToCopy.length}`);
+}
+
+function pasteBlocksFromClipboard() {
+    if (!_blockClipboard || _blockClipboard.length === 0) {
+        Toast.warning('Буфер обмена блоков пуст');
+        return;
+    }
+    insertBlocksAfterSelection(_blockClipboard); // сам клонирует с новыми id — можно вставлять многократно
+}
+
+window.copySelectedBlocksToClipboard = copySelectedBlocksToClipboard;
+window.pasteBlocksFromClipboard = pasteBlocksFromClipboard;

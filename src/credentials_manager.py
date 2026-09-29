@@ -89,16 +89,24 @@ def decrypt_password(encrypted: str, key: bytes) -> str:
 
 
 def validate_credentials_data(data: dict) -> Tuple[bool, Optional[str]]:
-    """
-    Проверяет обязательные поля.
-    Returns: (ok: bool, error_message: str | None)
-    """
-    required = ["server", "username", "password", "from_email"]
+    """Проверяет обязательные поля Exchange."""
+    is_kerberos = str(data.get('auth_type') or 'ntlm').lower() == 'kerberos'
+    required = ["server", "from_email"] if is_kerberos else ["server", "username", "password", "from_email"]
     for field in required:
         if not str(data.get(field) or "").strip():
             return False, f"Поле {field} обязательно"
     if not _EMAIL_RE.match(str(data.get("from_email", ""))):
         return False, "Некорректный email отправителя"
+    return True, None
+
+
+def validate_smtp_credentials_data(data: dict) -> Tuple[bool, Optional[str]]:
+    """Проверяет обязательные поля SMTP."""
+    for field in ("smtp_host", "smtp_username", "smtp_password", "smtp_from_email"):
+        if not str(data.get(field) or "").strip():
+            return False, f"Поле {field} обязательно"
+    if not _EMAIL_RE.match(str(data.get("smtp_from_email", ""))):
+        return False, "Некорректный SMTP email отправителя"
     return True, None
 
 
@@ -113,16 +121,69 @@ def save_credentials(
     from_email: str,
     default_senders: list = None,
     hostname: str = None,
+    auth_type: str = 'ntlm',
+    krb_realm: str = '',
+    smtp: dict = None,
 ) -> None:
-    """Шифрует пароль и сохраняет credentials.json."""
-    key = make_key(username, hostname)
+    """Шифрует пароль (для NTLM) и сохраняет credentials.json.
+
+    smtp — словарь с SMTP-настройками (опционально):
+        host, port, username, password, from_email, default_senders,
+        imap_enabled, imap_host, imap_port,
+        delay_enabled, delay_seconds
+    """
+    is_kerberos = str(auth_type or 'ntlm').lower() == 'kerberos'
+
+    # Читаем существующий файл чтобы сохранить поля которые не обновляются
+    existing = {}
+    if os.path.exists(path):
+        try:
+            with open(path, encoding='utf-8') as f:
+                existing = json.load(f)
+        except Exception:
+            pass
+
     payload = {
         "server": server.strip(),
-        "username": username.strip(),
-        "password": encrypt_password(password, key),
+        "username": (username or '').strip(),
         "from_email": from_email.strip(),
         "default_senders": default_senders or [],
+        "auth_type": 'kerberos' if is_kerberos else 'ntlm',
     }
+    if is_kerberos and krb_realm:
+        payload["krb_realm"] = krb_realm.strip().upper()
+    if not is_kerberos:
+        key = make_key(username, hostname)
+        payload["password"] = encrypt_password(password, key)
+
+    # SMTP — сохраняем если переданы, иначе сохраняем существующие
+    if smtp is not None:
+        smtp_user = (smtp.get('username') or '').strip()
+        smtp_pass = (smtp.get('password') or '').strip()
+        payload['smtp_host']             = (smtp.get('host') or '').strip()
+        payload['smtp_port']             = int(smtp.get('port') or 587)
+        payload['smtp_username']         = smtp_user
+        payload['smtp_from_email']       = (smtp.get('from_email') or '').strip()
+        payload['smtp_default_senders']  = smtp.get('default_senders') or []
+        payload['smtp_imap_enabled']     = bool(smtp.get('imap_enabled'))
+        payload['smtp_imap_host']        = (smtp.get('imap_host') or '').strip()
+        payload['smtp_imap_port']        = int(smtp.get('imap_port') or 993)
+        payload['smtp_delay_enabled']    = bool(smtp.get('delay_enabled'))
+        payload['smtp_delay_seconds']    = float(smtp.get('delay_seconds') or 1)
+        if smtp_pass:
+            smtp_key = make_key(smtp_user or username, hostname)
+            payload['smtp_password'] = encrypt_password(smtp_pass, smtp_key)
+        elif existing.get('smtp_password'):
+            payload['smtp_password'] = existing['smtp_password']
+    else:
+        # Перенести SMTP-поля из существующего файла без изменений
+        for k in ('smtp_host', 'smtp_port', 'smtp_username', 'smtp_password',
+                  'smtp_from_email', 'smtp_default_senders',
+                  'smtp_imap_enabled', 'smtp_imap_host', 'smtp_imap_port',
+                  'smtp_delay_enabled', 'smtp_delay_seconds'):
+            if k in existing:
+                payload[k] = existing[k]
+
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, ensure_ascii=False, indent=2)
 
@@ -141,10 +202,29 @@ def load_credentials(path: str, hostname: Optional[str] = None) -> Optional[Dict
     try:
         with open(path, encoding="utf-8") as f:
             data = json.load(f)
-        key = make_key(data["username"], hostname)
-        data["password"] = decrypt_password(data["password"], key)
-        _logger.debug('credentials loaded for user=%s server=%s',
-                      data.get('username'), data.get('server'))
+        is_kerberos = str(data.get('auth_type') or 'ntlm').lower() == 'kerberos'
+        if is_kerberos:
+            data['password'] = ''
+        else:
+            key = make_key(data["username"], hostname)
+            data["password"] = decrypt_password(data["password"], key)
+        data.setdefault('auth_type', 'ntlm')
+
+        # Расшифровать SMTP-пароль если он есть
+        smtp_user = data.get('smtp_username', '')
+        smtp_enc  = data.get('smtp_password', '')
+        if smtp_enc and smtp_user:
+            try:
+                smtp_key = make_key(smtp_user, hostname)
+                data['smtp_password'] = decrypt_password(smtp_enc, smtp_key)
+            except InvalidToken:
+                _logger.warning('smtp_password decryption failed — skipping')
+                data['smtp_password'] = ''
+        else:
+            data.setdefault('smtp_password', '')
+
+        _logger.debug('credentials loaded for user=%s server=%s auth_type=%s',
+                      data.get('username'), data.get('server'), data.get('auth_type'))
         return data
     except InvalidToken:
         _logger.error(

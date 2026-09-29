@@ -27,6 +27,7 @@ raw_datas = [
     maybe('static',                    'static'),
     maybe('js',                        'js'),
     maybe('templates',                 'templates'),
+    maybe('profiles',                  'profiles'),  # профили аудиторий — fallback если нет в кеше
     maybe('index.html',                '.'),
     maybe('index-user.html',           '.'),
     maybe('styles.css',                '.'),
@@ -61,6 +62,69 @@ for pkg in ('PyQt5', 'PyQtWebEngine'):
     except Exception:
         pass
 
+# ── Kerberos / GSSAPI (опционально) ──────────────────────────────────────────
+# На Linux собирается с gssapi + requests-kerberos если пакеты установлены
+# на сборочной машине (apt install python3-gssapi / pip install gssapi).
+# Системная libgssapi_krb5.so на машинах пользователей уже есть (доменные ПК).
+# На Windows gssapi не нужен — используется встроенный SSPI.
+#
+# collect_all + collect_submodules нужны оба: collect_all берёт данные и
+# бинарные .so, collect_submodules явно прописывает Cython-расширения
+# (gssapi.raw.cython_converters и др.) которые PyInstaller может пропустить
+# при статическом анализе импортов.
+for pkg in ('gssapi', 'requests_kerberos'):
+    try:
+        d, b, h = collect_all(pkg)
+        extra_datas    += d
+        extra_binaries += b
+        extra_hidden   += h
+        extra_hidden   += collect_submodules(pkg)
+    except Exception:
+        pass
+
+# Явный glob-сбор gssapi Cython .so файлов как binaries (получают RPATH-патчинг).
+# find_spec не загружает модуль — не падает если Cython-расширения не скомпилированы.
+# Двойной fallback: find_spec → gssapi.raw submodule search → site-packages glob.
+try:
+    import importlib.util as _ilu
+    import glob as _glob
+    import site as _site
+
+    _gssapi_dir = None
+
+    # 1. Через find_spec главного модуля
+    _sp = _ilu.find_spec('gssapi')
+    if _sp and _sp.origin:
+        _gssapi_dir = os.path.dirname(_sp.origin)
+
+    # 2. Через find_spec подмодуля gssapi.raw
+    if not _gssapi_dir:
+        _sp2 = _ilu.find_spec('gssapi.raw')
+        if _sp2 and _sp2.submodule_search_locations:
+            _raw_path = list(_sp2.submodule_search_locations)[0]
+            _gssapi_dir = os.path.dirname(_raw_path)
+
+    # 3. Поиск по site-packages
+    if not _gssapi_dir:
+        for _spdir in (_site.getsitepackages() if hasattr(_site, 'getsitepackages') else []):
+            _cand = os.path.join(_spdir, 'gssapi')
+            if os.path.isdir(_cand):
+                _gssapi_dir = _cand
+                break
+
+    if _gssapi_dir:
+        _sos_found = []
+        for _so in _glob.glob(os.path.join(_gssapi_dir, '**', '*.so*'), recursive=True):
+            if os.path.isfile(_so):
+                _rel_dir = os.path.relpath(os.path.dirname(_so), os.path.dirname(_gssapi_dir))
+                extra_binaries.append((_so, _rel_dir))
+                _sos_found.append(_so)
+        print(f'[gssapi] dir={_gssapi_dir}, bundled {len(_sos_found)} .so files: {_sos_found}', flush=True)
+    else:
+        print('[gssapi] package not found — Kerberos will not be available', flush=True)
+except Exception as _e:
+    print(f'[gssapi] collection error: {_e}', flush=True)
+
 datas += extra_datas
 
 # ── Hidden imports ────────────────────────────────────────────────────────────
@@ -89,6 +153,10 @@ hiddenimports = [
     'requests', 'urllib3', 'certifi', 'lxml', 'lxml.etree',
     # App modules
     'credentials_manager', 'exchange_sender', '_version',
+    # Excel / ODS parsing
+    'openpyxl', 'openpyxl.styles', 'openpyxl.utils',
+    'odf', 'odf.opendocument', 'odf.table', 'odf.text',
+    'xlrd',
     # Stdlib extras
     'configparser', 'hashlib', 'socket', 'pytz', 'atexit', 'signal',
     # Qt5 backend (collected above, listed explicitly as safety net)

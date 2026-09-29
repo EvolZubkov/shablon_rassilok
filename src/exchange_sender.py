@@ -16,6 +16,7 @@ try:
         Account, Configuration, Credentials, DELEGATE,
         HTMLBody, Mailbox, EWSDateTime, EWSTimeZone,
         CalendarItem, Message, Attendee, FileAttachment,
+        ExtendedProperty,
     )
     from exchangelib.errors import UnauthorizedError, TransportError
     EXCHANGELIB_AVAILABLE = True
@@ -23,6 +24,22 @@ except ImportError:
     EXCHANGELIB_AVAILABLE = False
 
 _logger = logging.getLogger(__name__)
+
+# PidTagDeferredSendTime — тег, который Exchange transport использует для
+# серверной очереди отложенной доставки. Exchange удерживает письмо и
+# отправляет в указанное время без участия клиента.
+# Тег 0x3FEF (PidTagDeferredSendTime), тип PT_SYSTIME (0x0040).
+# Не путать с 0x000F (PR_DEFERRED_DELIVERY_TIME) — это клиентское свойство
+# Outlook, Exchange transport его игнорирует при EWS-отправке.
+if EXCHANGELIB_AVAILABLE:
+    class _DeferredDeliveryTimeProp(ExtendedProperty):
+        property_tag  = 0x3FEF
+        property_type = 'SystemTime'
+
+    try:
+        Message.register('deferred_delivery_time', _DeferredDeliveryTimeProp)
+    except Exception:
+        pass
 
 
 # ─── Утилиты ─────────────────────────────────────────────────────────────────
@@ -57,32 +74,89 @@ def parse_recipients(raw) -> list:
 
 
 def validate_recipients(emails: list) -> None:
-    """Raises ValueError если есть адрес без @."""
-    invalid = [e for e in emails if '@' not in e]
-    if invalid:
-        raise ValueError(f'Некорректные адреса: {invalid}')
+    """No-op: recipient resolution is delegated to Exchange."""
+    pass
 
 
-def _to_mailboxes(emails: list) -> list:
-    """Конвертирует список строк в список Mailbox (для писем)."""
+def _resolve_to_mailbox(account: 'Account', name: str) -> 'Mailbox':
+    """Resolves a name or address to a proper Mailbox object.
+
+    - SMTP address  → Mailbox(email_address=...)
+    - Private DL    → Mailbox(item_id=..., routing_type='MAPIPDL') so Exchange expands it
+    - Public DL     → Mailbox(email_address=smtp_addr)
+    Raises ValueError if resolution fails.
+    """
+    if '@' in name:
+        return Mailbox(email_address=name)
+    try:
+        from exchangelib.services import ResolveNames
+        service = ResolveNames(protocol=account.protocol)
+        resolutions = list(service.call(
+            unresolved_entries=[name],
+            return_full_contact_data=False,
+            search_scope='ContactsActiveDirectory',
+        ))
+        if resolutions:
+            item = resolutions[0]
+            mb = item[0] if isinstance(item, tuple) else item
+            addr          = getattr(mb, 'email_address', None)
+            routing_type  = getattr(mb, 'routing_type',  None)
+            mailbox_type  = getattr(mb, 'mailbox_type',  None)
+            item_id       = getattr(mb, 'item_id',       None)
+            mb_name       = getattr(mb, 'name', name)
+
+            # Regular SMTP address (Mailbox, Contact, PublicDL with smtp)
+            if addr and '@' in addr:
+                _logger.info('resolve_to_mailbox %r -> SMTP %r', name, addr)
+                return Mailbox(email_address=addr)
+
+            # PrivateDL — MAPI personal contact group: no smtp, use ItemId
+            if item_id and (mailbox_type == 'PrivateDL' or routing_type == 'MAPIPDL'):
+                _logger.info('resolve_to_mailbox %r -> PrivateDL item_id=%r', name, item_id.id)
+                return Mailbox(
+                    name=mb_name,
+                    routing_type='MAPIPDL',
+                    mailbox_type='PrivateDL',
+                    item_id=item_id,
+                )
+    except Exception as exc:
+        _logger.warning('resolve_to_mailbox failed for %r: %s', name, exc)
+
+    raise ValueError(
+        f'Не удалось найти получателя «{name}» в адресной книге Exchange. '
+        f'Укажите email-адрес или точное имя группы контактов.'
+    )
+
+
+def _to_mailboxes(emails: list, account: 'Account' = None) -> list:
+    """Конвертирует список строк в список Mailbox.
+    Строки без @ разрешаются через EWS ResolveNames (включая личные группы).
+    """
+    if account:
+        return [_resolve_to_mailbox(account, e) for e in emails]
     return [Mailbox(email_address=e) for e in emails]
 
 
-def _to_attendees(emails: list) -> list:
+def _to_attendees(emails: list, account: 'Account' = None) -> list:
     """Конвертирует список строк в список Attendee (для встреч)."""
+    if account:
+        return [Attendee(mailbox=_resolve_to_mailbox(account, e)) for e in emails]
     return [Attendee(mailbox=Mailbox(email_address=e)) for e in emails]
 
 
 # ─── Подключение ─────────────────────────────────────────────────────────────
 
 def connect_exchange(server: str, username: str, password: str,
-                     from_email: str) -> 'Account':
+                     from_email: str, auth_type: str = 'ntlm',
+                     krb_realm: str = '') -> 'Account':
     """Build an Exchange ``Account`` object (no network I/O at this stage).
 
     ``Account(autodiscover=False)`` does **not** open a connection — the real
     network handshake happens on the first EWS call (``msg.send()``, etc.).
-    Errors raised here are limited to bad argument types; actual auth/network
-    failures surface later and are caught in the send helpers.
+
+    Args:
+        auth_type: 'ntlm' (default) or 'kerberos' (uses system GSSAPI ticket,
+                   no password required — needs requests-kerberos installed).
 
     Raises:
         ValueError       — неверный логин/пароль (при первом сетевом вызове)
@@ -94,25 +168,123 @@ def connect_exchange(server: str, username: str, password: str,
             'exchangelib не установлен: pip install exchangelib')
 
     # Guard against empty from_email coming from the frontend "default" option.
-    effective_from = (from_email or '').strip() or username.strip()
+    effective_from = (from_email or '').strip() or (username or '').strip()
 
-    _logger.info('exchange connect: server=%s username=%s from=%s',
-                 server, username, effective_from)
+    _logger.info('exchange connect: server=%s username=%s from=%s auth_type=%s',
+                 server, username, effective_from, auth_type)
     try:
-        credentials = Credentials(username=username, password=password)
+        if auth_type == 'kerberos':
+            try:
+                import gssapi  # noqa: F401
+                from requests_kerberos import HTTPKerberosAuth, OPTIONAL
+                import urllib3 as _urllib3
+                _urllib3.disable_warnings(_urllib3.exceptions.InsecureRequestWarning)
+            except ImportError as _kerb_err:
+                raise RuntimeError(
+                    'Для Kerberos-аутентификации требуется gssapi: '
+                    f'{_kerb_err}')
+            # This server returns 401 without WWW-Authenticate: Negotiate,
+            # so requests_kerberos never retries with a token unless we send
+            # it proactively on the first request (opportunistic/preemptive).
+            # opportunistic_auth=True was added in requests_kerberos 0.12.0;
+            # for compatibility we subclass and inject the token via gssapi.
+            import base64 as _b64, urllib.parse as _up
+            import os as _os, tempfile as _tf
 
-        # Specify NTLM explicitly to bypass exchangelib's auth-type
-        # auto-detection, which fails on some corporate Exchange setups
-        # ("Failed to get auth type from service").  NTLM is the de-facto
-        # standard for on-premises Exchange; if the server rejects it the
-        # error will be a clear "Unauthorized" rather than a silent detection
-        # failure.
-        from exchangelib import NTLM
-        config = Configuration(
-            server=server,
-            credentials=credentials,
-            auth_type=NTLM,
-        )
+            # Resolve realm: from credentials or guess from server hostname
+            _realm = (krb_realm or '').strip().upper()
+            if not _realm:
+                _parts = server.rsplit('.', 2)
+                _realm = '.'.join(_parts[-2:]).upper() if len(_parts) >= 2 else server.upper()
+
+            def _tmp_krb5(realm, hostname):
+                """Write a temp krb5.conf with [domain_realm] for this realm
+                and set KRB5_CONFIG so gssapi picks it up.
+                Returns (tmp_path, old_env_value)."""
+                domain = realm.lower()
+                # Also map the exact hostname
+                cfg = (
+                    'includedir /etc/krb5.conf.d/\n'
+                    '[libdefaults]\n'
+                    f'default_realm = {realm}\n'
+                    'dns_lookup_kdc = true\n'
+                    '[domain_realm]\n'
+                    f'.{domain} = {realm}\n'
+                    f'{domain} = {realm}\n'
+                    f'{hostname} = {realm}\n'
+                )
+                tmp = _tf.NamedTemporaryFile(
+                    mode='w', suffix='.conf',
+                    prefix='pochtelye_krb5_', delete=False,
+                )
+                tmp.write(cfg)
+                tmp.close()
+                old = _os.environ.get('KRB5_CONFIG')
+                _os.environ['KRB5_CONFIG'] = tmp.name
+                return tmp.name, old
+
+            def _restore_krb5(tmp_path, old_value):
+                try:
+                    if tmp_path:
+                        _os.unlink(tmp_path)
+                except OSError:
+                    pass
+                if old_value is not None:
+                    _os.environ['KRB5_CONFIG'] = old_value
+                else:
+                    _os.environ.pop('KRB5_CONFIG', None)
+
+            class _PreemptiveKerberosAuth(HTTPKerberosAuth):
+                """Send Kerberos Negotiate token on the first request without
+                waiting for a 401 challenge — works on all requests_kerberos.
+                Uses a temp krb5.conf with explicit [domain_realm] so gssapi
+                produces a properly-realmified ticket (e.g. HTTP/cas.rt.ru@RT.RU)."""
+                def __call__(self, r):
+                    r = super().__call__(r)   # registers 401 retry hook
+                    if 'Authorization' not in r.headers:
+                        host = _up.urlparse(r.url).hostname
+                        tmp_path, old_cfg = _tmp_krb5(_realm, host)
+                        try:
+                            sn = gssapi.Name(
+                                f'HTTP@{host}',
+                                gssapi.NameType.hostbased_service,
+                            )
+                            ctx = gssapi.SecurityContext(name=sn, usage='initiate')
+                            token = ctx.step()
+                            if token:
+                                r.headers['Authorization'] = (
+                                    'Negotiate ' + _b64.b64encode(token).decode()
+                                )
+                        except Exception as _ge:
+                            _logger.warning('gssapi preemptive token: %s', _ge)
+                        finally:
+                            _restore_krb5(tmp_path, old_cfg)
+                    return r
+
+            from exchangelib.transport import NOAUTH
+            from exchangelib.protocol import BaseProtocol
+            _orig_create_session = BaseProtocol.create_session
+            def _kerberos_create_session(self):
+                s = _orig_create_session(self)
+                s.auth = _PreemptiveKerberosAuth(mutual_authentication=OPTIONAL)
+                s.verify = False  # GOST cert — skip SSL verification
+                return s
+            BaseProtocol.create_session = _kerberos_create_session
+            from exchangelib import Version, Build
+            config = Configuration(server=server, auth_type=NOAUTH,
+                                   version=Version(build=Build(15, 1)))
+        else:
+            credentials = Credentials(username=username, password=password)
+            # Specify NTLM explicitly to bypass exchangelib's auth-type
+            # auto-detection, which fails on some corporate Exchange setups
+            # ("Failed to get auth type from service").
+            from exchangelib import NTLM, Version, Build
+            config = Configuration(
+                server=server,
+                credentials=credentials,
+                auth_type=NTLM,
+                version=Version(build=Build(15, 1)),  # Exchange 2016 — avoids ConvertId round-trip
+            )
 
         account = Account(
             primary_smtp_address=effective_from,
@@ -128,6 +300,10 @@ def connect_exchange(server: str, username: str, password: str,
         _wrap_exchange_error(e)
 
 
+class ExchangeAuthError(Exception):
+    """Raised for authentication / authorisation failures (→ HTTP 401)."""
+
+
 def _wrap_exchange_error(exc: Exception) -> None:
     """Translate exchangelib / network exceptions into standard Python types.
 
@@ -138,10 +314,17 @@ def _wrap_exchange_error(exc: Exception) -> None:
     msg  = str(exc)
     _logger.error('Exchange error [%s]: %s', name, msg)
 
+    # Kerberos / GSSAPI ticket errors
+    if any(k in name for k in ('GSSError', 'KerberosError', 'MutualAuthenticationError')):
+        raise ConnectionError(
+            f'Ошибка Kerberos — нет действующего тикета (выполните kinit): {msg}')
+    if 'gss' in msg.lower() or 'kerberos' in msg.lower() or 'negotiate' in msg.lower():
+        raise ConnectionError(f'Ошибка Kerberos-аутентификации: {msg}')
+
     # Authentication / authorisation
     if any(k in name for k in ('Unauthorized', 'AuthenticationFailed',
                                 'ErrorAccessDenied')):
-        raise ValueError('Неверный логин или пароль / нет доступа к ящику')
+        raise ExchangeAuthError('Неверный логин или пароль / нет доступа к ящику')
 
     # Non-existent mailbox
     if 'NonExistentMailbox' in name or 'ErrorNonExistentMailbox' in name:
@@ -210,27 +393,39 @@ def _convert_data_images_to_cid(html_body: str):
     return html_out, attachments
 
 
+def _to_ews_datetime(dt: datetime.datetime, utc_offset: float = 3.0) -> 'EWSDateTime':
+    """Converts user's local datetime to UTC EWSDateTime for PidTagDeferredSendTime."""
+    try:
+        utc_offset_h = float(utc_offset)
+    except (TypeError, ValueError):
+        utc_offset_h = 3.0
+    aware = dt.replace(tzinfo=datetime.timezone(datetime.timedelta(hours=utc_offset_h)))
+    utc   = aware.astimezone(datetime.timezone.utc)
+    from exchangelib import UTC as _EWS_UTC
+    return EWSDateTime(utc.year, utc.month, utc.day,
+                       utc.hour, utc.minute, utc.second,
+                       tzinfo=_EWS_UTC)
+
+
+_IMPORTANCE_MAP = {'low': 'Low', 'normal': 'Normal', 'high': 'High'}
+
+
 def exchange_send_email(account: 'Account', subject: str, html_body: str,
                         to: list, cc: list = None, bcc: list = None,
-                        attachments: list = None) -> None:
-    """
-    Отправляет HTML-письмо через Exchange.
-    Args:
-        account   — объект Account из connect_exchange()
-        subject   — тема письма
-        html_body — HTML содержимое (наш сгенерированный шаблон)
-        to        — список адресов получателей
-        cc        — копия (необязательно)
-        bcc       — скрытая копия (необязательно)
-    """
+                        attachments: list = None,
+                        send_at: datetime.datetime = None,
+                        timezone: float = 3.0,
+                        importance: str = 'normal',
+                        read_receipt: bool = False) -> None:
+    """Отправляет HTML-письмо через Exchange."""
     if not to and not cc and not bcc:
         raise ValueError('Не указаны получатели')
     if to:  validate_recipients(to)
     if cc:  validate_recipients(cc)
     if bcc: validate_recipients(bcc)
     attachments_raw = attachments or []
-    _logger.info('send_email: subject=%r to=%s cc=%s bcc=%s attachments=%d',
-                 subject, to, cc, bcc, len(attachments_raw))
+    _logger.info('send_email: subject=%r to=%s cc=%s bcc=%s attachments=%d send_at=%s',
+                 subject, to, cc, bcc, len(attachments_raw), send_at)
     try:
         html_with_cid, attachments = _convert_data_images_to_cid(html_body)
         _logger.debug('send_email: %d inline CID images converted', len(attachments))
@@ -238,10 +433,18 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
             account=account,
             subject=subject,
             body=HTMLBody(html_with_cid),
-            to_recipients=_to_mailboxes(to) if to else None,
-            cc_recipients=_to_mailboxes(cc) if cc else None,
-            bcc_recipients=_to_mailboxes(bcc) if bcc else None,
+            to_recipients=_to_mailboxes(to, account) if to else None,
+            cc_recipients=_to_mailboxes(cc, account) if cc else None,
+            bcc_recipients=_to_mailboxes(bcc, account) if bcc else None,
         )
+        imp = _IMPORTANCE_MAP.get(str(importance).lower(), 'Normal')
+        if imp != 'Normal':
+            msg.importance = imp
+        if read_receipt:
+            msg.is_read_receipt_requested = True
+        if send_at is not None:
+            msg.deferred_delivery_time = _to_ews_datetime(send_at, timezone)
+            _logger.info('send_email: deferred until %s (tz UTC+%s)', send_at, timezone)
         for att in attachments:
             msg.attach(att)
         # Прикрепляем пользовательские файлы
@@ -256,14 +459,70 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                 msg.attach(file_att)
             except Exception as e:
                 _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
-        _logger.debug('send_email: calling msg.send()')
-        msg.send()
-        _logger.info('send_email: success subject=%r', subject)
+        if send_at is not None:
+            # Save to Outbox (SaveOnly). Exchange store transport driver watches
+            # the Outbox folder and honors PidTagDeferredSendTime — this is exactly
+            # what Outlook does for deferred delivery. Do NOT call SendItem after.
+            msg.folder = account.outbox
+            msg.save()
+            _logger.info('send_email: saved to Outbox (deferred), scheduled=%s utc=%s',
+                         send_at, _to_ews_datetime(send_at, timezone))
+        else:
+            _logger.debug('send_email: calling msg.send()')
+            msg.send()
+            _logger.info('send_email: success subject=%r', subject)
     except (ValueError, ConnectionError):
         raise
     except Exception as e:
-        _logger.error('send_email failed at msg.send(): %s: %s',
+        _logger.error('send_email failed: %s: %s',
                       type(e).__name__, e, exc_info=True)
+        _wrap_exchange_error(e)
+
+
+# ─── Сохранение черновика ────────────────────────────────────────────────────
+
+def exchange_save_draft(account: 'Account', subject: str, html_body: str,
+                        to: list, cc: list = None, bcc: list = None,
+                        attachments: list = None) -> None:
+    """
+    Сохраняет письмо в папку Черновики (Drafts) через EWS без отправки.
+    Использует Message.save() с folder=account.drafts (MessageDisposition=SaveOnly).
+    """
+    if to:  validate_recipients(to)
+    if cc:  validate_recipients(cc)
+    if bcc: validate_recipients(bcc)
+    attachments_raw = attachments or []
+    _logger.info('save_draft: subject=%r to=%s cc=%s bcc=%s attachments=%d',
+                 subject, to, cc, bcc, len(attachments_raw))
+    try:
+        html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)
+        msg = Message(
+            account=account,
+            folder=account.drafts,
+            subject=subject,
+            body=HTMLBody(html_with_cid),
+            to_recipients=_to_mailboxes(to, account) if to else None,
+            cc_recipients=_to_mailboxes(cc, account) if cc else None,
+            bcc_recipients=_to_mailboxes(bcc, account) if bcc else None,
+        )
+        for att in inline_atts:
+            msg.attach(att)
+        for file_data in attachments_raw:
+            try:
+                raw = base64.b64decode(file_data['content'])
+                msg.attach(FileAttachment(
+                    name=file_data['name'],
+                    content_type=file_data.get('mime_type', 'application/octet-stream'),
+                    content=raw,
+                ))
+            except Exception as e:
+                _logger.warning('draft attachment skipped %s: %s', file_data.get('name'), e)
+        msg.save()
+        _logger.info('save_draft: success subject=%r', subject)
+    except (ValueError, ConnectionError):
+        raise
+    except Exception as e:
+        _logger.error('save_draft failed: %s: %s', type(e).__name__, e, exc_info=True)
         _wrap_exchange_error(e)
 
 
@@ -273,7 +532,8 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
                           to: list, cc: list = None, bcc: list = None,
                           location: str = '', start_dt: datetime.datetime = None,
                           end_dt: datetime.datetime = None,
-                          attachments: list = None) -> None:
+                          attachments: list = None,
+                          timezone: float = 3.0) -> None:
     """
     Создаёт встречу через EWS с попыткой встроить inline CID-картинки.
     """
@@ -294,20 +554,8 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
     _logger.info('send_meeting: subject=%r to=%s bcc=%s start=%s end=%s attachments=%d',
                  subject, to, bcc, start_dt, end_dt, len(user_attachments))
     try:
-        import pytz
-
-        tz = EWSTimeZone.from_pytz(pytz.timezone('Europe/Moscow'))
-
-        start_ews = EWSDateTime(
-            start_dt.year, start_dt.month, start_dt.day,
-            start_dt.hour, start_dt.minute, start_dt.second,
-            tzinfo=tz
-        )
-        end_ews = EWSDateTime(
-            end_dt.year, end_dt.month, end_dt.day,
-            end_dt.hour, end_dt.minute, end_dt.second,
-            tzinfo=tz
-        )
+        start_ews = _to_ews_datetime(start_dt, timezone)
+        end_ews   = _to_ews_datetime(end_dt,   timezone)
 
         # 1. Convert data:image -> cid: attachments so Outlook renders inline images.
         html_with_cid, inline_atts = _convert_data_images_to_cid(html_body)
@@ -338,8 +586,8 @@ def exchange_send_meeting(account: 'Account', subject: str, html_body: str,
             location=location or '',
             start=start_ews,
             end=end_ews,
-            required_attendees=_to_attendees(required),
-            optional_attendees=_to_attendees(cc) if cc else None,
+            required_attendees=_to_attendees(required, account),
+            optional_attendees=_to_attendees(cc, account) if cc else None,
             attachments=inline_atts + user_file_atts,
         )
         _logger.debug('send_meeting: dispatching invitations via CreateItem')

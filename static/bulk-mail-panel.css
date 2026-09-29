@@ -1,0 +1,1099 @@
+/* ══════════════════════════════════════════════════════════════════════════════
+   BULK MAIL PANEL  (bm-*)
+   Секция «Рассылка» в левом сайдбаре редактора
+   Подключается в обоих режимах: index.html (admin) и index-user.html (user)
+   ══════════════════════════════════════════════════════════════════════════════ */
+
+/* Внутренний flex-контейнер для admin-аккордеона (accordion-body уже имеет padding) */
+.bm-panel-inner {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Аккордеон ─────────────────────────────────────────────────────────────── */
+.bm-accordion {
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 10px;
+  background: rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.bm-accordion-trigger {
+  width: 100%;
+  min-height: 40px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+
+.bm-accordion-trigger:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+}
+
+.bm-accordion--open .bm-accordion-trigger {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  color: var(--text-primary, #e5e7eb);
+  border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.bm-accordion-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.bm-accordion-badge {
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: #7700ff;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.bm-accordion-chevron {
+  flex-shrink: 0;
+  transition: transform 0.2s ease;
+  color: var(--text-muted, #64748b);
+}
+
+.bm-accordion--open .bm-accordion-chevron {
+  transform: rotate(180deg);
+}
+
+.bm-accordion-body {
+  display: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.bm-accordion:not(.bm-accordion--open) .bm-accordion-body {
+  display: none;
+}
+
+/* ── Секция внутри панели ───────────────────────────────────────────────────── */
+.bm-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.1);
+}
+
+.bm-section:last-child {
+  border-bottom: none;
+}
+
+/* Прогресс-секция (вне .bm-section, поэтому задаём паддинг отдельно) */
+#bm-progress-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px 16px;
+}
+
+/* Файл-зона — паддинг от краёв аккордеона */
+#bm-settings-section,
+.bm-accordion-body > .bm-section:first-child {
+  /* первая секция уже имеет padding через .bm-section */
+}
+
+.bm-section-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-muted, #64748b);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 2px;
+}
+
+.bm-optional {
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--text-muted, #64748b);
+  opacity: 0.7;
+}
+
+.bm-hint {
+  font-size: 10px;
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: #f97316;
+}
+
+/* ── Зона загрузки файла ────────────────────────────────────────────────────── */
+.bm-file-zone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 12px;
+  border: 1.5px dashed var(--border-color, #334155);
+  border-radius: 8px;
+  color: var(--text-muted, #64748b);
+  font-size: 12px;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.bm-file-zone:hover,
+.bm-file-zone--drag {
+  border-color: #7700ff;
+  background: rgba(119, 0, 255, 0.06);
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.bm-file-loaded {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(119, 0, 255, 0.1);
+  border: 1px solid rgba(119, 0, 255, 0.3);
+  border-radius: 8px;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.bm-file-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 500;
+}
+
+.bm-file-count {
+  font-size: 11px;
+  color: #7700ff;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.bm-btn-clear {
+  background: none;
+  border: none;
+  cursor: pointer;
+  color: var(--text-muted, #64748b);
+  font-size: 16px;
+  padding: 0;
+  line-height: 1;
+  transition: color 0.15s;
+}
+
+.bm-btn-clear:hover {
+  color: #ef4444;
+}
+
+/* ── Поля ───────────────────────────────────────────────────────────────────── */
+.bm-field {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.bm-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #cbd5e1);
+}
+
+.bm-input,
+.bm-select {
+  height: 32px;
+  padding: 0 10px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-primary, #e5e7eb);
+  font-size: 12px;
+  font-family: inherit;
+  outline: none;
+  transition: border-color 0.15s;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+/* ── Переключатель канала в панели рассылки ── */
+.bm-section-label {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--text-tertiary, #5a6a88);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin-bottom: 6px;
+}
+
+.bm-channel-switch {
+  display: flex;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #1e2a3a);
+  border-radius: 7px;
+  padding: 3px;
+  gap: 3px;
+}
+
+.bm-channel-btn {
+  flex: 1;
+  padding: 6px 8px;
+  border: none;
+  border-radius: 5px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  background: none;
+  color: var(--text-secondary, #7a8aaa);
+  transition: background 0.15s, color 0.15s;
+}
+
+.bm-channel-btn.active {
+  background: var(--bg-elevated, #1e2a3a);
+  color: var(--text-primary, #e2e8f0);
+}
+
+.bm-channel-btn:hover:not(.active) {
+  color: var(--text-primary, #c9d1e0);
+}
+
+.bm-input:focus,
+.bm-select:focus {
+  border-color: #7700ff;
+}
+
+/* ── Маппинг плейсхолдеров ──────────────────────────────────────────────────── */
+.bm-mapping-row {
+  display: grid;
+  grid-template-columns: 1fr 16px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.bm-mapping-ph {
+  font-size: 11px;
+  font-weight: 600;
+  font-family: monospace;
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.25);
+  border-radius: 4px;
+  padding: 3px 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-mapping-arrow {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+}
+
+.bm-mapping-select {
+  height: 28px;
+  padding: 0 6px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-primary, #e5e7eb);
+  font-size: 11px;
+  font-family: inherit;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.bm-mapping-select:focus {
+  border-color: #7700ff;
+}
+
+.bm-no-ph {
+  font-size: 12px;
+  color: var(--text-muted, #64748b);
+  font-style: italic;
+}
+
+.bm-no-ph code {
+  font-family: monospace;
+  color: #f97316;
+  background: rgba(249, 115, 22, 0.1);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+
+/* ── Кнопки ─────────────────────────────────────────────────────────────────── */
+.bm-btn-primary {
+  width: 100%;
+  height: 36px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: #7700ff;
+  border: none;
+  border-radius: 8px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, opacity 0.15s;
+}
+
+.bm-btn-primary:hover {
+  background: #6600e0;
+}
+
+.bm-btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.bm-btn-ghost {
+  height: 28px;
+  padding: 0 12px;
+  background: transparent;
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 12px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.bm-btn-ghost:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  border-color: #7700ff;
+}
+
+/* ── Прогресс отправки ──────────────────────────────────────────────────────── */
+.bm-progress-bar {
+  height: 4px;
+  background: var(--border-color, #334155);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bm-progress-fill {
+  height: 100%;
+  background: #7700ff;
+  border-radius: 2px;
+  transition: width 0.3s ease;
+  width: 0%;
+}
+
+.bm-progress-list {
+  max-height: 160px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.bm-progress-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: rgba(255,255,255,0.03);
+}
+
+.bm-progress-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+}
+
+.bm-progress-item--sending .bm-progress-dot {
+  border: 2px solid #7700ff;
+  animation: bm-spin 0.8s linear infinite;
+}
+
+.bm-progress-item--sent .bm-progress-dot {
+  background: #22c55e;
+  color: #fff;
+  font-size: 9px;
+}
+
+.bm-progress-item--error .bm-progress-dot {
+  background: #ef4444;
+  color: #fff;
+  font-size: 10px;
+}
+
+@keyframes bm-spin {
+  to { transform: rotate(360deg); }
+}
+
+.bm-progress-name {
+  font-weight: 500;
+  color: var(--text-secondary, #cbd5e1);
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-progress-email {
+  color: var(--text-muted, #64748b);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-progress-summary {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.bm-badge-ok,
+.bm-badge-err {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+
+.bm-badge-ok {
+  background: rgba(34, 197, 94, 0.15);
+  color: #22c55e;
+}
+
+.bm-badge-err {
+  background: rgba(239, 68, 68, 0.15);
+  color: #ef4444;
+}
+
+/* ── Навигация строк (контекст-бар канваса) ─────────────────────────────────── */
+.bm-row-nav {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  padding: 0 4px;
+}
+
+.bm-row-nav-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.bm-row-nav-btn:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  border-color: #7700ff;
+  color: #7700ff;
+}
+
+.bm-row-nav-btn:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+}
+
+.bm-row-nav-info {
+  font-size: 12px;
+  font-weight: 600;
+  color: #7700ff;
+  white-space: nowrap;
+}
+
+.bm-row-nav-sep {
+  width: 1px;
+  height: 16px;
+  background: var(--border-color, #334155);
+  margin: 0 2px;
+}
+
+.bm-row-nav-name {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #cbd5e1);
+  max-width: 140px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.bm-row-nav-email {
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ── Превью в канвасе: подсветка подставленных значений ─────────────────────── */
+.bm-preview-value {
+  background: rgba(119, 0, 255, 0.12);
+  outline: 1px dashed rgba(119, 0, 255, 0.4);
+  border-radius: 2px;
+  color: inherit;
+}
+
+/* ── Светлая тема ───────────────────────────────────────────────────────────── */
+[data-theme='light'] .bm-accordion {
+  border-color: var(--border-secondary);
+  background: var(--bg-secondary);
+}
+
+[data-theme='light'] .bm-accordion-trigger {
+  color: var(--text-secondary);
+}
+
+[data-theme='light'] .bm-accordion--open .bm-accordion-trigger {
+  color: var(--text-primary);
+  border-bottom-color: var(--border-secondary);
+}
+
+[data-theme='light'] .bm-file-zone {
+  border-color: var(--border-secondary);
+  color: var(--text-muted);
+}
+
+[data-theme='light'] .bm-input,
+[data-theme='light'] .bm-select,
+[data-theme='light'] .bm-mapping-select {
+  background: var(--bg-tertiary);
+  border-color: var(--border-secondary);
+  color: var(--text-primary);
+}
+
+[data-theme='light'] .bm-progress-bar {
+  background: var(--border-secondary);
+}
+
+[data-theme='light'] .bm-row-nav-btn {
+  background: var(--bg-tertiary);
+  border-color: var(--border-secondary);
+  color: var(--text-secondary);
+}
+
+/* ── Новые элементы (блоки 2-7) ───────────────────────────────────────────── */
+
+/* Toggle-row (checkbox + label) */
+.bm-toggle-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+  user-select: none;
+}
+
+.bm-toggle-row input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  accent-color: #7700ff;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.bm-toggle-label {
+  line-height: 1.4;
+}
+
+/* Radio row (режим вложений) */
+.bm-attach-mode-row {
+  display: flex;
+  gap: 16px;
+}
+
+.bm-radio-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #cbd5e1);
+  cursor: pointer;
+}
+
+.bm-radio-label input[type="radio"] {
+  accent-color: #7700ff;
+  cursor: pointer;
+}
+
+/* Secondary button */
+.bm-btn-secondary {
+  width: 100%;
+  height: 32px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: transparent;
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 8px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 12px;
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.bm-btn-secondary:hover {
+  background: var(--bg-hover, rgba(255,255,255,0.06));
+  border-color: #7700ff;
+  color: #7700ff;
+}
+
+/* Small ghost button */
+.bm-btn-sm {
+  height: 28px;
+  font-size: 11px;
+  padding: 0 10px;
+  gap: 5px;
+  flex: 1;
+}
+
+/* Cancel button */
+.bm-btn-cancel {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: 1px solid rgba(239,68,68,0.4);
+  border-radius: 6px;
+  color: #ef4444;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.bm-btn-cancel:hover {
+  background: rgba(239,68,68,0.15);
+}
+
+/* Progress header (bar + cancel) */
+.bm-progress-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.bm-progress-header .bm-progress-bar {
+  flex: 1;
+  margin-bottom: 0;
+}
+
+/* Comment column in progress list */
+.bm-progress-comment {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 90px;
+}
+
+.bm-progress-item--error .bm-progress-comment {
+  color: #ef4444;
+}
+
+/* Skip badge */
+.bm-badge-skip {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.15);
+  color: var(--text-muted, #94a3b8);
+}
+
+/* Post-send actions row */
+.bm-post-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* Progress item — skip state */
+.bm-progress-item--skip .bm-progress-dot {
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+}
+
+/* ── Inline placeholder span (вставляется кнопкой {{}} в тулбаре) ─────────── */
+.bm-inline-ph {
+  display: inline-block;
+  padding: 0 5px;
+  margin: 0 1px;
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.3);
+  border-radius: 4px;
+  color: #f97316;
+  font-size: 0.88em;
+  font-family: monospace;
+  font-weight: 600;
+  line-height: 1.6;
+  cursor: default;
+  user-select: none;
+  white-space: nowrap;
+  vertical-align: baseline;
+}
+
+/* Когда рассылка активна — показываем подставленное значение */
+.bm-preview-mode .bm-inline-ph {
+  background: rgba(34, 197, 94, 0.1);
+  border-color: rgba(34, 197, 94, 0.25);
+  color: #22c55e;
+}
+
+/* Пустое значение в превью */
+.bm-preview-mode .bm-inline-ph[data-empty="true"] {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #ef4444;
+  text-decoration: underline dotted;
+}
+
+/* Кнопка «Дополнительные настройки» */
+.bm-adv-btn {
+  width: 100%;
+  justify-content: flex-start;
+  gap: 7px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary, #94a3b8);
+  padding: 2px 0;
+}
+.bm-adv-btn .bm-collapse-chevron {
+  margin-left: auto;
+}
+.bm-adv-btn:hover {
+  color: var(--accent, #7700ff);
+}
+
+/* Раскрываемое содержимое вложений */
+#bm-attach-content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+}
+
+/* Radio row внутри вложений — небольшой отступ снизу перед полями */
+#bm-attach-content .bm-attach-mode-row {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+/* ── v5: Вложения — строка с тогглом ─────────────────────────────────────── */
+.bm-attach-toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: pointer;
+  user-select: none;
+}
+.bm-attach-toggle-lbl {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary, #e2e8f0);
+}
+.bm-tog {
+  position: relative;
+  width: 32px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.bm-tog input { opacity: 0; width: 0; height: 0; position: absolute; }
+.bm-tog-track {
+  position: absolute;
+  inset: 0;
+  background: rgba(100,116,139,.3);
+  border-radius: 999px;
+  border: 1px solid rgba(148,163,184,.2);
+  transition: background .2s, border-color .2s;
+  cursor: pointer;
+}
+.bm-tog-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  background: #94a3b8;
+  border-radius: 50%;
+  transition: left .2s, background .2s;
+}
+.bm-tog input:checked ~ .bm-tog-track { background: var(--accent, #7700ff); border-color: var(--accent, #7700ff); }
+.bm-tog input:checked ~ .bm-tog-track .bm-tog-thumb { left: 16px; background: #fff; }
+
+/* ── v5: Строка заголовка ─────────────────────────────────────────────────── */
+.bm-header-row-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-secondary, #94a3b8);
+}
+.bm-select--compact {
+  width: auto;
+  height: 28px;
+  padding: 0 6px;
+  font-size: 11px;
+}
+
+/* ── v5: Превью таблицы ───────────────────────────────────────────────────── */
+.bm-collapse-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-muted, #64748b);
+  padding: 4px 0;
+  font-family: inherit;
+  transition: color .15s;
+}
+.bm-collapse-btn:hover { color: var(--accent, #7700ff); }
+.bm-collapse-chevron { transition: transform .2s; }
+.bm-collapse-btn--open .bm-collapse-chevron { transform: rotate(180deg); }
+.bm-collapse-area { padding-top: 6px; }
+
+.bm-tbl-wrap {
+  overflow-x: auto;
+  border-radius: 6px;
+  border: 1px solid var(--border, rgba(148,163,184,.12));
+}
+.bm-tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 10px;
+}
+.bm-tbl th {
+  background: rgba(255,255,255,.04);
+  color: var(--text-secondary, #94a3b8);
+  padding: 4px 8px;
+  text-align: left;
+  font-weight: 600;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border, rgba(148,163,184,.12));
+}
+.bm-tbl td {
+  padding: 4px 8px;
+  color: var(--text-primary, #e2e8f0);
+  border-bottom: 1px solid var(--border, rgba(148,163,184,.12));
+  white-space: nowrap;
+}
+.bm-tbl tr:last-child td { border-bottom: none; }
+.bm-tbl-empty { color: var(--error, #ef4444) !important; font-style: italic; }
+.bm-tbl-more {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+  text-align: center;
+  padding: 3px 0 1px;
+}
+
+/* ── v5: Сводка рассылки ──────────────────────────────────────────────────── */
+.bm-sum-card {
+  background: rgba(255,255,255,.03);
+  border: 1px solid var(--border, rgba(148,163,184,.12));
+  border-radius: 7px;
+  overflow: hidden;
+}
+.bm-sum-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--border, rgba(148,163,184,.12));
+  font-size: 12px;
+  color: var(--text-secondary, #94a3b8);
+}
+.bm-sum-row:last-child { border-bottom: none; }
+.bm-sum-val { font-weight: 700; font-size: 13px; color: var(--text-primary, #e2e8f0); }
+.bm-sum-row--ok   .bm-sum-val { color: #14b8a6; }
+.bm-sum-row--warn .bm-sum-val { color: #f97316; }
+.bm-sum-row--err  .bm-sum-val { color: #ef4444; }
+
+.bm-warn-box {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 7px 10px;
+  background: rgba(249,115,22,.08);
+  border: 1px solid rgba(249,115,22,.2);
+  border-radius: 6px;
+  font-size: 11px;
+  color: #f97316;
+  margin-top: 6px;
+}
+.bm-warn-box svg { flex-shrink: 0; margin-top: 1px; }
+.bm-warn-box strong { font-family: monospace; }
+
+/* ── v5: Плавающий баннер предупреждений строки ───────────────────────────── */
+.bm-row-warns {
+  position: absolute;
+  top: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  background: rgba(15, 10, 5, 0.82);
+  border: 1px solid rgba(249, 115, 22, 0.45);
+  border-radius: 10px;
+  padding: 9px 14px 9px 12px;
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0,0,0,.4);
+  max-width: 480px;
+  width: max-content;
+  pointer-events: none;
+  animation: bm-warn-in .18s ease;
+}
+@keyframes bm-warn-in {
+  from { opacity: 0; transform: translateX(-50%) translateY(-6px); }
+  to   { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+.bm-row-warn {
+  font-size: 12px;
+  color: #fb923c;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  white-space: nowrap;
+}
+.bm-row-warn svg { flex-shrink: 0; }
+
+/* ── v5: Переключатель режима канваса ─────────────────────────────────────── */
+.bm-mode-bar {
+  display: flex;
+  gap: 3px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+.bm-mode-btn {
+  height: 26px;
+  padding: 0 10px;
+  background: transparent;
+  border: 1px solid var(--border2, rgba(148,163,184,.22));
+  border-radius: 6px;
+  color: var(--text-muted, #64748b);
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.bm-mode-btn:hover { border-color: var(--accent, #7700ff); color: var(--accent, #7700ff); }
+.bm-mode-btn--active {
+  background: rgba(119,0,255,.14);
+  border-color: var(--accent, #7700ff);
+  color: #c4b5fd;
+  font-weight: 600;
+}
+
+/* ── v5: Панель вставки плейсхолдеров ────────────────────────────────────── */
+.bm-ph-ins-bar {
+  padding: 7px 16px;
+  background: rgba(119,0,255,.05);
+  border-bottom: 1px solid rgba(119,0,255,.16);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+.bm-ph-ins-lbl {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary, #94a3b8);
+  white-space: nowrap;
+}
+.bm-ph-ins-chips { display: flex; gap: 5px; flex-wrap: wrap; flex: 1; }
+.bm-ph-chip {
+  height: 22px;
+  padding: 0 8px;
+  background: rgba(255,255,255,.04);
+  border: 1px solid var(--border2, rgba(148,163,184,.22));
+  border-radius: 4px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 11px;
+  font-family: monospace;
+  cursor: pointer;
+  transition: all .15s;
+  white-space: nowrap;
+}
+.bm-ph-chip:hover {
+  background: rgba(119,0,255,.14);
+  border-color: var(--accent, #7700ff);
+  color: #c4b5fd;
+}
+.bm-ph-chip:active { transform: scale(.95); }
+.bm-ph-ins-hint {
+  font-size: 10px;
+  color: var(--text-muted, #64748b);
+  white-space: nowrap;
+}
+
+/* ── Feature flag: bulk_mail = false ────────────────────────────────────────
+   Скрывает всё что связано с рассылкой в обоих режимах (admin + user).
+   Класс feature-no-bulk-mail вешается на <body> через configLoader.js.
+   ─────────────────────────────────────────────────────────────────────────── */
+/* User: accordion #bm-accordion */
+.feature-no-bulk-mail #bm-accordion          { display: none !important; }
+/* Admin: accordion .accordion-item[data-panel="bulk-mail"] */
+.feature-no-bulk-mail .accordion-item[data-panel="bulk-mail"] { display: none !important; }
+/* Кнопка «Отправить рассылку» в тулбаре (оба режима) */
+.feature-no-bulk-mail #btn-bulk-send         { display: none !important; }
+/* Кнопка {{}} вставки плейсхолдера в тексте */
+.feature-no-bulk-mail #toolbar-btn-field     { display: none !important; }

@@ -228,7 +228,59 @@ function renderUserCanvas() {
 
     // Инициализируем inline-редактирование
     initInlineEditing();
+    _adjustListMarkerIndents();
     window.updateUserEditorMeta?.();
+
+    // Рендерим canvas-блоки у которых есть элементы но нет PNG
+    _renderPendingCanvasBlocks(UserAppState.blocks);
+}
+
+const _canvasRenderTriedIds = new Set();
+let _canvasRenderInProgress = null; // shared Promise while rendering is active
+
+function _collectPendingCanvasBlocks(blocks) {
+    const pending = [];
+    const collect = (list) => {
+        (list || []).forEach(b => {
+            if (b.type === 'canvas' && !b.settings.renderedCanvas && (b.settings.freeElements || []).length > 0 && !_canvasRenderTriedIds.has(b.id)) pending.push(b);
+            if (b.columns) b.columns.forEach(col => collect(col.blocks));
+        });
+    };
+    collect(blocks);
+    return pending;
+}
+
+function _doCanvasRenderQueue(pending) {
+    _canvasRenderInProgress = new Promise(resolve => {
+        let i = 0;
+        const next = () => {
+            if (i >= pending.length) { _canvasRenderInProgress = null; resolve(); return; }
+            const b = pending[i++];
+            _canvasRenderTriedIds.add(b.id);
+            renderCanvasBlockToDataUrl(b, dataUrl => {
+                if (dataUrl) b.settings.renderedCanvas = dataUrl;
+                next();
+            });
+        };
+        next();
+    });
+    return _canvasRenderInProgress;
+}
+
+function _renderPendingCanvasBlocks(blocks) {
+    if (typeof renderCanvasBlockToDataUrl !== 'function') return;
+    if (_canvasRenderInProgress) return; // already rendering
+    const pending = _collectPendingCanvasBlocks(blocks);
+    if (!pending.length) return;
+    _doCanvasRenderQueue(pending).then(() => renderUserCanvas());
+}
+
+function _ensureCanvasBlocksRendered(blocks) {
+    if (_canvasRenderInProgress) return _canvasRenderInProgress;
+    if (typeof renderCanvasBlockToDataUrl !== 'function') return Promise.resolve();
+    const pending = _collectPendingCanvasBlocks(blocks);
+    if (!pending.length) return Promise.resolve();
+    return _doCanvasRenderQueue(pending);
 }
 
 /**
@@ -303,6 +355,8 @@ function makeAttentionBadge(block) {
     const badge = document.createElement('div');
     badge.className = 'block-attention-badge';
     badge.dataset.tooltip = _attentionMessage(block);
+    badge.title = 'Нажмите, чтобы настроить';
+    badge.style.cursor = 'pointer';
     badge.innerHTML = `
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
             <path d="m10.29 3.86-8.18 14.14A2 2 0 0 0 3.84 21h16.32a2 2 0 0 0 1.73-3l-8.18-14.14a2 2 0 0 0-3.42 0z"></path>
@@ -310,6 +364,23 @@ function makeAttentionBadge(block) {
             <path d="M12 17h.01"></path>
         </svg>
     `;
+
+    badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const id = block.id;
+        switch (block.type) {
+            case 'button':  openButtonEditor(id);  break;
+            case 'banner':  openBannerEditor(id);  break;
+            case 'image':   openImagePicker(id);   break;
+            case 'list':    openListEditor(id);    break;
+            case 'divider': openDividerEditor(id); break;
+            case 'expert':  openExpertEditor(id);  break;
+            case 'canvas':  openCanvasEditor(id);  break;
+            case 'table':   openTableEditor(id);   break;
+            default: break;
+        }
+    });
+
     return badge;
 }
 
@@ -389,39 +460,35 @@ function deleteBlock(blockId) {
  * Рендер одиночного блока
  */
 function renderUserSingleBlock(block) {
-    const s = block.settings || {};
-
+    let html;
     switch (block.type) {
-        case 'banner':
-            return renderUserBanner(block);
-        case 'text':
-            return renderUserText(block);
-        case 'heading':
-            return renderUserHeading(block);
-        case 'button':
-            return renderUserButton(block);
-        case 'list':
-            return renderUserList(block);
-        case 'expert':
-            return renderUserExpert(block);
-        case 'important':
-            return renderUserImportant(block);
-        case 'divider':
-            return renderUserDivider(block);
-        case 'image':
-            return renderUserImage(block);
-        case 'spacer':
-            return renderUserSpacer(block);
-        default:
-            return '<p style="padding: 20px; color: #999;">Неизвестный блок</p>';
+        case 'banner':    html = renderUserBanner(block);    break;
+        case 'text':      html = renderUserText(block);      break;
+        case 'heading':   html = renderUserHeading(block);   break;
+        case 'button':    html = renderUserButton(block);    break;
+        case 'list':      html = renderUserList(block);      break;
+        case 'expert':    html = renderUserExpert(block);    break;
+        case 'important': html = renderUserImportant(block); break;
+        case 'divider':   html = renderUserDivider(block);   break;
+        case 'image':     html = renderUserImage(block);     break;
+        case 'spacer':    html = renderUserSpacer(block);    break;
+        case 'canvas':    html = renderUserCanvasBlock(block); break;
+        case 'table':     html = renderUserTable(block);       break;
+        default:          html = '<p style="padding:20px;color:#999">Неизвестный блок</p>';
     }
+    // Применяем capabilities (подложка, рамка, ссылка и др.) — как в admin/blockPreview.js
+    if (typeof CapabilityRegistry !== 'undefined') {
+        html = CapabilityRegistry.applyWrappers(html, block, 'preview');
+    }
+    return html;
 }
 
 /**
  * Рендер блока с колонками
  */
 function renderUserColumnsBlock(block) {
-    const gap = block.settings?.columnGap ?? 10;
+    const s = block.settings || {};
+    const gap = s.columnGap ?? 10;
 
     const columnsHTML = block.columns.map((column, index) => {
         const columnBlocks = column.blocks.map(childBlock => {
@@ -435,11 +502,20 @@ function renderUserColumnsBlock(block) {
         </td>`;
     }).join('');
 
-    return `
+    const table = `
         <table style="width:100%; border-collapse:collapse; table-layout:fixed;">
             <tr>${columnsHTML}</tr>
         </table>
     `;
+
+    // Фон подложки колонок — как в admin-канвасе (canvasRenderer.js
+    // renderColumnsPreview) и в письме (emailGenerator.js
+    // generateColumnsHTML), которые эту настройку уже поддерживали;
+    // здесь её не было вообще, поэтому фон никогда не отображался.
+    if (s.bgEnabled !== false && s.bgColor) {
+        return `<div style="background:${s.bgColor}; border-radius:${s.bgRadius || 0}px; padding:${s.bgPadding || 0}px;">${table}</div>`;
+    }
+    return table;
 }
 
 /**
@@ -478,14 +554,43 @@ function renderUserText(block) {
                 font-size:${s.fontSize || 14}px;
                 line-height:${s.lineHeight || 1.5};
                 text-align:${s.align || 'left'};
-                color:${s.color || '#1D2533'};
+                color:${(s.bgEnabled !== false && s.bgColor) ? (isLightColorPreview(s.bgColor) ? '#1D2533' : '#ffffff') : (typeof adaptColorForWhiteBackground === 'function' ? adaptColorForWhiteBackground(s.color || '#1D2533') : (s.color || '#1D2533'))};
                 font-family:${fontFamily};
                 padding:16px 20px;
                 outline:none;
              ">
-            ${formatTextForEditing(s.content || 'Введите текст...')}
+            ${s.content || 'Введите текст...'}
         </div>
     `;
+}
+
+/**
+ * Точная подгонка отступа для пунктов списка (data-bullet) под РЕАЛЬНУЮ
+ * ширину каждого конкретного маркера. Маркер/отступ в user-редакторе —
+ * чисто CSS-эффект (::before + attr()/counter(), см. user-styles.css) с
+ * ОДНИМ фиксированным padding-left на все маркеры — разные глифы (точка,
+ * стрелка, квадрат) и разная длина номера ("1." vs "12.") реально занимают
+ * разную ширину, поэтому фиксированное значение неточно для части из них.
+ *
+ * CSS не умеет измерить ширину сгенерированного контента и тут же
+ * использовать её в layout — но САМ БРАУЗЕР это уже посчитал для
+ * отрисовки ::before, и это можно спросить через getComputedStyle. Вызывать
+ * можно только ПОСЛЕ вставки блоков в DOM (canvas.appendChild), иначе
+ * getComputedStyle ещё не имеет раскладки для измерения.
+ *
+ * Инлайн-style, который тут проставляется, НЕ сохраняется (saveTextChanges
+ * копирует только data-bullet, см. ALLOWED_TAGS.p в textSanitizer.js) —
+ * пересчитывается заново при каждом renderUserCanvas(), это нормально.
+ */
+function _adjustListMarkerIndents() {
+    document.querySelectorAll('#user-canvas .editable-text p[data-bullet]').forEach(p => {
+        const before = getComputedStyle(p, '::before');
+        const width = parseFloat(before.width);
+        if (!isFinite(width) || width <= 0) return;
+        const indent = Math.round(width);
+        p.style.paddingLeft = `${indent}px`;
+        p.style.textIndent = `-${indent}px`;
+    });
 }
 
 /**
@@ -504,7 +609,7 @@ function renderUserHeading(block) {
                 font-size:${s.size || 24}px;
                 font-weight:${s.weight || 'bold'};
                 text-align:${s.align || 'left'};
-                color:${s.color || '#1D2533'};
+                color:${(s.bgEnabled !== false && s.bgColor) ? (isLightColorPreview(s.bgColor) ? '#1D2533' : '#ffffff') : (typeof adaptColorForWhiteBackground === 'function' ? adaptColorForWhiteBackground(s.color || '#1D2533') : (s.color || '#1D2533'))};
                 font-family:${fontFamily};
                 padding:16px 20px;
                 outline:none;
@@ -571,7 +676,7 @@ function renderUserList(block) {
         if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
             bulletHTML = `<img src="${s.renderedBullets[index]}" style="width:${bulletSize}px; height:${bulletSize}px;">`;
         } else {
-            const bulletSrc = s.bulletCustom || (typeof BULLET_TYPES !== 'undefined' && BULLET_TYPES.find(b => b.id === s.bulletType)?.src);
+            const bulletSrc = s.bulletCustom || (typeof BULLET_TYPES !== 'undefined' && BULLET_TYPES.find(b => b.id === s.bulletType || b.src === s.bulletType)?.src);
             if (bulletSrc) {
                 bulletHTML = `<img src="${bulletSrc}" style="width:${bulletSize}px; height:${bulletSize}px;">`;
             } else {
@@ -584,8 +689,8 @@ function renderUserList(block) {
                 <td style="width:${bulletSize + bulletGap}px; vertical-align:top; padding:${(s.itemSpacing || 8) / 2}px 0;">
                     ${bulletHTML}
                 </td>
-                <td class="editable-text" 
-                    contenteditable="true" 
+                <td class="editable-text"
+                    contenteditable="true"
                     data-block-id="${block.id}"
                     data-field="items"
                     data-item-index="${index}"
@@ -602,10 +707,107 @@ function renderUserList(block) {
         `;
     }).join('');
 
+
     return `
         <div class="editable-list" data-block-id="${block.id}" style="padding:16px 20px;">
             <table style="width:100%; border-collapse:collapse;">
                 ${itemsHTML}
+            </table>
+        </div>
+    `;
+}
+
+/**
+ * Рендер таблицы (плашка-заголовок + данные). Редактируется целиком через
+ * модалку openTableEditor — как banner/expert/canvas, без inline-contenteditable,
+ * т.к. содержимое двумерное (строки×колонки), а не плоский список.
+ */
+function renderUserTable(block) {
+    const s = block.settings || {};
+    const columns = s.columns || [];
+    const rows = s.rows || [];
+    const widths = (Array.isArray(s.columnWidths) && s.columnWidths.length === columns.length)
+        ? s.columnWidths
+        : columns.map(() => 100 / (columns.length || 1));
+    const fontFamily = (typeof resolveTextFontFamily === 'function') ? resolveTextFontFamily(s) : 'inherit';
+    const fontSize = s.fontSize || 15;
+    const lineHeight = s.lineHeight || 1.5;
+    const headerFontSize = s.headerFontSize || 18;
+    const cellPaddingV = s.cellPaddingV ?? 22;
+    const cellPaddingH = s.cellPaddingH ?? 40;
+    const dividerColor = s.dividerColor || '#FFFFFF';
+    const containerBg = s.containerBg || '#EBF1F6';
+    const containerRadius = s.containerRadius ?? 28;
+    const linkColor = s.linkColor || '#475569';
+    const cellTextAlign = ['left', 'center', 'right'].includes(s.cellTextAlign) ? s.cellTextAlign : 'left';
+    const scope = `tbl-user-${block.id}`;
+
+    const renderCell = (value) => TextSanitizer.render(
+        typeof value === 'string' && value.trim().startsWith('<')
+            ? value
+            : TextSanitizer.sanitize(value || '', true),
+        linkColor
+    );
+
+    const safeTitleBarSrc = typeof s.renderedTitleBar === 'string' ? s.renderedTitleBar.replace(/"/g, '&quot;') : '';
+    const titleBar = s.renderedTitleBar
+        ? `<img src="${safeTitleBarSrc}" style="display:block; width:100%; height:auto;" alt="">`
+        : `<div style="padding:20px; color:#9ca3af; font-size:13px; background:#1e293b; border-radius:${s.titleRadius ?? 24}px;">⏳ Рендеринг заголовка...</div>`;
+
+    // Цвет — inline style с !important: единственный способ гарантированно
+    // победить внешнее правило [data-theme="light"] .block-content td { color:
+    // var(--text-secondary) !important; } (theme-variables.css) — inline
+    // !important стоит выше любого правила из подключаемого CSS-файла.
+    // Если цвет не задан вручную — авто-контраст под containerBg (как у
+    // text/heading/list, см. resolveBlockTextColor в emailGenerator.js).
+    const headerTextColor = s.headerTextColor || (isLightColorPreview(containerBg) ? '#00204A' : '#ffffff');
+    const bodyTextColor = s.textColor || (isLightColorPreview(containerBg) ? '#334155' : '#ffffff');
+
+    const headerRow = `
+        <tr>
+            ${columns.map((col, i) => `
+                <td style="width:${widths[i]}%; color:${headerTextColor} !important;">${renderCell(col)}</td>
+            `).join('')}
+        </tr>`;
+
+    const bodyRows = rows.map(row => `
+        <tr>
+            ${columns.map((col, colIndex) => `
+                <td style="width:${widths[colIndex]}%; color:${bodyTextColor} !important;">${renderCell(row[colIndex])}</td>
+            `).join('')}
+        </tr>`).join('');
+
+    // sc3 (класс трижды) поднимает специфичность выше глобальных правил темы
+    // ([data-theme="light"] .block-content td/p/span {color:...!important}).
+    // TextSanitizer.render() оборачивает текст ячейки в <p> — правило метит
+    // p/span НАПРЯМУЮ, наследование от td не спасает. Поэтому цвет
+    // прокидывается через `td * { color:inherit !important }`.
+    const sc3 = `.${scope}.${scope}.${scope}`;
+    const css = `
+        .${scope} { background:${containerBg}; border-radius:${containerRadius}px; border:1px solid #E2E8F0; box-shadow:0 4px 24px rgba(0,0,0,.05); box-sizing:border-box; overflow:hidden; cursor:pointer; }
+        .${scope} table { width:100%; border-collapse:collapse; table-layout:fixed; margin-top:15px; margin-bottom:20px; }
+        .${scope} td { padding:${cellPaddingV}px ${cellPaddingH}px; vertical-align:middle; text-align:${cellTextAlign}; position:relative; font-family:${fontFamily}; font-size:${fontSize}px; line-height:${lineHeight}; word-break:break-word; overflow-wrap:break-word; hyphens:auto; }
+        .${scope} thead td { font-size:${headerFontSize}px; font-weight:bold; }
+        ${sc3} td * { color:inherit !important; }
+        ${sc3} td a { color:${linkColor} !important; text-decoration:underline; }
+        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:2px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} thead tr td:first-child::after { left:${cellPaddingH}px; }
+        .${scope} thead tr td:last-child::after { right:${cellPaddingH}px; }
+        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:1px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} tbody tr:not(:last-child) td:first-child::after { left:${cellPaddingH}px; }
+        .${scope} tbody tr:not(:last-child) td:last-child::after { right:${cellPaddingH}px; }
+        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:2px; background-color:${dividerColor}; top:0; bottom:0; }
+        .${scope} thead td:not(:last-child)::before { top:10px; }
+        .${scope} tbody tr:last-child td:not(:last-child)::before { bottom:15px; }
+    `;
+
+    return `
+        <style>${css}</style>
+        <div class="editable-table ${scope}" data-block-id="${block.id}">
+            ${titleBar}
+            <table>
+                <thead>${headerRow}</thead>
+                <tbody>${bodyRows}</tbody>
             </table>
         </div>
     `;
@@ -738,6 +940,16 @@ function renderUserSpacer(block) {
     const height = s.height || 20;
 
     return `<div style="height:${height}px;"></div>`;
+}
+
+function renderUserCanvasBlock(block) {
+    const s = block.settings || {};
+    const inner = s.renderedCanvas
+        ? `<img src="${s.renderedCanvas}" style="display:block;width:100%;height:auto;border:0;" alt="">`
+        : (typeof renderCanvasBlockPreview === 'function'
+            ? renderCanvasBlockPreview(block)
+            : `<div style="height:${s.height||250}px;background:${s.bgEnabled!==false?s.bgColor||'#1D2533':'transparent'};"></div>`);
+    return `<div class="editable-canvas" data-block-id="${block.id}" style="cursor:pointer;position:relative;">${inner}</div>`;
 }
 
 /**
@@ -957,8 +1169,15 @@ function initInlineEditing() {
         });
     });
 
+    canvas.querySelectorAll('.editable-table').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const blockId = parseInt(el.dataset.blockId);
+            openTableEditor(blockId);
+        });
+    });
+
     document.addEventListener('click', (e) => {
-        if (!e.target.closest('.editable-text') && !e.target.closest('.text-toolbar')) {
+        if (!e.target.closest('.editable-text') && !e.target.closest('.text-toolbar') && !e.target.closest('#toolbar-field-dropdown')) {
             hideTextToolbar();
         }
     });
@@ -968,6 +1187,13 @@ function initInlineEditing() {
             if (e.target.closest('.editable-text')) return;
             const blockId = parseInt(el.dataset.blockId);
             openImportantIconEditor(blockId);
+        });
+    });
+
+    canvas.querySelectorAll('.editable-canvas').forEach(el => {
+        el.addEventListener('click', (e) => {
+            const blockId = parseInt(el.dataset.blockId);
+            openCanvasEditor(blockId);
         });
     });
 }
@@ -1168,6 +1394,51 @@ function openImagePicker(blockId) {
 
     const s = block.settings;
 
+    // Вкладки
+    const tabBtns = modal.querySelectorAll('#image-tab-buttons .toggle-btn');
+    const tabUpload = document.getElementById('image-tab-upload');
+    const tabPresets = document.getElementById('image-tab-presets');
+    const presets = window.PRESET_IMAGES || [];
+
+    // Скрыть вкладку "Готовые" если пресетов нет
+    const presetTabBtn = document.getElementById('image-tab-presets-btn');
+    if (presetTabBtn) presetTabBtn.style.display = presets.length > 0 ? '' : 'none';
+
+    function switchImageTab(tab) {
+        tabBtns.forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+        tabUpload.style.display = tab === 'upload' ? '' : 'none';
+        tabPresets.style.display = tab === 'presets' ? '' : 'none';
+    }
+    tabBtns.forEach(b => { b.onclick = () => switchImageTab(b.dataset.tab); });
+    switchImageTab('upload');
+
+    // Сетка пресетов
+    const grid = document.getElementById('image-presets-grid');
+    if (grid) {
+        grid.innerHTML = '';
+        presets.forEach(item => {
+            const src = item.src.startsWith('/') || item.src.startsWith('http') ? item.src : '/' + item.src;
+            const cell = document.createElement('div');
+            cell.style.cssText = `aspect-ratio:1;overflow:hidden;border-radius:8px;cursor:pointer;border:2px solid ${s.src === src ? 'var(--accent)' : 'transparent'};`;
+            const img = document.createElement('img');
+            img.src = src;
+            img.alt = item.label || '';
+            img.style.cssText = 'width:100%;height:100%;object-fit:cover;';
+            cell.appendChild(img);
+            cell.onclick = () => {
+                s.src = src;
+                const thumbImg = document.getElementById('image-thumb-img');
+                const thumb = document.getElementById('image-preview-thumb');
+                if (thumbImg) thumbImg.src = src;
+                if (thumb) thumb.style.display = 'block';
+                grid.querySelectorAll('div').forEach(d => d.style.borderColor = 'transparent');
+                cell.style.borderColor = 'var(--accent)';
+                switchImageTab('upload');
+            };
+            grid.appendChild(cell);
+        });
+    }
+
     // Превью если картинка уже есть
     const thumb = document.getElementById('image-preview-thumb');
     const thumbImg = document.getElementById('image-thumb-img');
@@ -1257,12 +1528,14 @@ function openListEditor(blockId) {
             toggleBtns.forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
 
-            // Показываем/скрываем номер начала и иконки
+            // Показываем/скрываем номер начала, формат и иконки
             const startGroup = document.getElementById('start-number-group');
+            const formatGroup = document.getElementById('number-format-group');
             const iconGroup = document.getElementById('bullet-icon-group');
             const isNumbered = btn.dataset.value === 'numbered';
 
             if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
+            if (formatGroup) formatGroup.style.display = isNumbered ? 'block' : 'none';
             if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
             s.listStyle = isNumbered ? 'numbered' : 'bullets';
             s.bulletSize = isNumbered ? 40 : 20;
@@ -1272,14 +1545,28 @@ function openListEditor(blockId) {
     // Показываем/скрываем в зависимости от текущего типа
     const isNumbered = s.listStyle === 'numbered';
     const startGroup = document.getElementById('start-number-group');
+    const formatGroup = document.getElementById('number-format-group');
     const iconGroup = document.getElementById('bullet-icon-group');
     if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
+    if (formatGroup) formatGroup.style.display = isNumbered ? 'block' : 'none';
     if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
+
+    // === Формат номера ===
+    const formatBtns = document.querySelectorAll('#number-format-group .toggle-btn');
+    const currentFormat = s.numberFormat || 'padded';
+    formatBtns.forEach(fb => {
+        fb.classList.toggle('active', fb.dataset.format === currentFormat);
+        fb.onclick = () => {
+            formatBtns.forEach(b => b.classList.remove('active'));
+            fb.classList.add('active');
+            s.numberFormat = fb.dataset.format;
+        };
+    });
 
     // === Номер начала ===
     const startInput = document.getElementById('list-start-number');
     if (startInput) {
-        startInput.value = s.startNumber || 1;
+        startInput.value = s.startNumber != null ? s.startNumber : 1;
     }
 
     // === Иконки буллетов ===
@@ -1303,7 +1590,10 @@ function openListEditor(blockId) {
         const activeType = modal.querySelector('.toggle-buttons .toggle-btn.active');
         s.listStyle = activeType ? activeType.dataset.value : 'bullets';
         s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
-        s.startNumber = parseInt(document.getElementById('list-start-number').value) || 1;
+        const startRaw = parseInt(document.getElementById('list-start-number').value);
+        s.startNumber = isNaN(startRaw) ? 1 : startRaw;
+        const activeFormat = document.querySelector('#number-format-group .toggle-btn.active');
+        s.numberFormat = activeFormat ? activeFormat.dataset.format : 'padded';
 
         // Собираем элементы — plain text из <input>, проводим через TextSanitizer
         const editor = document.getElementById('list-items-editor');
@@ -1321,7 +1611,7 @@ function openListEditor(blockId) {
         }
 
         // Перерендериваем буллеты
-        if (s.listStyle === 'numbered' && typeof renderListBulletsToDataUrls === 'function') {
+        if (typeof renderListBulletsToDataUrls === 'function') {
             renderListBulletsToDataUrls(block, () => {
                 renderUserCanvas();
             });
@@ -1344,13 +1634,17 @@ function renderBulletIconsGrid(selectedId) {
 
     const bullets = window.BULLET_TYPES || [];
 
-    grid.innerHTML = bullets.map(bullet => `
-        <div class="bullet-icon-item ${bullet.id === selectedId ? 'selected' : ''}"
-             data-id="${TextSanitizer.escapeHTML(bullet.id)}"
+    grid.innerHTML = bullets.map(bullet => {
+        const bulletKey = bullet.id || bullet.src || '';
+        const isSelected = bulletKey === selectedId || bullet.src === selectedId;
+        return `
+        <div class="bullet-icon-item ${isSelected ? 'selected' : ''}"
+             data-id="${TextSanitizer.escapeHTML(bulletKey)}"
              data-src="${TextSanitizer.escapeHTML(bullet.src)}">
             <img src="${TextSanitizer.escapeHTML(bullet.src)}" alt="${TextSanitizer.escapeHTML(bullet.name || '')}">
         </div>
-    `).join('');
+    `;
+    }).join('');
 
     // Обработчики кликов
     grid.querySelectorAll('.bullet-icon-item').forEach(item => {
@@ -1389,6 +1683,192 @@ function renderListItemsEditor(items) {
             } else {
                 alert('Должен остаться хотя бы один пункт');
             }
+        });
+    });
+}
+
+/**
+ * Открыть редактор таблицы (заголовок + колонки + строки)
+ */
+function openTableEditor(blockId) {
+    const block = findBlockById(UserAppState.blocks, blockId);
+    if (!block) return;
+
+    const modal = document.getElementById('table-editor-modal');
+    if (!modal) return;
+
+    const s = block.settings;
+    modal.dataset.blockId = blockId;
+
+    const titleInput = document.getElementById('table-title-input');
+    if (titleInput) titleInput.value = TextSanitizer.toPlainText(s.title || '');
+
+    // Рабочий черновик редактора — мутируется на месте, применяется в block.settings
+    // только по кнопке «Применить».
+    const draft = {
+        columns: [...(s.columns || [])],
+        rows: (s.rows || []).map(r => [...r])
+    };
+
+    const redraw = () => {
+        renderTableColumnsEditor(draft, redraw);
+        renderTableRowsEditor(draft, redraw);
+    };
+    redraw();
+
+    document.getElementById('btn-add-table-column').onclick = () => {
+        draft.columns.push(`Колонка ${draft.columns.length + 1}`);
+        draft.rows.forEach(r => r.push(''));
+        redraw();
+    };
+
+    document.getElementById('btn-add-table-row').onclick = () => {
+        draft.rows.push(draft.columns.map(() => ''));
+        redraw();
+    };
+
+    document.getElementById('btn-apply-table').onclick = () => {
+        pushUndoState();
+
+        // Заголовок плашки рисуется как обычный текст в <canvas> (не HTML),
+        // поэтому хранится и остаётся plain text — без sanitize/applyTypography.
+        const newTitle = (titleInput?.value || '').trim();
+        const titleChanged = newTitle !== (s.title || '');
+
+        s.title = newTitle;
+        s.columns = draft.columns.map(c => TextSanitizer.applyTypography(TextSanitizer.sanitize((c || '').trim(), true)));
+        s.rows = draft.rows.map(row => row.map(cell => TextSanitizer.applyTypography(TextSanitizer.sanitize((cell || '').trim(), true))));
+
+        UserAppState.isDirty = true;
+
+        if (titleChanged && typeof renderTableTitleToDataUrl === 'function') {
+            renderTableTitleToDataUrl(block, (dataUrl) => {
+                s.renderedTitleBar = dataUrl || null;
+                renderUserCanvas();
+            });
+        } else {
+            renderUserCanvas();
+        }
+
+        modal.style.display = 'none';
+    };
+
+    modal.style.display = 'flex';
+}
+
+/**
+ * Рендер редактора колонок таблицы. Мутирует draft на месте; onRedraw()
+ * вызывается после структурных изменений (удаление колонки также подрезает
+ * draft.rows), т.к. это требует перерисовать и редактор строк.
+ */
+function renderTableColumnsEditor(draft, onRedraw) {
+    const editor = document.getElementById('table-columns-editor');
+    if (!editor) return;
+
+    editor.innerHTML = draft.columns.map((col, index) => `
+        <div class="list-item-row" data-index="${index}">
+            <input type="text" value="${escapeHtmlAttr(TextSanitizer.toPlainText(col || ''))}" placeholder="Название колонки...">
+            <button type="button" class="btn-delete-item" title="Удалить колонку">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+
+    editor.querySelectorAll('.list-item-row input').forEach((input, index) => {
+        input.addEventListener('input', () => {
+            draft.columns[index] = input.value;
+        });
+    });
+
+    editor.querySelectorAll('.btn-delete-item').forEach((btn, index) => {
+        btn.addEventListener('click', () => {
+            if (draft.columns.length <= 1) {
+                alert('Должна остаться хотя бы одна колонка');
+                return;
+            }
+            draft.columns.splice(index, 1);
+            draft.rows.forEach(r => r.splice(index, 1));
+            onRedraw();
+        });
+    });
+}
+
+/**
+ * Рендер редактора строк таблицы: для каждой строки — по одному текстовому
+ * полю на каждую текущую колонку draft.columns. Мутирует draft на месте.
+ */
+function renderTableRowsEditor(draft, onRedraw) {
+    const editor = document.getElementById('table-rows-editor');
+    if (!editor) return;
+
+    editor.innerHTML = draft.rows.map((row, rowIndex) => `
+        <div class="list-item-row" data-index="${rowIndex}" style="flex-direction:column; align-items:stretch; gap:6px;">
+            ${draft.columns.map((col, colIndex) => `
+                <div style="display:flex; gap:4px;">
+                    <input type="text"
+                           data-row="${rowIndex}" data-col="${colIndex}"
+                           value="${escapeHtmlAttr(TextSanitizer.toPlainText(row[colIndex] || ''))}"
+                           placeholder="${escapeHtmlAttr(TextSanitizer.toPlainText(col || '') || `Колонка ${colIndex + 1}`)}"
+                           style="flex:1;">
+                    <button type="button" class="btn-make-link" title="Сделать выделенный текст ссылкой"
+                            data-row="${rowIndex}" data-col="${colIndex}">🔗</button>
+                </div>
+            `).join('')}
+            <button type="button" class="btn-delete-item" title="Удалить строку" data-row-index="${rowIndex}">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="18" y1="6" x2="6" y2="18"></line>
+                    <line x1="6" y1="6" x2="18" y2="18"></line>
+                </svg>
+            </button>
+        </div>
+    `).join('');
+
+    editor.querySelectorAll('input[data-row]').forEach(input => {
+        input.addEventListener('input', () => {
+            const r = Number(input.dataset.row);
+            const c = Number(input.dataset.col);
+            draft.rows[r][c] = input.value;
+        });
+    });
+
+    // Кнопка "Сделать ссылкой" — та же логика, что у блока "Список"
+    // (openListEditor): выделяем текст в поле → оборачиваем в [текст](url).
+    editor.querySelectorAll('.btn-make-link').forEach(btn => {
+        btn.addEventListener('click', () => {
+            const r = Number(btn.dataset.row);
+            const c = Number(btn.dataset.col);
+            const input = editor.querySelector(`input[data-row="${r}"][data-col="${c}"]`);
+            if (!input) return;
+
+            const start = input.selectionStart;
+            const end = input.selectionEnd;
+            if (start === end) {
+                if (typeof Toast !== 'undefined') Toast.warning('Сначала выделите текст в поле.');
+                else alert('Сначала выделите текст в поле.');
+                return;
+            }
+
+            const selected = input.value.slice(start, end);
+            const url = prompt('Введите ссылку (https://… или mailto:…):');
+            if (!url) return;
+
+            const newValue = input.value.slice(0, start) + `[${selected}](${url})` + input.value.slice(end);
+            input.value = newValue;
+            draft.rows[r][c] = newValue;
+        });
+    });
+
+    editor.querySelectorAll('.btn-delete-item').forEach(btn => {
+        btn.addEventListener('click', () => {
+            if (draft.rows.length <= 1) {
+                alert('Должна остаться хотя бы одна строка');
+                return;
+            }
+            draft.rows.splice(Number(btn.dataset.rowIndex), 1);
+            onRedraw();
         });
     });
 }
@@ -1753,4 +2233,268 @@ function updateExpertPreview(s) {
             ` : ''}
         </div>
     `;
+}
+
+// ── Редактор свободного блока (user-версия) ───────────────────────────────
+
+function openCanvasEditor(blockId) {
+    const block = findBlockById(UserAppState.blocks, blockId);
+    if (!block) return;
+    const s = block.settings || {};
+    const elements = Array.isArray(s.freeElements) ? s.freeElements : [];
+
+    const modal = document.getElementById('canvas-editor-modal');
+    const body  = document.getElementById('canvas-editor-body');
+    if (!modal || !body) return;
+    modal.dataset.blockId = String(blockId);
+
+    // Рабочая копия — применяется только по кнопке «Применить»
+    const draft = {
+        bgEnabled: s.bgEnabled !== false,
+        bgColor:   s.bgColor || '#1D2533',
+        elements:  JSON.parse(JSON.stringify(elements))
+    };
+
+    function rebuild() {
+        body.innerHTML = '';
+
+        // ── Фон ─────────────────────────────────────────────────────────
+        const bgSection = document.createElement('div');
+        bgSection.className = 'form-group';
+        bgSection.style.cssText = 'display:flex;flex-direction:column;gap:8px;';
+
+        const bgRow = document.createElement('div');
+        bgRow.style.cssText = 'display:flex;align-items:center;gap:10px;';
+        const bgLbl = document.createElement('span');
+        bgLbl.textContent = 'Фон';
+        bgLbl.style.cssText = 'font-size:13px;font-weight:500;flex:1;';
+
+        const bgToggle = document.createElement('button');
+        bgToggle.type = 'button';
+        bgToggle.textContent = draft.bgEnabled ? 'Вкл' : 'Выкл';
+        bgToggle.style.cssText = `padding:4px 12px;border-radius:6px;font-size:12px;cursor:pointer;border:1px solid ${draft.bgEnabled?'var(--accent-primary)':'var(--border-secondary)'};background:${draft.bgEnabled?'rgba(168,85,247,0.15)':'transparent'};color:var(--text-secondary);`;
+        bgToggle.addEventListener('click', () => { draft.bgEnabled = !draft.bgEnabled; rebuild(); });
+
+        bgRow.appendChild(bgLbl);
+        bgRow.appendChild(bgToggle);
+
+        if (draft.bgEnabled) {
+            const colorBtn = document.createElement('button');
+            colorBtn.type = 'button';
+            colorBtn.style.cssText = `width:32px;height:32px;border-radius:6px;border:2px solid var(--border-secondary);background:${draft.bgColor};cursor:pointer;flex-shrink:0;`;
+            colorBtn.addEventListener('click', () => pickColor({
+                title: 'Цвет фона',
+                currentColor: draft.bgColor,
+                allowTransparent: false,
+                onApply: c => { draft.bgColor = c; colorBtn.style.background = c; }
+            }));
+            bgRow.appendChild(colorBtn);
+        }
+        bgSection.appendChild(bgRow);
+        body.appendChild(bgSection);
+
+        if (!elements.length) return;
+
+        // ── Разделитель ──────────────────────────────────────────────────
+        const sep = document.createElement('div');
+        sep.style.cssText = 'height:1px;background:var(--border-primary);margin:2px 0;';
+        body.appendChild(sep);
+
+        // ── Элементы ─────────────────────────────────────────────────────
+        const TYPE_NAMES = { text: 'Текст', shape: 'Фигура', line: 'Линия', image: 'Картинка' };
+
+        draft.elements.forEach((el, idx) => {
+            if (el.visible === false) return;
+
+            const section = document.createElement('div');
+            section.style.cssText = 'display:flex;flex-direction:column;gap:8px;padding:10px;background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:8px;';
+
+            const title = document.createElement('div');
+            title.style.cssText = 'font-size:12px;font-weight:600;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;';
+            title.textContent = TYPE_NAMES[el.type] || el.type;
+            section.appendChild(title);
+
+            const mkRow = (labelText, inputEl) => {
+                const row = document.createElement('div');
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                const lbl = document.createElement('span');
+                lbl.textContent = labelText;
+                lbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                row.appendChild(lbl);
+                row.appendChild(inputEl);
+                return row;
+            };
+
+            const mkNum = (val, min, max, onChange) => {
+                const inp = document.createElement('input');
+                inp.type = 'number'; inp.value = Math.round(val ?? 0);
+                inp.min = min; inp.max = max;
+                inp.style.cssText = 'flex:1;padding:5px 7px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-input);color:var(--text-secondary);font-size:12px;';
+                inp.addEventListener('change', () => onChange(parseFloat(inp.value)||0));
+                return inp;
+            };
+
+            const mkColorBtn = (val, onChange) => {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.style.cssText = `width:36px;height:28px;border-radius:4px;border:1px solid var(--border-secondary);background:${val||'#ffffff'};cursor:pointer;flex-shrink:0;`;
+                btn.addEventListener('click', () => pickColor({
+                    title: 'Цвет',
+                    currentColor: val || '#ffffff',
+                    allowTransparent: false,
+                    onApply: c => { btn.style.background = c; onChange(c); }
+                }));
+                return btn;
+            };
+
+            // ── TEXT ────────────────────────────────────────────────────
+            if (el.type === 'text' || el.type === 'heading') {
+                const preview = (el.text || '').slice(0, 30) + ((el.text||'').length > 30 ? '…' : '');
+                title.textContent = (TYPE_NAMES.text) + (preview ? `: "${preview}"` : '');
+
+                const ta = document.createElement('textarea');
+                ta.value = el.text || ''; ta.rows = 2;
+                ta.style.cssText = 'width:100%;padding:6px;border-radius:4px;border:1px solid var(--border-secondary);background:var(--bg-input);color:var(--text-secondary);font-size:12px;resize:vertical;box-sizing:border-box;';
+                ta.addEventListener('input', () => { el.text = ta.value; });
+                section.appendChild(ta);
+
+                const colorRow = mkRow('Цвет', mkColorBtn(el.color || '#ffffff', c => { el.color = c; }));
+                section.appendChild(colorRow);
+            }
+
+            // ── SHAPE ───────────────────────────────────────────────────
+            if (el.type === 'shape') {
+                section.appendChild(mkRow('Цвет', mkColorBtn(el.bgColor || '#a855f7', c => { el.bgColor = c; })));
+
+                const xyRow = document.createElement('div');
+                xyRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+                xyRow.appendChild(mkRow('X', mkNum(el.x, -600, 1200, v => { el.x = v; })));
+                xyRow.appendChild(mkRow('Y', mkNum(el.y, -600, 1200, v => { el.y = v; })));
+                section.appendChild(xyRow);
+
+                const whRow = document.createElement('div');
+                whRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+                whRow.appendChild(mkRow('W', mkNum(el.w, 1, 600, v => { el.w = v; })));
+                whRow.appendChild(mkRow('H', mkNum(el.h, 1, 600, v => { el.h = v; })));
+                section.appendChild(whRow);
+
+                const rotRow = document.createElement('div');
+                rotRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                const rotLbl = document.createElement('span');
+                rotLbl.textContent = 'Поворот';
+                rotLbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                const rotRange = document.createElement('input');
+                rotRange.type = 'range'; rotRange.min = -180; rotRange.max = 180; rotRange.value = el.rotation || 0;
+                rotRange.style.cssText = 'flex:1;accent-color:var(--accent-primary);';
+                const rotVal = document.createElement('span');
+                rotVal.textContent = (el.rotation||0) + '°';
+                rotVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:30px;text-align:right;';
+                rotRange.addEventListener('input', () => { el.rotation = Number(rotRange.value); rotVal.textContent = el.rotation + '°'; });
+                rotRow.appendChild(rotLbl); rotRow.appendChild(rotRange); rotRow.appendChild(rotVal);
+                section.appendChild(rotRow);
+
+                if ((el.clipPath || 'none') === 'none') {
+                    const brRow = document.createElement('div');
+                    brRow.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                    const brLbl = document.createElement('span');
+                    brLbl.textContent = 'Скругл.';
+                    brLbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                    const brRange = document.createElement('input');
+                    brRange.type = 'range'; brRange.min = 0; brRange.max = 100; brRange.value = el.borderRadius || 0;
+                    brRange.style.cssText = 'flex:1;accent-color:var(--accent-primary);';
+                    const brVal = document.createElement('span');
+                    brVal.textContent = (el.borderRadius||0) + 'px';
+                    brVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:30px;text-align:right;';
+                    brRange.addEventListener('input', () => { el.borderRadius = Number(brRange.value); brVal.textContent = el.borderRadius + 'px'; });
+                    brRow.appendChild(brLbl); brRow.appendChild(brRange); brRow.appendChild(brVal);
+                    section.appendChild(brRow);
+                }
+            }
+
+            // ── LINE ────────────────────────────────────────────────────
+            if (el.type === 'line') {
+                section.appendChild(mkRow('Цвет', mkColorBtn(el.color || '#e5e7eb', c => { el.color = c; })));
+
+                const posRow = document.createElement('div');
+                posRow.style.cssText = 'display:grid;grid-template-columns:1fr 1fr;gap:6px;';
+                posRow.appendChild(mkRow('X', mkNum(el.x, 0, 600, v => { el.x = v; })));
+                posRow.appendChild(mkRow('Y', mkNum(el.y, 0, 600, v => { el.y = v; })));
+                section.appendChild(posRow);
+
+                section.appendChild(mkRow('Ширина', mkNum(el.w, 1, 600, v => { el.w = v; })));
+                section.appendChild(mkRow('Толщина', mkNum(el.h || 2, 1, 20, v => { el.h = v; })));
+
+                const rotRow2 = document.createElement('div');
+                rotRow2.style.cssText = 'display:flex;align-items:center;gap:8px;';
+                const rLbl = document.createElement('span');
+                rLbl.textContent = 'Поворот';
+                rLbl.style.cssText = 'font-size:12px;color:var(--text-muted);min-width:60px;flex-shrink:0;';
+                const rRange = document.createElement('input');
+                rRange.type = 'range'; rRange.min = -180; rRange.max = 180; rRange.value = el.rotation || 0;
+                rRange.style.cssText = 'flex:1;accent-color:var(--accent-primary);';
+                const rVal = document.createElement('span');
+                rVal.textContent = (el.rotation||0) + '°';
+                rVal.style.cssText = 'font-size:11px;color:var(--text-muted);min-width:30px;text-align:right;';
+                rRange.addEventListener('input', () => { el.rotation = Number(rRange.value); rVal.textContent = el.rotation + '°'; });
+                rotRow2.appendChild(rLbl); rotRow2.appendChild(rRange); rotRow2.appendChild(rVal);
+                section.appendChild(rotRow2);
+            }
+
+            // ── IMAGE ───────────────────────────────────────────────────
+            if (el.type === 'image') {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file'; fileInput.accept = 'image/*'; fileInput.style.display = 'none';
+                fileInput.addEventListener('change', ev => {
+                    const file = ev.target.files?.[0]; if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = le => {
+                        el.src = le.target.result;
+                        if (thumb) { thumb.src = el.src; thumb.style.display = 'block'; }
+                    };
+                    reader.readAsDataURL(file); ev.target.value = '';
+                });
+
+                const fileBtn = document.createElement('button');
+                fileBtn.type = 'button'; fileBtn.textContent = '📁 Заменить картинку';
+                fileBtn.style.cssText = 'width:100%;padding:7px 10px;background:var(--bg-hover);border:1px solid var(--border-secondary);border-radius:6px;color:var(--text-secondary);cursor:pointer;font-size:12px;';
+                fileBtn.addEventListener('click', () => fileInput.click());
+                section.appendChild(fileBtn);
+                section.appendChild(fileInput);
+
+                let thumb = null;
+                if (el.src) {
+                    thumb = document.createElement('img');
+                    thumb.src = el.src;
+                    thumb.style.cssText = 'width:100%;max-height:80px;object-fit:contain;border-radius:6px;border:1px solid var(--border-secondary);background:#1a1a2e;display:block;';
+                    section.appendChild(thumb);
+                }
+            }
+
+            body.appendChild(section);
+        });
+    }
+
+    rebuild();
+
+    // ── Apply ─────────────────────────────────────────────────────────
+    document.getElementById('btn-apply-canvas').onclick = () => {
+        pushUndoState();
+        const b = findBlockById(UserAppState.blocks, blockId);
+        if (!b) { modal.style.display = 'none'; return; }
+        b.settings.bgEnabled = draft.bgEnabled;
+        b.settings.bgColor   = draft.bgColor;
+        draft.elements.forEach(de => {
+            const orig = (b.settings.freeElements || []).find(e => e.id === de.id);
+            if (orig) Object.assign(orig, de);
+        });
+        b.settings.renderedCanvas = null; // сбрасываем PNG — перерисуем
+        _canvasRenderTriedIds.delete(b.id); // разрешаем повторный рендер
+        renderUserCanvas();
+        modal.style.display = 'none';
+    };
+
+    modal.style.display = 'flex';
+    modal.querySelectorAll('.modal-close, .modal-overlay').forEach(el => {
+        el.onclick = () => (modal.style.display = 'none');
+    });
 }

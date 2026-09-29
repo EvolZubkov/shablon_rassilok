@@ -21,6 +21,13 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     try {
+        await ProfileLoader.load();
+        jslog('log', '[INIT] Profile loaded OK');
+    } catch (e) {
+        jslog('error', '[INIT] ProfileLoader.load() threw: ' + e);
+    }
+
+    try {
         init();
     } catch (e) {
         jslog('error', '[INIT] init() threw: ' + e);
@@ -42,6 +49,8 @@ function init() {
     setupDownloadButton();
     setupCanvas();
     setupAdminUndo();
+    setupBlockClipboardShortcuts();
+    setupCopyHtmlShortcut();
     
     // Инициализация библиотеки шаблонов
     if (typeof TemplatesUI !== 'undefined') {
@@ -65,14 +74,68 @@ function setupAdminShell() {
     setupSidebarSearch();
     setupCanvasContextTracking();
     setupInlinePresetLibrary();
+    setupReviewJsonImport();
+}
+
+function setupReviewJsonImport() {
+    const input = document.getElementById('review-json-input');
+    if (!input) return;
+    input.addEventListener('change', (e) => {
+        const file = e.target.files?.[0];
+        if (file) _loadReviewJsonAdmin(file);
+        input.value = '';
+    });
+}
+
+async function _loadReviewJsonAdmin(file) {
+    if (!file.name.endsWith('.json')) {
+        if (typeof Toast !== 'undefined') Toast.error('Ожидается файл .json');
+        return;
+    }
+    let payload;
+    try {
+        const text = await file.text();
+        payload = JSON.parse(text);
+    } catch {
+        if (typeof Toast !== 'undefined') Toast.error('Не удалось прочитать JSON файл');
+        return;
+    }
+    const blocks = Array.isArray(payload) ? payload : payload.blocks;
+    if (!Array.isArray(blocks) || !blocks.length) {
+        if (typeof Toast !== 'undefined') Toast.error('Файл не содержит блоков шаблона');
+        return;
+    }
+    if (AppState.blocks?.length) {
+        const ok = confirm('Открыть шаблон из файла согласования?\nТекущие несохранённые изменения будут потеряны.');
+        if (!ok) return;
+    }
+    AppState.blocks = JSON.parse(JSON.stringify(blocks));
+    AppState.selectedBlockId = null;
+    if (payload.subject && window.TemplatesUI?.currentTemplate) {
+        window.TemplatesUI.currentTemplate.name = payload.subject;
+    }
+    renderCanvas();
+    renderSettings();
+    const label = payload.subject ? `«${payload.subject}»` : 'шаблон';
+    if (typeof Toast !== 'undefined') Toast.success(`Открыт ${label} для редактирования`);
 }
 
 function setupBlockButtons() {
     const blockButtons = document.querySelectorAll('.block-btn');
-    
+
     blockButtons.forEach(btn => {
+        const blockType = btn.dataset.blockType;
+
+        // Скрываем блоки, отключённые в текущем профиле
+        if (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded) {
+            if (!ProfileLoader.isBlockEnabled(blockType)) {
+                btn.style.display = 'none';
+                btn.dataset.profileHidden = 'true';
+                return;
+            }
+        }
+
         btn.addEventListener('click', () => {
-            const blockType = btn.dataset.blockType;
             addBlock(blockType);
         });
     });
@@ -206,7 +269,7 @@ function setupAdminMenu() {
             const action = item.dataset.action;
             switch (action) {
                 case 'save':
-                    document.getElementById('btn-save-template')?.click();
+                    window.saveOrOverwriteCurrentTemplate?.();
                     break;
                 case 'save-as':
                     document.getElementById('btn-save-as-template')?.click();
@@ -216,6 +279,9 @@ function setupAdminMenu() {
                     break;
                 case 'create-meeting':
                     document.getElementById('btn-create-meeting')?.click();
+                    break;
+                case 'open-review-json':
+                    document.getElementById('review-json-input')?.click();
                     break;
                 case 'settings':
                     document.getElementById('btn-exchange-settings')?.click();
@@ -353,6 +419,7 @@ function applySidebarSearchFilter() {
 
     if (activePanel === 'blocks') {
         document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
+            if (el.dataset.profileHidden) return; // не трогаем заблокированные профилем
             const match = !query || el.textContent.toLowerCase().includes(query);
             el.style.display = match ? '' : 'none';
         });
@@ -481,20 +548,24 @@ async function setupInlinePresetLibrary() {
     };
 }
 
-// Функция скачивания HTML
+/**
+ * Ctrl+Alt+H — скопировать финальный HTML письма (тот же generateEmailHTML(),
+ * что уходит в письмо) в буфер обмена.
+ * Ctrl+Alt+S — скачать его файлом «<Название рассылки>.html».
+ *
+ * Реализация — в shared/utils.js (setupEmailHtmlShortcuts / copyTextRobust /
+ * downloadEmailHtml), чтобы одинаково работало в admin и user режимах,
+ * в браузере и в десктопной оболочке (QtWebEngine).
+ */
+function setupCopyHtmlShortcut() {
+    setupEmailHtmlShortcuts(() => generateEmailHTML());
+}
+
+// Функция скачивания HTML (кнопка «Скачать» в тулбаре)
 async function downloadEmail() {
     console.log('[*] Генерация HTML для скачивания...');
-    
     const html = await generateEmailHTML();
-    const blob = new Blob([html], { type: 'text/html; charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = 'email.html';
-    a.click();
-    
-    URL.revokeObjectURL(url);
+    downloadEmailHtml(html);
     console.log('✓ HTML файл скачан');
 }
 
@@ -518,6 +589,28 @@ function setupAdminUndo() {
         renderCanvas();
         renderSettings();
         showAdminUndoToast();
+    });
+}
+
+/**
+ * Ctrl+C/Ctrl+V для копирования/вставки блоков холста (одиночного выделения
+ * или мультивыбора — Ctrl/Shift-клик). Тот же guard на текстовые поля, что и
+ * у setupAdminUndo() выше — иначе сломаем нативный copy/paste текста внутри
+ * текстовых блоков и обычных input/textarea. Сама логика копирования/вставки —
+ * в blockOperations.js (copySelectedBlocksToClipboard/pasteBlocksFromClipboard).
+ */
+function setupBlockClipboardShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        if (!(e.ctrlKey || e.metaKey)) return;
+        if (e.code !== 'KeyC' && e.code !== 'KeyV') return;
+
+        const el = document.activeElement;
+        const tag = el?.tagName?.toLowerCase();
+        if (el?.isContentEditable || tag === 'input' || tag === 'textarea') return;
+
+        e.preventDefault();
+        if (e.code === 'KeyC') copySelectedBlocksToClipboard();
+        else pasteBlocksFromClipboard();
     });
 }
 

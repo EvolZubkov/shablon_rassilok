@@ -14,7 +14,7 @@ function splitBlockIntoColumns(blockId) {
     const containerBlock = {
         id: AppState.getNextBlockId(),
         type: 'columns_container',
-        settings: {},
+        settings: { bgEnabled: false, bgColor: '#1e293b', bgRadius: 8, bgPadding: 16 },
         columns: []
     };
 

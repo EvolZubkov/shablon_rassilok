@@ -230,6 +230,42 @@ class TestLoadConfig:
         assert config.get('banners') == ['banner1']
 
 
+class TestPruneMissingResources:
+    """Тесты фильтрации записей config.json, ссылающихся на несуществующие файлы"""
+
+    def test_keeps_entry_when_file_exists_in_cache(self):
+        divider_dir = os.path.join(FAKE_CACHE, 'dividers')
+        os.makedirs(divider_dir, exist_ok=True)
+        real_file = os.path.join(divider_dir, 'real.png')
+        with open(real_file, 'wb') as f:
+            f.write(b'fake-png-bytes')
+
+        config = {'dividers': [{'id': 'd1', 'src': 'dividers/real.png', 'label': 'Real'}]}
+        result = email_app._prune_missing_resources(config)
+        assert result['dividers'] == [{'id': 'd1', 'src': 'dividers/real.png', 'label': 'Real'}]
+
+    def test_drops_entry_when_file_missing_everywhere(self):
+        config = {'dividers': [{'id': 'd2', 'src': 'dividers/ghost.png', 'label': 'Ghost'}]}
+        result = email_app._prune_missing_resources(config)
+        assert result['dividers'] == []
+
+    def test_keeps_entry_without_src(self):
+        config = {'buttonIcons': [{'id': 'none', 'label': 'Без иконки'}]}
+        result = email_app._prune_missing_resources(config)
+        assert result['buttonIcons'] == [{'id': 'none', 'label': 'Без иконки'}]
+
+    def test_keeps_cache_prefixed_and_user_resource_entries_without_disk_check(self):
+        config = {
+            'dividers': [
+                {'id': 'd3', 'src': '/cache/dividers/whatever.png', 'label': 'Shared'},
+                {'id': 'd4', 'src': '/api/user-resources/file/dividers/mine.png', 'label': 'Mine',
+                 'userOwned': True},
+            ]
+        }
+        result = email_app._prune_missing_resources(config)
+        assert len(result['dividers']) == 2
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # ТЕСТЫ: Flask Routes
 # ─────────────────────────────────────────────────────────────────────────────
