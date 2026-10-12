@@ -21,6 +21,7 @@ import os
 import queue
 import re
 import threading
+import unicodedata
 import uuid
 
 _logger = logging.getLogger(__name__)
@@ -407,28 +408,100 @@ def api_bulk_send_cancel(job_id):
 
 # ── Background worker ─────────────────────────────────────────────────────────
 
-def _resolve_attachment(folder: str, filename_tpl: str, mapping: dict, row: dict) -> str | None:
-    """Return the full path to an attachment file, or None if not found/not configured."""
-    if not folder or not filename_tpl:
-        _logger.warning('bulk_send: attach folder/template empty: folder=%r filename_tpl=%r', folder, filename_tpl)
+def _normalize_filename(name: str) -> str:
+    """Key for tolerant file-name comparison: NFC, case-folded, ё→е, single spaces."""
+    text = unicodedata.normalize('NFC', name).casefold().replace('ё', 'е')
+    return re.sub(r'\s+', ' ', text).strip()
+
+
+def _substitute_by_column_name(text: str, row: dict) -> str:
+    """Replace remaining ``{{Column}}`` with the row value of the column with that
+    name (case-, ё/е- and space-insensitive). Unknown placeholders stay as is."""
+    by_name = {_normalize_filename(str(col)): value for col, value in row.items()}
+
+    def _replace(match: re.Match) -> str:
+        key = _normalize_filename(match.group(1))
+        if key not in by_name:
+            return match.group(0)
+        return str(by_name[key] if by_name[key] is not None else '')
+
+    return re.sub(r'\{\{([^{}]+)\}\}', _replace, text)
+
+
+def _list_files(folder: str, cache: dict | None = None) -> list[str]:
+    """File names in ``folder``; with ``cache`` the folder is listed once per job."""
+    if cache is not None and folder in cache:
+        return cache[folder]
+    try:
+        names = [n for n in os.listdir(folder) if os.path.isfile(os.path.join(folder, n))]
+    except OSError:
+        names = []
+    if cache is not None:
+        cache[folder] = names
+    return names
+
+
+def _find_file_tolerant(folder: str, fname: str, cache: dict | None = None) -> str | None:
+    """Exact match first; otherwise compare names ignoring case, ё/е, Unicode
+    form (NFC/NFD) and repeated/trailing spaces — typical differences between
+    a spreadsheet cell and the real file name.
+
+    A cell without extension ("Условия активации") matches by file stem, but only
+    when exactly one file has that stem: with several (``.docx`` and ``.pdf``)
+    the choice is ambiguous and nothing is attached rather than the wrong file.
+    """
+    exact = os.path.join(folder, fname)
+    if os.path.isfile(exact):
+        return exact
+    wanted = _normalize_filename(fname)
+    names = _list_files(folder, cache)
+    for name in names:
+        if _normalize_filename(name) == wanted:
+            return os.path.join(folder, name)
+    stem_matches = [n for n in names if _normalize_filename(os.path.splitext(n)[0]) == wanted]
+    if len(stem_matches) > 1:
+        _logger.warning('bulk_send: ambiguous attachment name %r in %r — candidates: %s',
+                        fname, folder, ', '.join(sorted(stem_matches)))
         return None
-    # Substitute placeholders in filename template (plain text, no HTML escape)
-    fname = filename_tpl
-    for ph, col in mapping.items():
-        fname = fname.replace(ph, str(row.get(col) or ''))
+    if stem_matches:
+        return os.path.join(folder, stem_matches[0])
+    return None
+
+
+def _resolve_attachment(folder: str, filename_tpl: str, mapping: dict, row: dict,
+                        column: str = '', dir_cache: dict | None = None) -> str | None:
+    """Return the full path to an attachment file, or None if not found/not configured.
+
+    The file name is taken from ``column`` of the row when given (mode "Колонка"),
+    otherwise from ``filename_tpl`` with ``{{placeholders}}`` substituted.
+    """
+    if not folder or not (column or filename_tpl):
+        _logger.warning('bulk_send: attach folder/name empty: folder=%r filename_tpl=%r column=%r',
+                        folder, filename_tpl, column)
+        return None
+    if column:
+        fname = str(row.get(column) or '').strip()
+    else:
+        # Substitute placeholders in filename template (plain text, no HTML escape)
+        fname = filename_tpl
+        for ph, col in mapping.items():
+            fname = fname.replace(ph, str(row.get(col) or ''))
+        # ``mapping`` holds only placeholders that occur in the letter body. A
+        # placeholder used only in the file-name template ({{Файл}}) is not in it —
+        # resolve it directly by column name.
+        fname = _substitute_by_column_name(fname, row)
     # Sanitize: remove characters that are illegal in filenames
     fname = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', fname)
-    path = os.path.join(folder, fname)
-    found = os.path.isfile(path)
+    if not fname:
+        _logger.warning('bulk_send: attachment name is empty (column=%r)', column)
+        return None
+    found = _find_file_tolerant(folder, fname, dir_cache)
     if not found:
-        # TEMP DEBUG (remove once root cause is confirmed) — dumps exact
-        # resolved values so a mismatch (quotes, trailing space, wrong
-        # mapping key, stale template) is visible instead of a silent None.
         _logger.warning(
-            'bulk_send: attachment NOT found — folder=%r filename_tpl=%r mapping=%r fname=%r path=%r',
-            folder, filename_tpl, mapping, fname, path,
+            'bulk_send: attachment NOT found — folder=%r filename_tpl=%r column=%r fname=%r',
+            folder, filename_tpl, column, fname,
         )
-    return path if found else None
+    return found
 
 
 def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
@@ -448,19 +521,33 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     importance     = str(data.get('importance')  or 'normal').lower()
     read_receipt   = bool(data.get('read_receipt'))
 
+    timezone = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
+
+    # Отложенная отправка. Любая ошибка настроек прерывает рассылку: тихое
+    # игнорирование отправило бы все письма сразу, а это не отменить.
     send_at = None
     send_at_raw = data.get('send_at', '')
     if send_at_raw:
+        schedule_error = None
         try:
             send_at = _m.parse_datetime(send_at_raw)
-            if send_at <= datetime.datetime.now():
-                q.put({'type': 'error',
-                       'message': 'Дата отложенной отправки должна быть в будущем'})
-                return
         except (ValueError, TypeError) as e:
             _logger.warning('bulk_send: invalid send_at %r: %s', send_at_raw, e)
+            schedule_error = 'Некорректная дата отложенной отправки'
+        if schedule_error is None and channel == 'smtp':
+            schedule_error = 'Отложенная отправка доступна только для канала Exchange'
+        if schedule_error is None and is_draft:
+            schedule_error = 'Черновики не отправляются по расписанию: снимите «Черновик» или отложенную отправку'
+        if schedule_error is None:
+            # send_at — местное время пользователя; сравниваем в UTC по его часовому поясу
+            send_at_utc = send_at - datetime.timedelta(hours=timezone)
+            now_utc = datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+            if send_at_utc <= now_utc:
+                schedule_error = 'Дата отложенной отправки должна быть в будущем'
+        if schedule_error:
+            q.put({'type': 'error', 'message': schedule_error})
+            return
 
-    timezone = float(data.get('timezone') if data.get('timezone') is not None else 3.0)
     total    = len(rows)
 
     # Attachment settings
@@ -468,6 +555,13 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     attach_folder   = data.get('attach_folder', '').strip()
     attach_tpl      = data.get('attach_template', '').strip()
     attach_missing  = data.get('attach_missing', 'send')   # send | skip | stop
+    # Mode "Колонка": file name comes from a table column instead of a template.
+    attach_column   = (data.get('attach_column') or '').strip() \
+        if data.get('attach_mode') == 'column' else ''
+    attach_dir_cache: dict = {}   # one folder listing per job, not per row
+    if attach_enabled:
+        _logger.info('bulk_send: attachments on — folder=%r mode=%r column=%r template=%r missing=%r',
+                     attach_folder, data.get('attach_mode'), attach_column, attach_tpl, attach_missing)
 
     # Prepare static CC / BCC once
     cc  = _m.parse_recipients([cc_raw])  if cc_raw  else []
@@ -529,8 +623,9 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
 
             # Resolve attachment
             attachments = []
-            if attach_enabled and attach_folder and attach_tpl:
-                attach_path = _resolve_attachment(attach_folder, attach_tpl, mapping, row)
+            if attach_enabled and attach_folder and (attach_tpl or attach_column):
+                attach_path = _resolve_attachment(
+                    attach_folder, attach_tpl, mapping, row, attach_column, attach_dir_cache)
                 if attach_path:
                     # exchange_send_email expects: {'name': str, 'content': base64str, 'mime_type': str}
                     try:

@@ -162,6 +162,12 @@ const TextSanitizer = (() => {
     const _EMAIL_STR_RE = /(^|[\s>])([a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,})(?=[<\s,;]|$)/g;
 
     // -------------------------------------------------------
+    /** Валидный цвет текста (#rrggbb) в нижнем регистре или '' — защита от инъекций в style. */
+    function _safeTextColor(value) {
+        const color = String(value || '').trim();
+        return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : '';
+    }
+
     // Внутренняя очистка DOM-дерева от запрещённых тегов/атрибутов
     // -------------------------------------------------------
     function _cleanNode(node, doc) {
@@ -174,6 +180,23 @@ const TextSanitizer = (() => {
         }
 
         const tag = node.tagName.toLowerCase();
+
+        // Цвет выделенного фрагмента: <span data-tc="#rrggbb" style="color:#rrggbb">.
+        // Только такие спаны (их создаёт кнопка «Цвет текста»), и только с валидным hex —
+        // цвета из вставленного Word/HTML по-прежнему отбрасываются.
+        if (tag === 'span' && node.hasAttribute('data-tc') && !node.classList.contains('bm-inline-ph')) {
+            const color = _safeTextColor(node.getAttribute('data-tc'));
+            if (color) {
+                const clean = doc.createElement('span');
+                clean.setAttribute('data-tc', color);
+                clean.setAttribute('style', `color:${color};`);
+                for (const child of node.childNodes) {
+                    const cleanChild = _cleanNode(child, doc);
+                    if (cleanChild) clean.appendChild(cleanChild);
+                }
+                return clean;
+            }
+        }
 
         // Preserve inline placeholder spans inserted by bulk-mail panel
         if (tag === 'span' && node.classList.contains('bm-inline-ph')) {

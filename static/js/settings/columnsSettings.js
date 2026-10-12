@@ -66,6 +66,7 @@ function renderTwoColumnWidths(container, block) {
         btn.addEventListener('click', () => {
             leftCol.width = preset.left;
             rightCol.width = preset.right;
+            block.settings.colWidthManual = true;
             info.textContent = `Левая: ${preset.left}% · Правая: ${preset.right}%`;
             renderCanvas();
             renderSettings();
@@ -99,6 +100,7 @@ function renderTwoColumnWidths(container, block) {
 
         leftCol.width = left;
         rightCol.width = right;
+        block.settings.colWidthManual = true;
         info.textContent = `Левая: ${left}% · Правая: ${right}%`;
 
         // Плавное обновление canvas (debounce)
@@ -179,6 +181,7 @@ function renderMultiColumnWidths(container, block) {
             if (val > maxAllowed) val = maxAllowed;
 
             col.width = val;
+            block.settings.colWidthManual = true;
             if (Number(e.target.value) !== val) input.value = val;
             renderSum();
 
@@ -210,6 +213,28 @@ function renderColumnsSettings(container, block) {
     } else {
         renderMultiColumnWidths(container, block);
     }
+
+    // Автоподгонка: кнопка в колонке не должна быть шире своей ячейки (иначе в
+    // письме она заезжает на соседнюю). Пока ширину не меняли вручную, письмо само
+    // расширяет такие колонки; ручное изменение ширины выше отключает подгонку.
+    const fitGroup = document.createElement('div');
+    fitGroup.className = 'setting-group';
+    const fitLabel = document.createElement('label');
+    fitLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:var(--text-secondary);';
+    const fitInput = document.createElement('input');
+    fitInput.type = 'checkbox';
+    fitInput.checked = block.settings.colWidthManual !== true;
+    fitInput.addEventListener('change', () => {
+        updateBlockSetting(block.id, 'colWidthManual', !fitInput.checked);
+        renderCanvas();
+        renderSettings();
+    });
+    const fitText = document.createElement('span');
+    fitText.textContent = 'Подгонять ширину колонок под кнопки. Если выключить, ширина берётся из значений выше как есть.';
+    fitLabel.appendChild(fitInput);
+    fitLabel.appendChild(fitText);
+    fitGroup.appendChild(fitLabel);
+    container.appendChild(fitGroup);
 
     // Vertical alignment of column content. 4-я кнопка "Индивидуально" —
     // это не значение colValign, а отдельный режим отображения панели:

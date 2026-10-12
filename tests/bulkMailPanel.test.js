@@ -374,3 +374,44 @@ describe('countUnmapped', () => {
         expect(countUnmapped([], {})).toBe(0);
     });
 });
+
+
+// ─── Плейсхолдеры из темы и имени файла + сохранение выбора пользователя ──────
+// Копия логики сопоставления из detectPlaceholders (bulk-mail-panel.js)
+
+function rebuildMapping(prevPlaceholders, prevMapping, found, headers) {
+    const mapping = {};
+    found.forEach(ph => {
+        const name = ph.slice(2, -2);
+        if (prevPlaceholders.includes(ph)) {
+            if (headers.includes(prevMapping[ph])) mapping[ph] = prevMapping[ph];
+        } else if (headers.includes(name)) {
+            mapping[ph] = name;
+        }
+    });
+    return mapping;
+}
+
+describe('rebuildMapping', () => {
+    const headers = ['ФИО', 'Промокод', 'Файл'];
+
+    test('автосопоставляет новый плейсхолдер из темы по имени колонки', () => {
+        expect(rebuildMapping([], {}, ['{{ФИО}}', '{{Файл}}'], headers))
+            .toEqual({ '{{ФИО}}': 'ФИО', '{{Файл}}': 'Файл' });
+    });
+
+    test('не сбрасывает ручной выбор пользователя при повторном поиске', () => {
+        const prev = { '{{ФИО}}': 'Промокод' };
+        expect(rebuildMapping(['{{ФИО}}'], prev, ['{{ФИО}}'], headers))
+            .toEqual({ '{{ФИО}}': 'Промокод' });
+    });
+
+    test('сохраняет осознанное «не задано» для уже известного плейсхолдера', () => {
+        expect(rebuildMapping(['{{ФИО}}'], {}, ['{{ФИО}}'], headers)).toEqual({});
+    });
+
+    test('отбрасывает выбор колонки, которой нет в новом файле', () => {
+        const prev = { '{{ФИО}}': 'Старая' };
+        expect(rebuildMapping(['{{ФИО}}'], prev, ['{{ФИО}}'], headers)).toEqual({});
+    });
+});
