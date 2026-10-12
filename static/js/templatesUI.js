@@ -1567,18 +1567,19 @@ function showSaveTemplateDialog() {
 
     const catLabel = document.createElement('label');
     catLabel.textContent = 'Категория';
-    catLabel.style.cssText = 'display:block;font-size:12px;color:#9ca3af;margin-bottom:6px;';
+    catLabel.style.cssText = 'display:block;font-size:12px;color:#9ca3af;margin-bottom:4px;';
     categorySection.appendChild(catLabel);
 
+    // Сетка 4px: все отступы и размеры кратны 4, зазор между соседями — 4px.
+    const CAT_CONTROL_STYLE = 'height:40px;box-sizing:border-box;border:1px solid #475569;border-radius:8px;font-size:12px;background:#0f172a;color:#e5e7eb;';
+    const CAT_BUTTON_STYLE = 'height:40px;box-sizing:border-box;padding:0 12px;border:none;border-radius:8px;background:#334155;color:#e5e7eb;font-size:12px;cursor:pointer;white-space:nowrap;';
+    const CAT_PRIMARY_BUTTON_STYLE = 'height:40px;box-sizing:border-box;padding:0 12px;border:none;border-radius:8px;background:#f97316;color:#fff;font-size:12px;cursor:pointer;white-space:nowrap;';
+
     const catRow = document.createElement('div');
-    catRow.style.cssText = 'display:flex;gap:8px;';
+    catRow.style.cssText = 'display:grid;grid-template-columns:1fr auto;gap:4px;';
 
     const categorySelect = document.createElement('select');
-    categorySelect.style.cssText = [
-        'flex:1;padding:9px 10px;',
-        'border:1px solid #475569;border-radius:6px;',
-        'font-size:13px;background:#0f172a;color:#e5e7eb;',
-    ].join('');
+    categorySelect.style.cssText = `${CAT_CONTROL_STYLE}padding:0 12px;min-width:0;`;
     const optNone = document.createElement('option');
     optNone.value = '';
     optNone.textContent = '— Без категории —';
@@ -1586,54 +1587,84 @@ function showSaveTemplateDialog() {
 
     const addCatBtn = document.createElement('button');
     addCatBtn.type = 'button';
-    addCatBtn.textContent = '+';
-    addCatBtn.title = 'Новая категория';
-    addCatBtn.style.cssText = 'padding:9px 14px;background:#334155;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:16px;';
+    addCatBtn.textContent = '+ Новая';
+    addCatBtn.title = 'Создать новую категорию';
+    addCatBtn.style.cssText = CAT_BUTTON_STYLE;
 
     catRow.appendChild(categorySelect);
     catRow.appendChild(addCatBtn);
     categorySection.appendChild(catRow);
 
-    // Поле для ввода новой категории (скрыто до нажатия +)
+    // Поле ввода новой категории (скрыто до нажатия «+ Новая»)
     const newCatRow = document.createElement('div');
-    newCatRow.style.cssText = 'display:none;margin-top:8px;display:none;gap:6px;';
+    newCatRow.style.cssText = 'display:none;grid-template-columns:1fr auto auto;gap:4px;margin-top:4px;';
 
     const newCatInput = document.createElement('input');
     newCatInput.type = 'text';
     newCatInput.placeholder = 'Название категории';
-    newCatInput.style.cssText = 'flex:1;padding:8px 10px;border:1px solid #475569;border-radius:6px;font-size:13px;background:#0f172a;color:#e5e7eb;';
+    newCatInput.maxLength = 60;
+    newCatInput.style.cssText = `${CAT_CONTROL_STYLE}padding:0 12px;min-width:0;`;
 
     const confirmCatBtn = document.createElement('button');
     confirmCatBtn.type = 'button';
-    confirmCatBtn.textContent = 'OK';
-    confirmCatBtn.style.cssText = 'padding:8px 14px;background:#334155;color:#e5e7eb;border:none;border-radius:6px;cursor:pointer;font-size:13px;';
+    confirmCatBtn.textContent = 'Создать';
+    confirmCatBtn.style.cssText = CAT_PRIMARY_BUTTON_STYLE;
+
+    const cancelCatBtn = document.createElement('button');
+    cancelCatBtn.type = 'button';
+    cancelCatBtn.textContent = 'Отмена';
+    cancelCatBtn.style.cssText = CAT_BUTTON_STYLE;
 
     newCatRow.appendChild(newCatInput);
     newCatRow.appendChild(confirmCatBtn);
+    newCatRow.appendChild(cancelCatBtn);
     categorySection.appendChild(newCatRow);
 
+    const closeNewCategoryRow = () => {
+        newCatInput.value = '';
+        newCatRow.style.display = 'none';
+        addCatBtn.style.display = '';
+    };
+
     addCatBtn.addEventListener('click', () => {
-        newCatRow.style.display = 'flex';
+        newCatRow.style.display = 'grid';
+        addCatBtn.style.display = 'none';
         newCatInput.focus();
     });
 
     const commitNewCategory = async () => {
         const trimmed = newCatInput.value.trim();
         if (!trimmed) return;
+
+        // Уже есть такая категория — просто выбираем её, не дублируем.
+        const existing = [...categorySelect.options].find(o => o.value === trimmed);
+        if (existing) {
+            categorySelect.value = trimmed;
+            closeNewCategoryRow();
+            return;
+        }
+
+        confirmCatBtn.disabled = true;
+        const saved = await TemplatesAPI.saveCategory(trimmed);
+        confirmCatBtn.disabled = false;
+        if (!saved) {
+            Toast.error('Не удалось создать категорию');
+            return;
+        }
+
         const option = document.createElement('option');
         option.value = trimmed;
         option.textContent = trimmed;
-        option.selected = true;
         categorySelect.appendChild(option);
-        await TemplatesAPI.saveCategory(trimmed);
-        newCatInput.value = '';
-        newCatRow.style.display = 'none';
+        categorySelect.value = trimmed;
+        closeNewCategoryRow();
     };
 
     confirmCatBtn.addEventListener('click', commitNewCategory);
+    cancelCatBtn.addEventListener('click', closeNewCategoryRow);
     newCatInput.addEventListener('keydown', (e) => {
         if (e.key === 'Enter') { e.preventDefault(); commitNewCategory(); }
-        if (e.key === 'Escape') { newCatRow.style.display = 'none'; }
+        if (e.key === 'Escape') { e.stopPropagation(); closeNewCategoryRow(); }
     });
 
     dialog.appendChild(categorySection);
@@ -1754,7 +1785,8 @@ function showSaveTemplateDialog() {
 async function loadCategories(selectElement) {
     try {
         const categories = await TemplatesAPI.getCategories();
-        categories.forEach(cat => {
+        const existing = new Set([...selectElement.options].map(o => o.value));
+        categories.filter(cat => !existing.has(cat)).forEach(cat => {
             const option = document.createElement('option');
             option.value = cat;
             option.textContent = cat;

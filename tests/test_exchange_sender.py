@@ -668,29 +668,48 @@ class TestDeferredDelivery:
             )
             instance.send.assert_called_once()
 
+    def test_send_at_is_submitted_not_saved_to_outbox(self):
+        """Отложенное письмо отправляется (send), а не сохраняется черновиком в Outbox:
+        сохранённый через save() черновик серверная очередь Exchange не подхватывает."""
+        account = self._make_account()
+        send_at = datetime.datetime(2026, 9, 1, 10, 0, 0)
+        sentinel = object()
+        with patch('exchange_sender.Message') as MockMsg,              patch('exchange_sender.HTMLBody'),              patch('exchange_sender._to_ews_datetime', return_value=sentinel) as to_ews,              patch('exchange_sender._convert_data_images_to_cid',
+                   return_value=('<p>html</p>', [])):
+            instance = MagicMock()
+            MockMsg.return_value = instance
+            exchange_send_email(account, 'Тема', '<p>html</p>',
+                                to=['a@rt.ru'], send_at=send_at, timezone=4.0)
+            instance.send.assert_called_once()
+            instance.save.assert_not_called()
+            to_ews.assert_any_call(send_at, 4.0)
+            assert instance.__dict__['deferred_delivery_time'] is sentinel
+
 
 class TestToEwsDatetime:
     """_to_ews_datetime: конвертация datetime в EWSDateTime."""
 
-    def test_naive_datetime_converted(self):
+    def test_local_time_converted_to_utc_by_user_offset(self):
         dt = datetime.datetime(2026, 9, 1, 10, 30, 0)
-        with patch('exchange_sender.EWSTimeZone') as MockTZ, \
-             patch('exchange_sender.EWSDateTime') as MockEWSDT:
-            tz_mock = MagicMock()
-            MockTZ.from_pytz.return_value = tz_mock
-            _to_ews_datetime(dt)
-            MockEWSDT.assert_called_once_with(2026, 9, 1, 10, 30, 0, tzinfo=tz_mock)
-
-    def test_year_month_day_preserved(self):
-        dt = datetime.datetime(2026, 12, 31, 23, 59, 0)
-        with patch('exchange_sender.EWSTimeZone') as MockTZ, \
-             patch('exchange_sender.EWSDateTime') as MockEWSDT:
-            MockTZ.from_pytz.return_value = MagicMock()
-            _to_ews_datetime(dt)
+        with patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            _to_ews_datetime(dt, 4.0)
             args = MockEWSDT.call_args[0]
-            assert args[0] == 2026
-            assert args[1] == 12
-            assert args[2] == 31
+            # 10:30 в UTC+4 — это 06:30 UTC
+            assert args[:6] == (2026, 9, 1, 6, 30, 0)
+
+    def test_date_rolls_over_when_converting_to_utc(self):
+        dt = datetime.datetime(2026, 1, 1, 1, 0, 0)
+        with patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            _to_ews_datetime(dt, 3.0)
+            args = MockEWSDT.call_args[0]
+            # 01:00 1 января в UTC+3 — это 22:00 31 декабря UTC
+            assert args[:6] == (2025, 12, 31, 22, 0, 0)
+
+    def test_invalid_offset_falls_back_to_default(self):
+        dt = datetime.datetime(2026, 9, 1, 10, 0, 0)
+        with patch('exchange_sender.EWSDateTime') as MockEWSDT:
+            _to_ews_datetime(dt, 'abc')
+            assert MockEWSDT.call_args[0][3] == 7   # по умолчанию UTC+3
 
 
 # ─── exchange_send_email: importance + read_receipt ──────────────────────────

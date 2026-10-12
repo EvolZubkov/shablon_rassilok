@@ -25,6 +25,10 @@ function showTextToolbar(element) {
     // Обновляем состояние кнопок
     updateToolbarState();
 
+    // Заголовок хранится как чистый текст — цвет фрагмента в нём не сохраняется
+    const isHeading = element.closest('[data-block-type]')?.dataset.blockType === 'heading';
+    toolbar.querySelector('[data-action="color"]')?.style.setProperty('display', isHeading ? 'none' : '');
+
     // Инициализируем кнопку подложки (если ещё не создана) и обновляем её видимость
     initBackgroundButton();
     updateBgButtonVisibility();
@@ -228,6 +232,13 @@ function createToolbarHTML() {
                     <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path>
                 </svg>
             </button>
+            <button type="button" class="toolbar-btn" data-action="color" title="Цвет выделенного текста" aria-label="Цвет выделенного текста">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M6 16 12 4l6 12"></path>
+                    <path d="M8.5 11h7"></path>
+                    <path d="M4 20h16" stroke-width="3"></path>
+                </svg>
+            </button>
             <div class="toolbar-divider"></div>
             <button type="button" class="toolbar-btn" data-action="align-left" title="По левому краю">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -403,6 +414,10 @@ function handleToolbarAction(action) {
             handleLinkAction();
             return; // Не сохраняем сразу
 
+        case 'color':
+            handleColorAction();
+            return; // Сохраняем после выбора цвета
+
         case 'align-left':
             setTextAlign('left');
             break;
@@ -421,6 +436,123 @@ function handleToolbarAction(action) {
         saveTextChanges(currentEditableElement);
         updateToolbarState();
     }, 10);
+}
+
+const DEFAULT_TEXT_COLOR = '#3F3E4B';
+
+/**
+ * Цвет только выделенного фрагмента (включая {{плейсхолдеры}}).
+ * Диалог выбора цвета забирает фокус, поэтому выделение сохраняем заранее.
+ */
+function handleColorAction() {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        Toast.warning('Сначала выделите текст');
+        return;
+    }
+    saveSelection();
+    const editable = currentEditableElement;
+
+    pickColor({
+        title: 'Цвет выделенного текста',
+        currentColor: DEFAULT_TEXT_COLOR,
+        allowTransparent: true,   // «Без цвета» — убрать цвет у выделения
+        onApply: (chosen) => {
+            if (!editable) return;
+            editable.focus();
+            restoreSelection();
+            const color = String(chosen).toLowerCase() === 'transparent' ? '' : String(chosen);
+            if (color && !/^#[0-9a-f]{6}$/i.test(color)) return;
+            applyTextColor(editable, color);
+            setTimeout(() => {
+                saveTextChanges(editable);
+                updateToolbarState();
+            }, 10);
+        },
+    });
+}
+
+/**
+ * Оборачивает текущее выделение в <span data-tc="#rrggbb">; пустой color — снимает цвет.
+ * Вложенные цветовые обёртки внутри выделения заменяются новым цветом.
+ * @param {HTMLElement} editable
+ * @param {string} color '#rrggbb' или ''
+ */
+function applyTextColor(editable, color) {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+    const range = selection.getRangeAt(0);
+    if (!editable.contains(range.commonAncestorContainer)) return;
+
+    // Выделение на нескольких абзацах красим по абзацам: span с блочными <p>
+    // внутри — невалидная разметка, которую рвёт TextSanitizer.render.
+    const paragraphs = [...editable.querySelectorAll('p')].filter(p => range.intersectsNode(p));
+    const blocks = paragraphs.length ? paragraphs : [editable];
+    const parts = blocks
+        .map(block => {
+            const part = document.createRange();
+            part.selectNodeContents(block);
+            if (block.contains(range.startContainer)) part.setStart(range.startContainer, range.startOffset);
+            if (block.contains(range.endContainer)) part.setEnd(range.endContainer, range.endOffset);
+            return part;
+        })
+        .filter(part => !part.collapsed);
+
+    const wrapped = parts.map(part => wrapRangeInTextColor(part, color)).filter(Boolean);
+    editable.normalize();
+
+    selection.removeAllRanges();
+    if (wrapped.length) {
+        const newRange = document.createRange();
+        newRange.setStartBefore(wrapped[0]);
+        newRange.setEndAfter(wrapped[wrapped.length - 1]);
+        selection.addRange(newRange);
+    }
+}
+
+/**
+ * Красит содержимое одного диапазона (внутри одного абзаца).
+ * @param {Range} part
+ * @param {string} color '#rrggbb' или '' (снять цвет)
+ * @returns {HTMLElement|null} созданный span либо null, если цвет снят
+ */
+function wrapRangeInTextColor(part, color) {
+    const fragment = part.extractContents();
+    fragment.querySelectorAll('span[data-tc]').forEach(el => el.replaceWith(...el.childNodes));
+
+    // Выделение целиком внутри уже окрашенного фрагмента: разрезаем его на две части
+    // и вставляем выделенное между ними, иначе новый цвет/«без цвета» остался бы внутри.
+    const startEl = part.startContainer.nodeType === Node.ELEMENT_NODE
+        ? part.startContainer
+        : part.startContainer.parentElement;
+    const host = startEl ? startEl.closest('span[data-tc]') : null;
+    let tailHost = null;
+    if (host) {
+        const tail = document.createRange();
+        tail.setStart(part.startContainer, part.startOffset);
+        tail.setEnd(host, host.childNodes.length);
+        tailHost = host.cloneNode(false);
+        tailHost.appendChild(tail.extractContents());
+        host.after(tailHost);
+        part.setStartAfter(host);
+        part.collapse(true);
+    }
+
+    let inserted = null;
+    if (color) {
+        inserted = document.createElement('span');
+        inserted.setAttribute('data-tc', color.toLowerCase());
+        inserted.style.color = color;
+        inserted.appendChild(fragment);
+        part.insertNode(inserted);
+    } else {
+        part.insertNode(fragment);
+    }
+
+    [host, tailHost].forEach(piece => {
+        if (piece && piece.textContent === '') piece.remove();
+    });
+    return inserted;
 }
 
 /**
@@ -659,6 +791,8 @@ function insertField(columnName) {
     // Re-scan the canvas so the bulk-mail panel picks up the newly inserted placeholder
     if (typeof BulkMailPanel !== 'undefined' && typeof BulkMailPanel.detectPlaceholders === 'function') {
         BulkMailPanel.detectPlaceholders();
+        // detectPlaceholders возвращает канвасу исходный текст — вернуть превью строки
+        BulkMailPanel.refreshRowPreview?.();
     }
 }
 

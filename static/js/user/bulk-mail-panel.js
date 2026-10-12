@@ -363,19 +363,53 @@ const BulkMailPanel = (() => {
   // ══════════════════════════════════════════════════════════════════════════════
   // БЛОК 3: ПЛЕЙСХОЛДЕРЫ
   // ══════════════════════════════════════════════════════════════════════════════
-  function detectPlaceholders() {
+  // Тексты, в которых пользователь может использовать {{плейсхолдеры}}: тело письма,
+  // тема и (если включены вложения по шаблону) шаблон имени файла.
+  function collectPlaceholderSources() {
     const canvas = $(CANVAS_ID);
-    const raw = canvas ? (canvas.innerText || canvas.textContent || '') : '';
+    const sources = [canvas ? (canvas.innerText || canvas.textContent || '') : ''];
+    sources.push($('bm-subject')?.value || '');
+    const attachByTemplate = $('bm-attach-toggle')?.checked && !$('bm-attach-mode-col')?.checked;
+    if (attachByTemplate) sources.push($('bm-attach-template')?.value || '');
+    return sources;
+  }
+
+  function detectPlaceholders() {
+    // В режиме превью канвас показывает значения выбранной строки вместо {{…}}:
+    // читаем текст только после возврата оригинала, иначе плейсхолдеры тела
+    // «пропадают» и их сопоставление сбрасывается.
+    restoreCanvas();
+    const raw = collectPlaceholderSources().join('\n');
     const found = [...new Set([...raw.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[0]))];
 
+    // Сопоставления, которые пользователь уже выбрал (в т.ч. «не задано»), не сбрасываем;
+    // автосопоставление по имени колонки — только для новых плейсхолдеров.
+    const prevPlaceholders = state.placeholders;
+    const prevMapping = state.mapping;
     state.placeholders = found;
     state.mapping = {};
     found.forEach(ph => {
       const name = ph.slice(2, -2);
-      if (state.headers.includes(name)) state.mapping[ph] = name;
+      if (prevPlaceholders.includes(ph)) {
+        if (state.headers.includes(prevMapping[ph])) state.mapping[ph] = prevMapping[ph];
+      } else if (state.headers.includes(name)) {
+        state.mapping[ph] = name;
+      }
     });
 
     renderMappingUI();
+  }
+
+  // Тема/шаблон имени файла набираются вручную — обновляем список плейсхолдеров на лету.
+  let _placeholderTimer = null;
+  function schedulePlaceholderRefresh() {
+    clearTimeout(_placeholderTimer);
+    _placeholderTimer = setTimeout(() => {
+      if (!state.fileLoaded) return;
+      detectPlaceholders();
+      recalcSummary();
+      if (!_editMode) renderCurrentRow();   // вернуть превью строки, снятое при поиске
+    }, 300);
   }
 
   function renderMappingUI() {
@@ -651,6 +685,25 @@ const BulkMailPanel = (() => {
   let _currentJobId = null;
   let _currentEventSource = null;
 
+  // Отложенная отправка: значение поля даты, только если чекбокс включён.
+  function getScheduledSendAt() {
+    return $('bm-schedule-toggle')?.checked ? ($('bm-send-at')?.value || '') : '';
+  }
+
+  // Текст ошибки отложенной отправки или '' если всё в порядке. Те же правила
+  // проверяет сервер, но здесь пользователь узнаёт о проблеме до подтверждения.
+  function validateSchedule() {
+    if (!$('bm-schedule-toggle')?.checked) return '';
+    const sendAt = $('bm-send-at')?.value || '';
+    if (!sendAt) return 'Укажите дату и время отложенной отправки';
+    if (state.channel === 'smtp') return 'Отложенная отправка доступна только для канала Exchange';
+    if ($('bm-draft-mode')?.checked) return 'Черновики не отправляются по расписанию: снимите «Черновик» или отложенную отправку';
+    const when = new Date(sendAt);
+    if (Number.isNaN(when.getTime())) return 'Некорректная дата отложенной отправки';
+    if (when <= new Date()) return 'Дата отложенной отправки должна быть в будущем';
+    return '';
+  }
+
   async function startSend(rowsToSend) {
     if (state.sending) return;
     state.sending = true; state.cancelled = false;
@@ -660,16 +713,23 @@ const BulkMailPanel = (() => {
     const stopOnError = $('bm-stop-on-error')?.checked || false;
     const skipNoEmail = $('bm-skip-no-email')?.checked !== false;
     const delay       = parseInt($('bm-delay')?.value) || 0;
-    const scheduleOn  = $('bm-schedule-toggle')?.checked || false;
-    const sendAtVal   = scheduleOn ? ($('bm-send-at')?.value || '') : '';
-    if (scheduleOn) {
-      if (!sendAtVal) {
-        Toast.show('Укажите дату и время отложенной отправки', 'warning');
-        state.sending = false;
-        return;
-      }
-      if (new Date(sendAtVal) <= new Date()) {
-        Toast.show('Дата отложенной отправки должна быть в будущем', 'warning');
+    const scheduleError = validateSchedule();
+    if (scheduleError) {
+      Toast.show(scheduleError, 'warning');
+      state.sending = false;
+      return;
+    }
+    const sendAtVal = getScheduledSendAt();
+
+    // Вложения: без папки и источника имени файла письма уйдут без вложения молча.
+    if ($('bm-attach-toggle')?.checked) {
+      const byColumn = $('bm-attach-mode-col')?.checked;
+      const problem = !($('bm-attach-folder')?.value || '').trim() ? 'Укажите папку с файлами для вложений'
+        : (byColumn && !$('bm-attach-col-sel')?.value) ? 'Выберите колонку с именем файла для вложений'
+        : (!byColumn && !($('bm-attach-template')?.value || '').trim()) ? 'Укажите шаблон имени файла для вложений'
+        : '';
+      if (problem) {
+        Toast.show(problem, 'warning');
         state.sending = false;
         return;
       }
@@ -722,6 +782,8 @@ const BulkMailPanel = (() => {
           attach_enabled:   $('bm-attach-toggle')?.checked  || false,
           attach_folder:    $('bm-attach-folder')?.value    || '',
           attach_template:  $('bm-attach-template')?.value  || '',
+          attach_mode:      $('bm-attach-mode-col')?.checked ? 'column' : 'template',
+          attach_column:    $('bm-attach-col-sel')?.value   || '',
           attach_missing:   $('bm-attach-missing')?.value   || 'send',
         }),
       });
@@ -1023,6 +1085,11 @@ const BulkMailPanel = (() => {
   // МОДАЛКА ПОДТВЕРЖДЕНИЯ
   // ══════════════════════════════════════════════════════════════════════════════
   function _showConfirmModal(onConfirm) {
+    const scheduleError = validateSchedule();
+    if (scheduleError) {
+      Toast.show(scheduleError, 'warning');
+      return;
+    }
     const skipNoEmail = $('bm-skip-no-email')?.checked !== false;
     const isDraft     = $('bm-draft-mode')?.checked || false;
     const isValidEmail = e => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e));
@@ -1061,8 +1128,7 @@ const BulkMailPanel = (() => {
          </div>`] : []),
     ].join('');
 
-    const scheduleOn2 = $('bm-schedule-toggle')?.checked || false;
-    const sendAtLabel = scheduleOn2 ? ($('bm-send-at')?.value || '') : '';
+    const sendAtLabel = getScheduledSendAt();
     const okText = isDraft ? 'Сохранить черновики'
                  : sendAtLabel ? `Запланировать на ${sendAtLabel.replace('T', ' ')}`
                  : 'Отправить';
@@ -1126,6 +1192,12 @@ const BulkMailPanel = (() => {
         attachContent.style.display = attachToggle.checked ? 'block' : 'none';
       });
     }
+
+    // Плейсхолдеры из темы и шаблона имени файла тоже попадают в сопоставление колонок
+    ['bm-subject', 'bm-attach-template'].forEach(id =>
+      $(id)?.addEventListener('input', schedulePlaceholderRefresh));
+    ['bm-attach-toggle', 'bm-attach-mode-tpl', 'bm-attach-mode-col'].forEach(id =>
+      $(id)?.addEventListener('change', schedulePlaceholderRefresh));
 
     // Важность — клики по кнопкам
     document.querySelectorAll('#bm-importance .bm-imp-btn').forEach(btn => {
@@ -1222,7 +1294,10 @@ const BulkMailPanel = (() => {
     _applyParsedData(filename, data);
   }
 
-  return { init, getColumns: () => state.headers, detectPlaceholders, recalcSummary, loadParsed };
+  return {
+    init, getColumns: () => state.headers, detectPlaceholders, recalcSummary, loadParsed,
+    refreshRowPreview: () => { if (state.fileLoaded && !_editMode) renderCurrentRow(); },
+  };
 })();
 
 // ── Глобальный объект BulkMail для userToolbar.js и admin-bulk-mail.js ────────

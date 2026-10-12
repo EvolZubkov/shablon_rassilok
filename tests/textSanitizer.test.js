@@ -525,3 +525,35 @@ describe('TextSanitizer.applyTypography — замена дефиса на ти�
         expect(r).toContain('href="https://site-name.com"')
     })
 })
+
+
+// ─── Цвет выделенного фрагмента и плейсхолдеры ───────────────────────────────
+
+describe('TextSanitizer.sanitize — цвет фрагмента', () => {
+
+    test('сохраняет цвет выделенного фрагмента (data-tc + style)', () => {
+        const r = TextSanitizer.sanitize('<p>Привет, <span data-tc="#FF0000" style="color:#ff0000">Иван</span>!</p>', false)
+        expect(r).toContain('<span data-tc="#ff0000" style="color:#ff0000;">Иван</span>')
+    })
+
+    test('сохраняет цвет и жирность вокруг плейсхолдера', () => {
+        const html = '<p><span data-tc="#7700ff"><b><span class="bm-inline-ph" data-field="ФИО">{{ФИО}}</span></b></span></p>'
+        const r = TextSanitizer.sanitize(html, false)
+        expect(r).toContain('data-tc="#7700ff"')
+        expect(r).toContain('<b>')
+        expect(r).toContain('{{ФИО}}')
+    })
+
+    test('отбрасывает невалидный цвет (защита от инъекции в style)', () => {
+        const r = TextSanitizer.sanitize('<p><span data-tc="red;background:url(x)">текст</span></p>', false)
+        expect(r).not.toContain('style')
+        expect(r).not.toContain('data-tc')
+        expect(r).toContain('текст')
+    })
+
+    test('цвет из вставленного HTML без data-tc не сохраняется', () => {
+        const r = TextSanitizer.sanitize('<p><span style="color:#ff0000">текст</span></p>', false)
+        expect(r).not.toContain('color')
+        expect(r).toContain('текст')
+    })
+})

@@ -587,23 +587,60 @@ function generateBlockHTML(block) {
     const s = block.settings;
     if (!s) return '';
 
+    // Подложка (capability "background") добавляет padding снаружи контента, так
+    // что блоку остаётся slot − 2×bgPadding. Старые шаблоны хранят картинки под
+    // полную ширину — сужаем доступную ширину на время генерации самого блока
+    // и возвращаем её до applyWrappers() (wrapEmail сам читает ширину слота).
+    const savedCtx = CURRENT_EMAIL_RENDER_CONTEXT;
+    const bgPad = getBackgroundPaddingFor(block);
+    if (bgPad > 0) {
+        CURRENT_EMAIL_RENDER_CONTEXT = Object.assign({}, savedCtx || buildEmailRenderContext(), {
+            parentContentWidth: Math.max(1, getAvailableBlockWidth() - bgPad * 2),
+        });
+    }
+
     let html;
-    switch (block.type) {
-        case 'banner':    html = generateBannerHTML(s);    break;
-        case 'text':      html = generateTextHTML(s);      break;
-        case 'heading':   html = generateHeadingHTML(s);   break;
-        case 'button':    html = generateButtonHTML(s);    break;
-        case 'list':      html = generateListHTML(s);      break;
-        case 'expert':    html = generateExpertHTML(s);    break;
-        case 'important': html = generateImportantHTML(s); break;
-        case 'divider':   html = generateDividerHTML(s);   break;
-        case 'image':     html = generateImageHTML(s);     break;
-        case 'spacer':    html = generateSpacerHTML(s);    break;
-        case 'canvas':    html = generateCanvasBlockHTML(s); break;
-        case 'table':     html = generateTableHTML(s);     break;
-        default:          html = '';
+    try {
+        html = renderBlockContent(block, s);
+    } finally {
+        CURRENT_EMAIL_RENDER_CONTEXT = savedCtx;
     }
     return CapabilityRegistry.applyWrappers(html, block, 'email');
+}
+
+/**
+ * HTML содержимого блока без обёрток capabilities.
+ */
+function renderBlockContent(block, s) {
+    switch (block.type) {
+        case 'banner':    return generateBannerHTML(s);
+        case 'text':      return generateTextHTML(s);
+        case 'heading':   return generateHeadingHTML(s);
+        case 'button':    return generateButtonHTML(s);
+        case 'list':      return generateListHTML(s);
+        case 'expert':    return generateExpertHTML(s);
+        case 'important': return generateImportantHTML(s);
+        case 'divider':   return generateDividerHTML(s);
+        case 'image':     return generateImageHTML(s);
+        case 'spacer':    return generateSpacerHTML(s);
+        case 'canvas':    return generateCanvasBlockHTML(s);
+        case 'table':     return generateTableHTML(s);
+        default:          return '';
+    }
+}
+
+/**
+ * Боковой padding подложки блока (px), если она реально будет применена
+ * в письме; 0 — для полноширинных блоков и блоков без подложки.
+ */
+function getBackgroundPaddingFor(block) {
+    const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer'];
+    const s = block.settings || {};
+    if (FULL_WIDTH_TYPES.includes(block.type)) return 0;
+    if (s.bgEnabled === false || !s.bgColor) return 0;
+    if (typeof ProfileLoader === 'undefined' || !ProfileLoader.loaded) return 0;
+    if (!ProfileLoader.getCapabilities(block.type).includes('background')) return 0;
+    return Math.max(0, Number(s.bgPadding) || 0);
 }
 
 // ===== ГЕНЕРАТОРЫ БЛОКОВ =====
@@ -679,6 +716,17 @@ function generateHeadingHTML(s) {
             </td>
         </tr>
     `;
+}
+
+/**
+ * Ширина, доступная блоку: колонка (parentContentWidth) либо контентный слот
+ * письма (за вычетом бокового contentPadding). Старые шаблоны хранят
+ * renderedWidth под полные 600px — без этого ограничения они вылезают за слот
+ * и «прилипают» к левому краю.
+ */
+function getAvailableBlockWidth() {
+    const ctx = getCurrentEmailRenderContext();
+    return ctx.parentContentWidth || _emailContentWidth || LAYOUT.TABLE_WIDTH;
 }
 
 /**
@@ -1050,7 +1098,8 @@ function generateExpertHTML(s) {
     const src = s.renderedExpert;
     if (!src) return '';
 
-    const width = Number(s.renderedExpertWidth || LAYOUT.TABLE_WIDTH);
+    const maxWidth = getAvailableBlockWidth();
+    const width = Math.min(Number(s.renderedExpertWidth || maxWidth), maxWidth);
     const align = ['left', 'right', 'center'].includes(s.align) ? s.align : 'center';
     const isLite = (s.variant || 'full') === 'lite';
     const altText = escapeHtml(s.name || '');
@@ -1169,8 +1218,7 @@ function generateImageHTML(s) {
     // не должна превышать эту ширину, иначе она рендерится на полную
     // ширину письма (LAYOUT.TABLE_WIDTH) независимо от узкой колонки и
     // физически вылезает за её границы.
-    const ctx = getCurrentEmailRenderContext();
-    const maxWidth = ctx.parentContentWidth || LAYOUT.TABLE_WIDTH;
+    const maxWidth = getAvailableBlockWidth();
     const width = Math.min(s.renderedWidth || maxWidth, maxWidth);
 
     const imgTag = `<img src="${src}" alt="${altText}" width="${width}" style="${getImageStyle(width)} border-radius:${borderRadius};">`;
@@ -1212,7 +1260,7 @@ function generateCanvasBlockHTML(s) {
         return `
         <tr>
             <td style="padding:0;font-size:0;line-height:0;">
-                <img src="${s.renderedCanvas}" width="600" style="display:block;max-width:100%;height:auto;border:0;" alt="">
+                <img src="${s.renderedCanvas}" width="${getAvailableBlockWidth()}" style="display:block;width:100%;max-width:${getAvailableBlockWidth()}px;height:auto;border:0;" alt="">
             </td>
         </tr>`;
     }
@@ -1224,6 +1272,70 @@ function generateCanvasBlockHTML(s) {
         <tr>
             <td style="padding:0;height:${h}px;${bgStyle}"></td>
         </tr>`;
+}
+
+/**
+ * Минимальная ширина ячейки колонки (px, с боковыми отступами), нужная её
+ * отрисованным кнопкам: ширина PNG кнопки (+ подложка кнопки) + отступы колонки.
+ * 0 — колонка не содержит кнопок с готовой картинкой, ограничений нет.
+ * @param {{blocks?: object[]}} column
+ * @param {{left: number, right: number}} padding
+ * @returns {number}
+ */
+function getColumnRequiredWidth(column, padding) {
+    const widths = (column.blocks || [])
+        .filter(b => b && b.type === 'button' && b.settings && Number(b.settings.renderedButtonW) > 0)
+        .map(b => Math.ceil(Number(b.settings.renderedButtonW)) + getBackgroundPaddingFor(b) * 2);
+    if (!widths.length) return 0;
+    return Math.max(...widths) + padding.left + padding.right;
+}
+
+/**
+ * Подгоняет ширины ячеек колонок под минимально необходимые.
+ * Колонки, которым не хватает номинала, получают нужную ширину; остальные делят
+ * оставшееся пропорционально своим номиналам, но не уже собственного минимума.
+ * Сумма ширин сохраняется равной ``total``. Если всем вместе не хватает места —
+ * возвращаются номиналы (пользователь решает сам).
+ * @param {number[]} nominals номинальные ширины ячеек (px)
+ * @param {number[]} needs    минимальные ширины ячеек (px), 0 — без ограничения
+ * @param {number}   total    общая ширина ряда (px)
+ * @returns {number[]}
+ */
+function computeColumnCellWidths(nominals, needs, total) {
+    const n = nominals.length;
+    if (!needs.some((need, i) => need > nominals[i])) return nominals.slice();
+
+    const floors = needs.map(need => Math.max(1, need));
+    if (floors.reduce((sum, f) => sum + f, 0) > total) return nominals.slice();
+
+    const pinned = needs.map((need, i) => need > nominals[i]);
+    const widths = new Array(n).fill(0);
+    pinned.forEach((isPinned, i) => { if (isPinned) widths[i] = floors[i]; });
+
+    // Пока какая-то из свободных колонок получается уже своего минимума — закрепляем её.
+    for (let pass = 0; pass <= n; pass += 1) {
+        const free = nominals.map((_, i) => i).filter(i => !pinned[i]);
+        if (!free.length) break;
+        const left = total - widths.reduce((sum, w, i) => sum + (pinned[i] ? w : 0), 0);
+        const weight = free.reduce((sum, i) => sum + Math.max(1, nominals[i]), 0);
+        let changed = false;
+        free.forEach(i => {
+            widths[i] = left * Math.max(1, nominals[i]) / weight;
+            if (widths[i] < floors[i]) {
+                widths[i] = floors[i];
+                pinned[i] = true;
+                changed = true;
+            }
+        });
+        if (!changed) break;
+    }
+
+    // Целые px, сумма ровно total: остаток уходит в самую широкую свободную колонку.
+    const rounded = widths.map(w => Math.floor(w));
+    let rest = total - rounded.reduce((sum, w) => sum + w, 0);
+    const order = rounded.map((_, i) => i).sort((a, b) => widths[b] - widths[a]);
+    for (let k = 0; rest > 0; k = (k + 1) % n, rest -= 1) rounded[order[k]] += 1;
+    return rounded;
 }
 
 /**
@@ -1291,31 +1403,36 @@ function generateColumnsHTML(block) {
         ? `<tr><td style="padding:0; height:${blockGap}px; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td></tr>`
         : '';
 
-    const columnsContent = block.columns.map((column, index) => {
-        // Определяем padding для каждой колонки
-        let paddingLeft = 0;
-        let paddingRight = 0;
+    // Боковые отступы каждой колонки: между колонками — половина gap с каждой стороны,
+    // у крайних колонок снаружи отступа нет.
+    const paddings = block.columns.map((_, index) => ({
+        left:  totalColumns > 1 && index > 0 ? columnGap / 2 : 0,
+        right: totalColumns > 1 && index < totalColumns - 1 ? columnGap / 2 : 0,
+    }));
 
-        if (totalColumns > 1) {
-            if (index === 0) {
-                // Первая колонка: без левого отступа, справа половина gap
-                paddingRight = columnGap / 2;
-            } else if (index === totalColumns - 1) {
-                // Последняя колонка: слева половина gap, без правого отступа
-                paddingLeft = columnGap / 2;
-            } else {
-                // Средние колонки: половина gap с обеих сторон
-                paddingLeft = columnGap / 2;
-                paddingRight = columnGap / 2;
-            }
-        }
+    // Ширина ячейки (вместе с отступами). Номинал — процент колонки от слота; если
+    // кнопка в колонке шире своей ячейки, при table-layout:fixed она заезжает на
+    // соседнюю — поэтому по умолчанию (пока ширину не задали вручную) такие колонки
+    // расширяются за счёт остальных. Ручная ширина (s.colWidthManual) не трогается.
+    const nominalCells = block.columns.map(col => Math.round(_emailContentWidth * col.width / 100));
+    const cellWidths = s.colWidthManual === true
+        ? nominalCells
+        : computeColumnCellWidths(
+            nominalCells,
+            block.columns.map((col, index) => getColumnRequiredWidth(col, paddings[index])),
+            nominalCells.reduce((sum, w) => sum + w, 0)
+        );
+
+    const columnsContent = block.columns.map((column, index) => {
+        const paddingLeft = paddings[index].left;
+        const paddingRight = paddings[index].right;
 
         // _emailContentWidth учитывает padding (3-колонный layout) при генерации письма.
         // padding и width на одной <td> в email складываются (content-box,
         // как и у таблицы — см. generateTableHTML выше в этом файле), поэтому
         // паддинг вычитается из width, иначе ряд из 3+ колонок раздувается
         // за пределы письма на суммарную ширину зазоров между колонками.
-        const width = Math.max(1, Math.round(_emailContentWidth * column.width / 100) - paddingLeft - paddingRight);
+        const width = Math.max(1, cellWidths[index] - paddingLeft - paddingRight);
 
         console.log(`[COLUMNS] Column ${index}: width=${column.width}% -> ${width}px (contentW=${_emailContentWidth})`);
 

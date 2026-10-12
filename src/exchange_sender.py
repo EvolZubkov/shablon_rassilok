@@ -459,17 +459,17 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                 msg.attach(file_att)
             except Exception as e:
                 _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
+        # Письмо с отложенной доставкой тоже ОТПРАВЛЯЕТСЯ (CreateItem/SendAndSaveCopy):
+        # свойство PidTagDeferredSendTime (0x3FEF) заставляет транспорт Exchange
+        # удерживать его в серверной очереди до указанного времени. Простое
+        # msg.save() в Outbox создаёт неотправленный черновик, который транспорт
+        # не берёт — он так и остаётся в «Исходящих» (в Outlook значок карандаша).
+        _logger.debug('send_email: calling msg.send()')
+        msg.send()
         if send_at is not None:
-            # Save to Outbox (SaveOnly). Exchange store transport driver watches
-            # the Outbox folder and honors PidTagDeferredSendTime — this is exactly
-            # what Outlook does for deferred delivery. Do NOT call SendItem after.
-            msg.folder = account.outbox
-            msg.save()
-            _logger.info('send_email: saved to Outbox (deferred), scheduled=%s utc=%s',
+            _logger.info('send_email: submitted with deferred delivery, scheduled=%s utc=%s',
                          send_at, _to_ews_datetime(send_at, timezone))
         else:
-            _logger.debug('send_email: calling msg.send()')
-            msg.send()
             _logger.info('send_email: success subject=%r', subject)
     except (ValueError, ConnectionError):
         raise

@@ -48,6 +48,13 @@ import pytest
 from routes.bulk_mail import _substitute, _rows_to_result
 
 
+def _future_iso(days=30, hour=10):
+    """ISO-время в будущем (относительно «сейчас»), чтобы тесты не протухали."""
+    import datetime as _dt
+    moment = _dt.datetime.now() + _dt.timedelta(days=days)
+    return moment.replace(hour=hour, minute=0, second=0, microsecond=0).isoformat()
+
+
 # ─── Фикстуры ────────────────────────────────────────────────────────────────
 
 @pytest.fixture(scope='session')
@@ -472,33 +479,71 @@ class TestBulkSendStart:
                 'mapping': {},
                 'subject': 'Тест',
                 'email_column': 'Email',
-                'send_at': '2026-09-01T10:00:00',
+                'send_at': _future_iso(),
             })
             assert resp.status_code == 200
             time.sleep(0.4)
 
         assert isinstance(captured.get('send_at'), dt_mod.datetime)
-        assert captured['send_at'].year == 2026
-        assert captured['send_at'].hour == 10
+        assert captured['send_at'].isoformat() == _future_iso()
 
-    def test_invalid_send_at_ignored(self, client):
-        """Некорректный send_at не должен ломать рассылку — просто игнорируется."""
+    def _post_scheduled(self, client, extra, channel_patches=None):
+        """Запускает рассылку из одной строки; возвращает (текст SSE, mock exchange_send_email)."""
         creds = self._mock_creds()
-        mock_account = MagicMock()
-        with patch.object(email_app, 'credentials_exist', return_value=True), \
-             patch.object(email_app, 'load_credentials', return_value=creds), \
-             patch.object(email_app, 'connect_exchange', return_value=mock_account), \
-             patch.object(email_app, 'exchange_send_email'), \
-             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
-            resp = client.post('/api/bulk/send/start', json={
-                'template_html': '<p>test</p>',
-                'rows':    [{'Email': 'ivan@test.ru'}],
-                'mapping': {},
-                'subject': 'Тест',
-                'email_column': 'Email',
-                'send_at': 'not-a-date',
-            })
-        assert resp.status_code == 200
+        payload = {
+            'template_html': '<p>test</p>',
+            'rows':    [{'Email': 'ivan@test.ru'}],
+            'mapping': {},
+            'subject': 'Тест',
+            'email_column': 'Email',
+        }
+        payload.update(extra)
+        with patch.object(email_app, 'credentials_exist', return_value=True),              patch.object(email_app, 'load_credentials', return_value=creds),              patch.object(email_app, 'connect_exchange', return_value=MagicMock()),              patch.object(email_app, 'connect_smtp', return_value=MagicMock()),              patch.object(email_app, 'smtp_send_email') as smtp_send,              patch.object(email_app, 'exchange_send_email') as send,              patch.object(email_app, 'exchange_save_draft') as draft,              patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send/start', json=payload)
+            assert resp.status_code == 200
+            job_id = resp.get_json()['job_id']
+            time.sleep(0.4)
+            stream = client.get(f'/api/bulk/send/stream/{job_id}',
+                                headers={'Accept': 'text/event-stream'})
+            raw = stream.get_data(as_text=True)
+        return raw, send, smtp_send, draft
+
+    def test_invalid_send_at_aborts_instead_of_sending_immediately(self, client):
+        """Некорректный send_at прерывает рассылку: письма не должны уйти сразу."""
+        raw, send, smtp_send, _ = self._post_scheduled(client, {'send_at': 'not-a-date'})
+        assert '"type": "error"' in raw
+        send.assert_not_called()
+        smtp_send.assert_not_called()
+
+    def test_past_send_at_aborts(self, client):
+        raw, send, _, _ = self._post_scheduled(client, {'send_at': _future_iso(days=-1)})
+        assert '"type": "error"' in raw
+        send.assert_not_called()
+
+    def test_send_at_uses_client_timezone_for_future_check(self, client):
+        """Локальное время в будущем по часовому поясу клиента не считается прошлым."""
+        import datetime as dt_mod
+        # 23:59 сегодня по UTC+14 — это ещё в будущем только для такого пояса
+        soon_local = (dt_mod.datetime.now(dt_mod.timezone.utc).replace(tzinfo=None)
+                      + dt_mod.timedelta(hours=14, minutes=30)).replace(microsecond=0)
+        raw, send, _, _ = self._post_scheduled(
+            client, {'send_at': soon_local.isoformat(), 'timezone': 14})
+        assert '"type": "error"' not in raw
+        send.assert_called_once()
+
+    def test_send_at_with_smtp_channel_aborts(self, client):
+        raw, send, smtp_send, _ = self._post_scheduled(
+            client, {'send_at': _future_iso(), 'channel': 'smtp'})
+        assert '"type": "error"' in raw
+        send.assert_not_called()
+        smtp_send.assert_not_called()
+
+    def test_send_at_with_draft_mode_aborts(self, client):
+        raw, send, _, draft = self._post_scheduled(
+            client, {'send_at': _future_iso(), 'draft_mode': True})
+        assert '"type": "error"' in raw
+        send.assert_not_called()
+        draft.assert_not_called()
 
     def test_send_at_comment_in_progress(self, client):
         """При send_at в прогрессе должно быть 'Запланировано', а не 'Отправлено'."""
@@ -515,7 +560,7 @@ class TestBulkSendStart:
                 'mapping': {},
                 'subject': 'Тест',
                 'email_column': 'Email',
-                'send_at': '2026-09-01T10:00:00',
+                'send_at': _future_iso(),
             })
             job_id = resp.get_json()['job_id']
             time.sleep(0.4)
@@ -807,3 +852,89 @@ class TestBulkSendStartSmtp:
             time.sleep(0.3)
 
         assert captured.get('read_receipt') is True
+
+
+# ── Attachments: name from template or from a table column ───────────────────
+
+class TestResolveAttachment:
+    MAPPING = {'{{ФИО}}': 'ФИО'}
+
+    def test_finds_file_by_name_template(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Попов Иван.docx').write_bytes(b'x')
+        row = {'ФИО': 'Попов Иван'}
+        found = _resolve_attachment(str(tmp_path), '{{ФИО}}.docx', self.MAPPING, row)
+        assert found == str(tmp_path / 'Попов Иван.docx')
+
+    def test_column_mode_takes_file_name_from_row(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Условия активации.docx').write_bytes(b'x')
+        row = {'ФИО': 'Попов Иван', 'Файл': 'Условия активации.docx'}
+        found = _resolve_attachment(str(tmp_path), '{{ФИО}}.docx', self.MAPPING, row, 'Файл')
+        assert found == str(tmp_path / 'Условия активации.docx')
+
+    def test_matches_ignoring_case_yo_and_extra_spaces(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Всё в одном.docx').write_bytes(b'x')
+        row = {'Файл': '  все  В ОДНОМ.DOCX '}
+        found = _resolve_attachment(str(tmp_path), '', {}, row, 'Файл')
+        assert found == str(tmp_path / 'Всё в одном.docx')
+
+    def test_returns_none_when_file_is_missing(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        row = {'Файл': 'нет такого.docx'}
+        assert _resolve_attachment(str(tmp_path), '', {}, row, 'Файл') is None
+
+    def test_returns_none_when_column_cell_is_empty(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        assert _resolve_attachment(str(tmp_path), '', {}, {'Файл': ''}, 'Файл') is None
+
+    def test_path_separators_in_cell_cannot_escape_folder(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path.parent / 'secret.docx').write_bytes(b'x')
+        row = {'Файл': '../secret.docx'}
+        assert _resolve_attachment(str(tmp_path), '', {}, row, 'Файл') is None
+
+    def test_cell_without_extension_matches_file_stem(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Условия активации Мерчшоп.docx').write_bytes(b'x')
+        row = {'Файл': 'Условия активации Мерчшоп'}
+        found = _resolve_attachment(str(tmp_path), '', {}, row, 'Файл')
+        assert found == str(tmp_path / 'Условия активации Мерчшоп.docx')
+
+    def test_template_placeholder_not_in_mapping_is_resolved_by_column_name(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Лист 1.docx').write_bytes(b'x')
+        row = {'ФИО': 'Попов Иван', 'Файл': 'Лист 1'}
+        # {{Файл}} is used only in the file name, so the letter-body mapping lacks it
+        found = _resolve_attachment(str(tmp_path), '{{файл}}.docx', self.MAPPING, row)
+        assert found == str(tmp_path / 'Лист 1.docx')
+
+    def test_unknown_placeholder_in_template_is_left_unresolved(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        assert _resolve_attachment(str(tmp_path), '{{Нет}}.docx', {}, {'ФИО': 'x'}) is None
+
+    def test_ambiguous_stem_attaches_nothing(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Договор.docx').write_bytes(b'x')
+        (tmp_path / 'Договор.pdf').write_bytes(b'x')
+        row = {'Файл': 'Договор'}
+        # .docx and .pdf share the stem: never guess which one to send
+        assert _resolve_attachment(str(tmp_path), '', {}, row, 'Файл') is None
+
+    def test_exact_name_wins_over_ambiguous_stem(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Договор.docx').write_bytes(b'x')
+        (tmp_path / 'Договор.pdf').write_bytes(b'x')
+        row = {'Файл': 'Договор.pdf'}
+        found = _resolve_attachment(str(tmp_path), '', {}, row, 'Файл')
+        assert found == str(tmp_path / 'Договор.pdf')
+
+    def test_folder_is_listed_once_with_cache(self, tmp_path):
+        from routes.bulk_mail import _resolve_attachment
+        (tmp_path / 'Лист.docx').write_bytes(b'x')
+        cache = {}
+        with patch('routes.bulk_mail.os.listdir', wraps=os.listdir) as listing:
+            for _ in range(3):
+                _resolve_attachment(str(tmp_path), '', {}, {'Файл': 'лист'}, 'Файл', cache)
+        assert listing.call_count == 1

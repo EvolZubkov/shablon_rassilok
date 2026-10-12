@@ -435,6 +435,19 @@ function setupImageSlider(sliderId, valueId, settingKey, suffix, defaultValue) {
 }
 
 /**
+ * Пользователь не редактирует градиент, но может заменить его сплошным цветом:
+ * выбор цвета отключает градиент выбранной области (иначе он перекрывает цвет).
+ * @param {'background'|'leftBlock'} target
+ */
+function disableBannerGradient(target) {
+    if (typeof getBannerGradientKey !== 'function') return;
+    bannerEditorState[getBannerGradientKey(target, 'enabled')] = false;
+    if (getActiveBannerGradientTarget(bannerEditorState) === target) {
+        bannerEditorState.gradientEnabled = false;
+    }
+}
+
+/**
  * Загрузка цветов
  */
 function loadBannerColors() {
@@ -449,6 +462,7 @@ function loadBannerColors() {
             allowTransparent: false,
             onApply: (chosenColor) => {
                 bannerEditorState.backgroundColor = chosenColor;
+                disableBannerGradient('background');
                 updateColorPaletteSelection();
                 updateBannerPreview();
             }
@@ -466,6 +480,7 @@ function loadBannerColors() {
             allowTransparent: false,
             onApply: (chosenColor) => {
                 bannerEditorState.leftBlockColor = chosenColor;
+                disableBannerGradient('leftBlock');
                 updateBannerPreview();
             }
         });
@@ -483,6 +498,7 @@ function loadBannerColors() {
                     bgColorHex.textContent = formatColorValue(color);
                 }
                 bannerEditorState.backgroundColor = color;
+                disableBannerGradient('background');
                 updateColorPaletteSelection();
                 updateBannerPreview();
             });
