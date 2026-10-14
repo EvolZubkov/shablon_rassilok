@@ -25,6 +25,7 @@ const BulkMailPanel = (() => {
     sending:       false,
     cancelled:     false,
     results:       [],      // { row, email, name, status:'sent'|'error'|'skip', error }
+    log:           [],      // журнал рассылки: все строки с временем, Message-ID и ответом сервера
     channel:       'exchange',  // 'exchange' | 'smtp'
   };
 
@@ -712,7 +713,35 @@ const BulkMailPanel = (() => {
     if (postAct)  postAct.style.display  = 'none';
     if (cancelBtn) cancelBtn.style.display = 'inline-flex';
     if (sendBtn)  { sendBtn.disabled = false; updateSendButton(); }
-    state.results = []; state.sending = false; state.cancelled = false;
+    setProgressStatus('');
+    clearProgressNotes();
+    const hint = $('bm-progress-hint');
+    if (hint) hint.style.display = 'none';
+    state.results = []; state.log = []; state.sending = false; state.cancelled = false;
+  }
+
+  // Строка «что происходит сейчас». Пустой текст скрывает её.
+  function setProgressStatus(text) {
+    const el = $('bm-progress-status');
+    if (!el) return;
+    el.textContent = text || '';
+    el.style.display = text ? 'block' : 'none';
+  }
+
+  function addProgressNote(text) {
+    const box = $('bm-progress-notes');
+    if (!box || !text) return;
+    const line = document.createElement('div');
+    line.textContent = `⚠ ${text}`;
+    box.appendChild(line);
+    box.style.display = 'flex';
+  }
+
+  function clearProgressNotes() {
+    const box = $('bm-progress-notes');
+    if (!box) return;
+    box.innerHTML = '';
+    box.style.display = 'none';
   }
 
   let _currentJobId = null;
@@ -784,6 +813,9 @@ const BulkMailPanel = (() => {
     if (sendBtn)   sendBtn.disabled       = true;
     if (cancelBtn) cancelBtn.style.display = 'inline-flex';
     if (fill)      fill.style.width       = '0%';
+    clearProgressNotes();
+    setProgressStatus('Запускаю рассылку…');
+    if ($('bm-progress-hint')) $('bm-progress-hint').style.display = 'none';
 
     // Получаем чистый HTML шаблона через emailGenerator (без лейблов, со светлой темой)
     const templateHtml = await _getTemplateHtml();
@@ -839,10 +871,25 @@ const BulkMailPanel = (() => {
       const evt = JSON.parse(e.data);
       if (evt.type === 'heartbeat') return;
 
+      if (evt.type === 'status') {
+        setProgressStatus(evt.message);
+        return;
+      }
+
+      if (evt.type === 'warning') {
+        addProgressNote(evt.message);
+        return;
+      }
+
       if (evt.type === 'progress') {
         const pct = Math.round(((evt.index + 1) / evt.total) * 100);
         if (fill) fill.style.width = pct + '%';
-        appendResultItem(evt.name, evt.email, evt.status, evt.comment);
+        appendResultItem(evt.name, evt.email, evt.status, evt.comment, progressDetails(evt));
+        state.log.push({
+          time: evt.time || '', name: evt.name, email: evt.email, status: evt.status,
+          comment: evt.comment || '', messageId: evt.message_id || '',
+          serverReply: evt.server_reply || '',
+        });
         if (evt.status === 'error') {
           state.results.push({ row: rows[evt.index], email: evt.email, name: evt.name, status: 'error', error: evt.comment });
         }
@@ -880,6 +927,7 @@ const BulkMailPanel = (() => {
     if (fill)      fill.style.width        = '100%';
     if (cancelBtn) cancelBtn.style.display = 'none';
     if (sendBtn)   { sendBtn.disabled = false; updateSendButton(); }
+    setProgressStatus('');
 
     if (fatalError) {
       if (summary) {
@@ -896,7 +944,10 @@ const BulkMailPanel = (() => {
       const okEl   = $('bm-progress-ok');
       const errEl  = $('bm-progress-err');
       const skipEl = $('bm-progress-skip');
-      if (okEl)   { okEl.textContent = `✓ ${sent} отправлено`; okEl.style.color = ''; }
+      const smtpRun = state.channel === 'smtp';
+      if (okEl)   { okEl.textContent = smtpRun ? `✓ ${sent} принято сервером` : `✓ ${sent} отправлено`; okEl.style.color = ''; }
+      const hintEl = $('bm-progress-hint');
+      if (hintEl) hintEl.style.display = smtpRun && sent > 0 ? 'block' : 'none';
       if (errEl)  { errEl.textContent  = `✗ ${errors} ошибок`;    errEl.style.display  = errors  > 0 ? 'inline-flex' : 'none'; }
       if (skipEl) { skipEl.textContent = `⊘ ${skipped} пропущено`; skipEl.style.display = skipped > 0 ? 'inline-flex' : 'none'; }
     }
@@ -909,11 +960,22 @@ const BulkMailPanel = (() => {
   }
 
   // Создаёт элемент в списке прогресса
-  function appendResultItem(name, email, status, comment) {
+  // Подсказка к строке списка: всё, что известно о письме (комментарий в списке обрезается).
+  function progressDetails(evt) {
+    return [
+      evt.time,
+      evt.email,
+      evt.comment,
+      evt.message_id ? `Message-ID: ${evt.message_id}` : '',
+    ].filter(Boolean).join('\n');
+  }
+
+  function appendResultItem(name, email, status, comment, details) {
     const list = $('bm-progress-list');
     if (!list) return null;
     const item = document.createElement('div');
     item.className = `bm-progress-item bm-progress-item--${status}`;
+    if (details) item.title = details;
     item.innerHTML = `
       <span class="bm-progress-dot">${status === 'sending' ? '' : status === 'sent' ? '✓' : status === 'skip' ? '⊘' : '✗'}</span>
       <span class="bm-progress-name">${escHtml(name)}</span>
@@ -956,7 +1018,11 @@ const BulkMailPanel = (() => {
       });
       const data = await resp.json();
       if (!resp.ok || !data.success) throw new Error(data.error || 'Ошибка');
-      Toast.show(`Тестовое письмо отправлено на ${data.to}`, 'success');
+      const idPart = data.message_id ? ` · ${data.message_id}` : '';
+      const replyPart = data.server_reply ? ` · ${data.server_reply}` : '';
+      Toast.show(state.channel === 'smtp'
+        ? `Тестовое письмо принято сервером для ${data.to}${idPart}${replyPart}`
+        : `Тестовое письмо отправлено на ${data.to}`, 'success', 8000);
     } catch (e) {
       Toast.show(`Ошибка отправки: ${e.message}`, 'error', 6000);
     } finally {
@@ -995,12 +1061,15 @@ const BulkMailPanel = (() => {
   // ── Экспорт CSV ────────────────────────────────────────────────────────────
   function exportCSV() {
     const nameCol  = state.mapping['{{ФИО}}'] || state.headers.find(h => h.toLowerCase().includes('фио') || h.toLowerCase().includes('имя')) || state.headers[0] || '';
-    const statusMap = Object.fromEntries(state.results.map(r => [r.email + '|' + (r.name || ''), r]));
+    // Журнал рассылки (все строки) приоритетнее state.results: там только ошибки.
+    const statusMap = Object.fromEntries(
+      [...state.results, ...state.log].map(r => [r.email + '|' + (r.name || ''), r]));
 
     const q = v => `"${String(v ?? '').replace(/"/g,'""')}"`;
 
     const extraHeaders = state.headers.filter(h => h !== state.emailColumn && h !== nameCol);
-    const headerRow = ['Статус', 'Комментарий', nameCol || 'Имя', state.emailColumn || 'Email', ...extraHeaders].join(',');
+    const headerRow = ['Статус', 'Комментарий', 'Время', 'Message-ID', 'Ответ сервера',
+                       nameCol || 'Имя', state.emailColumn || 'Email', ...extraHeaders].join(',');
 
     const lines = state.rows.map(row => {
       const email = row[state.emailColumn] || '';
@@ -1008,9 +1077,10 @@ const BulkMailPanel = (() => {
       const key   = email + '|' + name;
       const res   = statusMap[key];
       const status  = res ? (res.status === 'sent' ? 'Отправлено' : res.status === 'error' ? 'Ошибка' : 'Пропущено') : 'Не обработано';
-      const comment = res?.error || '';
+      const comment = res?.error || res?.comment || '';
       const extras  = extraHeaders.map(h => q(row[h] ?? ''));
-      return [q(status), q(comment), q(name), q(email), ...extras].join(',');
+      return [q(status), q(comment), q(res?.time || ''), q(res?.messageId || ''),
+              q(res?.serverReply || ''), q(name), q(email), ...extras].join(',');
     });
 
     const csv  = '﻿' + headerRow + '\n' + lines.join('\n');

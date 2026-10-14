@@ -367,11 +367,13 @@ def api_bulk_send_test():
         subject = '[Тест] ' + _substitute(subject_tpl, mapping, row)
         body    = _m.prepare_html_for_email(_substitute(template_html, mapping, row))
 
+        meta = {}
         if channel == 'smtp':
             smtp_from = from_email or creds.get('smtp_from_email', '')
             to        = smtp_from
-            _m.smtp_send_email(conn, smtp_from, subject, body, [smtp_from],
-                               importance=importance, read_receipt=read_receipt)
+            sent = _m.smtp_send_email(conn, smtp_from, subject, body, [smtp_from],
+                                      importance=importance, read_receipt=read_receipt)
+            meta = _sent_meta(sent)
             try: conn.quit()
             except Exception: pass
         else:
@@ -379,7 +381,7 @@ def api_bulk_send_test():
             _m.exchange_send_email(conn, subject, body, _m.parse_recipients([to]),
                                    importance=importance, read_receipt=read_receipt)
 
-        return jsonify({'success': True, 'to': to})
+        return jsonify({'success': True, 'to': to, **meta})
     except ValueError as e:
         return jsonify({'success': False, 'error': str(e)}), 401
     except ConnectionError as e:
@@ -402,7 +404,7 @@ def api_bulk_send_start():
         _jobs[jid] = {'queue': q, 'cancel': cancel}
 
     threading.Thread(
-        target=_run_bulk_send,
+        target=_run_bulk_send_guarded,
         args=(jid, data, q, cancel),
         daemon=True,
     ).start()
@@ -546,6 +548,37 @@ def _resolve_attachment(folder: str, filename_tpl: str, mapping: dict, row: dict
     return found
 
 
+def _sent_meta(sent) -> dict:
+    """``message_id`` и ``server_reply`` из результата ``smtp_send_email``.
+
+    Берём только строки: результат может быть и обычными байтами (старый
+    формат) или заглушкой в тестах.
+    """
+    message_id = getattr(sent, 'message_id', '')
+    server_reply = getattr(sent, 'server_reply', '')
+    return {
+        'message_id':   message_id   if isinstance(message_id, str)   else '',
+        'server_reply': server_reply if isinstance(server_reply, str) else '',
+    }
+
+
+def _now_hms() -> str:
+    return datetime.datetime.now().strftime('%H:%M:%S')
+
+
+def _run_bulk_send_guarded(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
+    """Запускает рассылку так, чтобы поток не умирал молча.
+
+    Без этого любое необработанное исключение в подготовке (до первой строки)
+    оставляет экран на 0% навсегда: поток завершён, события не придут.
+    """
+    try:
+        _run_bulk_send(job_id, data, q, cancel)
+    except Exception as e:
+        _logger.exception('bulk_send: job %s crashed', job_id)
+        q.put({'type': 'error', 'message': f'Внутренняя ошибка рассылки: {e}'})
+
+
 def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
     rows          = data.get('rows', [])
     mapping       = data.get('mapping', {})
@@ -610,6 +643,9 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     bcc = _m.parse_recipients([bcc_raw]) if bcc_raw else []
 
     # Connect once for all rows
+    q.put({'type': 'status',
+           'message': 'Подключаюсь к SMTP-серверу…' if channel == 'smtp'
+                      else 'Подключаюсь к Exchange…'})
     try:
         conn, creds = _connect(from_email_req, channel)
     except Exception as e:
@@ -624,9 +660,16 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
         smtp_imap_port = int(creds.get('smtp_imap_port') or 993)
         smtp_delay_on  = creds.get('smtp_delay_enabled', False)
         smtp_delay_sec = float(creds.get('smtp_delay_seconds') or 1)
+        q.put({'type': 'status',
+               'message': f'Подключено к {creds.get("smtp_host", "")}:'
+                          f'{creds.get("smtp_port") or 587}, вход выполнен. '
+                          f'Отправитель: {smtp_from}'})
         # Открываем IMAP если нужно
         imap_conn = None
         if smtp_imap and smtp_imap_host:
+            q.put({'type': 'status',
+                   'message': f'Подключаюсь к IMAP {smtp_imap_host}:{smtp_imap_port} '
+                              f'(копия в «Отправленные»)…'})
             try:
                 imap_conn = _m.connect_imap(
                     smtp_imap_host, smtp_imap_port,
@@ -635,6 +678,11 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                 )
             except Exception as e:
                 _logger.warning('bulk_send: IMAP connect failed: %s', e)
+                q.put({'type': 'warning',
+                       'message': f'Копия в «Отправленные» не сохраняется: {e}'})
+        elif smtp_imap:
+            q.put({'type': 'warning',
+                   'message': 'Копия в «Отправленные» не сохраняется: не указан IMAP-хост'})
     else:
         account = conn
 
@@ -657,6 +705,10 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                    'name': name, 'email': '(нет email)', 'status': 'skip',
                    'comment': 'Пропущено'})
             continue
+
+        meta = {}            # message_id / server_reply строки (только SMTP)
+        saved_sent = None    # None — IMAP не используется; False — копия не сохранена
+        q.put({'type': 'status', 'message': f'Отправляю {i + 1} из {total}: {email}'})
 
         try:
             subject = _substitute(subject_tpl, mapping, row)
@@ -708,16 +760,19 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                     })
                 raw_msg = _m.smtp_send_email(
                     conn, smtp_from, subject, body,
-                    [email], cc_raw.split(',') if cc_raw else [],
-                    bcc_raw.split(',') if bcc_raw else [],
+                    [email],
+                    [a.strip() for a in cc_raw.split(',') if a.strip()],
+                    [a.strip() for a in bcc_raw.split(',') if a.strip()],
                     attachments=smtp_atts,
                     importance=importance,
                     read_receipt=read_receipt,
                 )
+                meta = _sent_meta(raw_msg)
                 if imap_conn and raw_msg:
                     try:
-                        _m.imap_save_sent(imap_conn, raw_msg)
+                        saved_sent = bool(_m.imap_save_sent(imap_conn, raw_msg))
                     except Exception as e:
+                        saved_sent = False
                         _logger.warning('bulk_send: imap_save_sent failed: %s', e)
                 if smtp_delay_on and smtp_delay_sec > 0:
                     import time as _time
@@ -734,18 +789,26 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                                        read_receipt=read_receipt)
 
             sent += 1
-            comment = ('Сохранён черновик' if is_draft
-                       else f'Запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}' if send_at
-                       else 'Отправлено')
+            if channel == 'smtp':
+                # «Принято сервером» — не «доставлено»: дальше письмо живёт на сервере.
+                comment = 'Принято сервером'
+                if meta.get('server_reply'):
+                    comment += f' · {meta["server_reply"]}'
+                if saved_sent is False:
+                    comment += ' · копия в «Отправленные» не сохранена'
+            else:
+                comment = ('Сохранён черновик' if is_draft
+                           else f'Запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}' if send_at
+                           else 'Отправлено')
             q.put({'type': 'progress', 'index': i, 'total': total,
                    'name': name, 'email': email, 'status': 'sent',
-                   'comment': comment})
+                   'comment': comment, 'time': _now_hms(), **meta})
 
         except Exception as e:
             errors += 1
             q.put({'type': 'progress', 'index': i, 'total': total,
                    'name': name, 'email': email, 'status': 'error',
-                   'comment': str(e)})
+                   'comment': str(e), 'time': _now_hms(), **meta})
             if stop_on_error:
                 q.put({'type': 'cancelled', 'sent': sent, 'skipped': skipped, 'errors': errors})
                 return

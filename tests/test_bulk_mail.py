@@ -970,3 +970,129 @@ class TestResolveAttachment:
             for _ in range(3):
                 _resolve_attachment(str(tmp_path), '', {}, {'Файл': 'лист'}, 'Файл', cache)
         assert listing.call_count == 1
+
+
+# ─── Журнал рассылки по SMTP: события, ответ сервера, защита потока ───────────
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
+import queue as _queue
+from smtp_sender import SentMessage
+from routes.bulk_mail import _run_bulk_send, _run_bulk_send_guarded
+
+
+def _drain(q):
+    events = []
+    while True:
+        try:
+            events.append(q.get_nowait())
+        except _queue.Empty:
+            return events
+
+
+class TestBulkSendSmtpEvents:
+
+    CREDS = {
+        'smtp_host': 'mail.test.ru', 'smtp_port': 25,
+        'smtp_username': 'u', 'smtp_password': 'p',
+        'smtp_from_email': 'opros@test.ru',
+    }
+
+    def _run(self, rows, creds=None, send_side_effect=None, imap_side_effect=None, **extra):
+        q = _queue.Queue()
+        data = {
+            'template_html': '<p>x</p>', 'rows': rows, 'mapping': {},
+            'subject': 'S', 'email_column': 'Email', 'channel': 'smtp',
+            **extra,
+        }
+        sent_ok = SentMessage(b'raw', message_id='<id1@test.ru>',
+                              server_reply='250 ok: queued as 42')
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds or self.CREDS), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'connect_imap', side_effect=imap_side_effect,
+                          return_value=MagicMock()), \
+             patch.object(email_app, 'imap_save_sent', return_value=True), \
+             patch.object(email_app, 'smtp_send_email',
+                          side_effect=send_side_effect, return_value=sent_ok), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            _run_bulk_send('job', data, q, threading.Event())
+        return _drain(q)
+
+    def test_progress_carries_message_id_and_server_reply(self):
+        events = self._run([{'Email': 'a@t.ru'}])
+        row = next(e for e in events if e['type'] == 'progress')
+        assert row['message_id'] == '<id1@test.ru>'
+        assert row['server_reply'] == '250 ok: queued as 42'
+        assert row['comment'].startswith('Принято сервером')
+        assert row['time']
+
+    def test_status_events_precede_progress(self):
+        events = self._run([{'Email': 'a@t.ru'}])
+        types = [e['type'] for e in events]
+        assert types[0] == 'status'
+        assert 'Подключаюсь' in events[0]['message']
+        assert types.index('status') < types.index('progress')
+        assert any('mail.test.ru:25' in e.get('message', '') for e in events)
+
+    def test_refused_recipient_is_error_and_run_continues(self):
+        ok = SentMessage(b'raw', message_id='<id2@test.ru>', server_reply='250 ok')
+        events = self._run(
+            [{'Email': 'bad@t.ru'}, {'Email': 'good@t.ru'}],
+            send_side_effect=[ValueError('Адрес отклонён сервером: bad@t.ru: 550 no user'), ok],
+        )
+        rows = [e for e in events if e['type'] == 'progress']
+        assert [r['status'] for r in rows] == ['error', 'sent']
+        assert '550' in rows[0]['comment']
+        done = events[-1]
+        assert (done['type'], done['sent'], done['errors']) == ('done', 1, 1)
+
+    def test_imap_failure_emits_warning_but_sends(self):
+        creds = {**self.CREDS, 'smtp_imap_enabled': True,
+                 'smtp_imap_host': 'mail.test.ru', 'smtp_imap_port': 993}
+        events = self._run([{'Email': 'a@t.ru'}], creds=creds,
+                           imap_side_effect=ConnectionError('IMAP сервер недоступен'))
+        warnings = [e for e in events if e['type'] == 'warning']
+        assert warnings and 'Отправленные' in warnings[0]['message']
+        assert any(e['type'] == 'progress' and e['status'] == 'sent' for e in events)
+
+    def test_unsaved_copy_is_reported_in_row_comment(self):
+        creds = {**self.CREDS, 'smtp_imap_enabled': True,
+                 'smtp_imap_host': 'mail.test.ru', 'smtp_imap_port': 143}
+        q = _queue.Queue()
+        data = {'template_html': '<p/>', 'rows': [{'Email': 'a@t.ru'}], 'mapping': {},
+                'subject': 'S', 'email_column': 'Email', 'channel': 'smtp'}
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'connect_imap', return_value=MagicMock()), \
+             patch.object(email_app, 'imap_save_sent', return_value=False), \
+             patch.object(email_app, 'smtp_send_email',
+                          return_value=SentMessage(b'r', '<i@t.ru>', '250 ok')), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            _run_bulk_send('job', data, q, threading.Event())
+        row = next(e for e in _drain(q) if e['type'] == 'progress')
+        assert 'не сохранена' in row['comment']
+
+    def test_crash_before_first_row_becomes_error_event(self):
+        q = _queue.Queue()
+        # delay=None роняет float(None) ещё до подключения — раньше поток умирал молча
+        _run_bulk_send_guarded('job', {'rows': [], 'delay': None, 'channel': 'smtp'},
+                               q, threading.Event())
+        events = _drain(q)
+        assert events and events[-1]['type'] == 'error'
+        assert 'Внутренняя ошибка' in events[-1]['message']
+
+    def test_send_test_returns_message_id(self, client):
+        creds = {**self.CREDS}
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds), \
+             patch.object(email_app, 'connect_smtp', return_value=MagicMock()), \
+             patch.object(email_app, 'smtp_send_email',
+                          return_value=SentMessage(b'r', '<t@test.ru>', '250 queued')), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            resp = client.post('/api/bulk/send-test', json={
+                'template_html': '<p/>', 'row': {}, 'mapping': {}, 'channel': 'smtp',
+            })
+        data = resp.get_json()
+        assert data['message_id'] == '<t@test.ru>'
+        assert data['server_reply'] == '250 queued'

@@ -492,6 +492,10 @@
                     </div>
                     <button type="button" class="bm-btn-cancel" id="bm-cancel-btn" title="Остановить рассылку">✕</button>
                   </div>
+                  <!-- Что происходит сейчас: подключение, номер письма -->
+                  <div class="bm-progress-status" id="bm-progress-status" role="status" aria-live="polite" style="display:none"></div>
+                  <!-- Предупреждения (например, не сохраняется копия в «Отправленные») -->
+                  <div class="bm-progress-notes" id="bm-progress-notes" style="display:none"></div>
                   <!-- Список результатов -->
                   <div class="bm-progress-list" id="bm-progress-list"></div>
                   <!-- Итоговая статистика -->
@@ -499,6 +503,10 @@
                     <span class="bm-badge-ok"  id="bm-progress-ok"></span>
                     <span class="bm-badge-skip" id="bm-progress-skip" style="display:none"></span>
                     <span class="bm-badge-err"  id="bm-progress-err"  style="display:none"></span>
+                  </div>
+                  <div class="bm-progress-hint" id="bm-progress-hint" style="display:none">
+                    «Принято сервером» значит, что сервер взял письмо. Дошло ли оно, видно в журнале
+                    почтового сервера: передайте администратору Message-ID из выгрузки CSV.
                   </div>
                   <!-- Действия после отправки -->
                   <div class="bm-post-actions" id="bm-post-actions" style="display:none">

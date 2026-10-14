@@ -736,7 +736,32 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 90px;
+  max-width: 160px;
+}
+
+/* Current step line, warnings and the post-run hint */
+.bm-progress-status,
+.bm-progress-notes,
+.bm-progress-hint {
+  font-size: 11px;
+  line-height: 16px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  border-radius: 4px;
+  color: var(--text-muted, #64748b);
+  overflow-wrap: anywhere;
+}
+
+.bm-progress-notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #f59e0b;
+  background: rgba(245,158,11,0.08);
+}
+
+.bm-progress-hint {
+  background: rgba(255,255,255,0.03);
 }
 
 .bm-progress-item--error .bm-progress-comment {
