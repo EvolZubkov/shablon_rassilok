@@ -1009,6 +1009,24 @@ function htmlToMarkdown(html) {
 }
 
 /**
+ * Вернуть превью строки рассылки, когда правка текста закончена: фокус ушёл
+ * с редактируемых полей и не находится в тулбаре. Пока тулбар используется
+ * (вставка поля, ссылка, цвет), значения в холст не подставляются.
+ */
+let canvasEditEndTimer = null;
+function scheduleCanvasEditEnd() {
+    clearTimeout(canvasEditEndTimer);
+    canvasEditEndTimer = setTimeout(() => {
+        const active = document.activeElement;
+        const stillEditing = active && active.closest &&
+            (active.closest('.editable-text') || active.closest('.text-toolbar') ||
+             active.closest('#toolbar-field-dropdown'));
+        if (stillEditing) return;
+        if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.endCanvasEdit?.();
+    }, 250);
+}
+
+/**
  * Инициализация inline-редактирования
  */
 function initInlineEditing() {
@@ -1024,9 +1042,12 @@ function initInlineEditing() {
                 savedSelection = sel.getRangeAt(0).cloneRange();
             }
             saveTextChanges(e.target);
+            scheduleCanvasEditEnd();
         });
 
         el.addEventListener('focus', (e) => {
+            // Правим исходный текст с {{плейсхолдерами}}, а не значения строки рассылки
+            if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.beginCanvasEdit?.();
             showTextToolbar(e.target);
         });
 
@@ -1179,6 +1200,7 @@ function initInlineEditing() {
     document.addEventListener('click', (e) => {
         if (!e.target.closest('.editable-text') && !e.target.closest('.text-toolbar') && !e.target.closest('#toolbar-field-dropdown')) {
             hideTextToolbar();
+            scheduleCanvasEditEnd();
         }
     });
 
@@ -1247,6 +1269,12 @@ function saveTextChanges(element) {
     if (!block) return;
 
     const blockType = element.closest('[data-block-type]')?.dataset.blockType;
+
+    // Подстановка значений строки в холсте не должна попадать в блок
+    if (typeof BulkMailPanel !== 'undefined') {
+        BulkMailPanel.beginCanvasEdit?.();
+        scheduleCanvasEditEnd();
+    }
 
     let newValue;
     if (blockType === 'heading') {

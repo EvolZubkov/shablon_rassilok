@@ -464,7 +464,8 @@ ${buildEmailThemeStyles()}
             && block.settings?.bgEnabled !== false
             && block.settings?.bgColor
             && block.settings?.bgFullWidth;
-        if (block.type === 'banner' || block.type === 'divider' || isFullWidthColumns) {
+        const isFullWidthDivider = block.type === 'divider' && block.settings?.fullWidth !== false;
+        if (block.type === 'banner' || isFullWidthDivider || isFullWidthColumns) {
             // Баннер, разделитель и колонки с full-width фоном — полная ширина
             // (их HTML уже сам компенсирует боковой отступ изнутри при необходимости).
             // При 3-колоночной раскладке первый <td> должен охватить все 3 колонки.
@@ -1185,10 +1186,16 @@ function generateDividerHTML(s) {
         return '';
     }
 
+    // fullWidth !== false: на всю ширину письма (как раньше); false — по ширине
+    // основного контента, с боковыми отступами профиля.
+    const width = s.fullWidth === false
+        ? (_emailContentWidth || LAYOUT.TABLE_WIDTH)
+        : LAYOUT.TABLE_WIDTH;
+
     return `
         <tr>
             <td align="center" style="${getPadding()}">
-                <img src="${imageSrc}" alt="" width="${LAYOUT.TABLE_WIDTH}" style="${getImageStyle(LAYOUT.TABLE_WIDTH, 'width:100%;')}">
+                <img src="${imageSrc}" alt="" width="${width}" style="${getImageStyle(width, 'width:100%;')}">
             </td>
         </tr>
     `;

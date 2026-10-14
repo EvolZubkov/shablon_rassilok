@@ -298,7 +298,8 @@ const DEFAULT_SETTINGS = {
 
     divider: {
         image: '',            // src картинки-разделителя
-        customImage: ''       // загруженная пользователем картинка
+        customImage: '',      // загруженная пользователем картинка
+        fullWidth: true       // true — на всю ширину письма, false — с отступами контента
     },
 
     image: {

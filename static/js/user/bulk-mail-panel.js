@@ -513,7 +513,40 @@ const BulkMailPanel = (() => {
     if (next) next.disabled = state.currentRow >= state.rows.length - 1;
   }
 
+  // Пока пользователь правит текст на холсте, значения строки не подставляем:
+  // правка и сохранение блока должны видеть исходные {{плейсхолдеры}}, иначе
+  // значения строки записываются в блок «статичным» текстом.
+  let _inlineEditing = false;
+
+  function beginCanvasEdit() {
+    _inlineEditing = true;
+    clearTimeout(_placeholderTimer);
+    if (!state.canvasBackups.length) return;
+    // restoreCanvas перезаписывает текстовые узлы — курсор из них уехал бы в начало.
+    const sel = window.getSelection();
+    const anchor = sel && sel.rangeCount ? sel.anchorNode : null;
+    const caretInSubstituted = !!anchor && state.canvasBackups.some(b => b.node === anchor);
+    restoreCanvas();
+    if (caretInSubstituted && anchor.nodeType === 3) {
+      const r = document.createRange();
+      r.setStart(anchor, anchor.nodeValue.length);
+      r.collapse(true);
+      sel.removeAllRanges();
+      sel.addRange(r);
+    }
+  }
+
+  function endCanvasEdit() {
+    if (!_inlineEditing) return;
+    _inlineEditing = false;
+    if (!state.fileLoaded || _editMode) return;
+    detectPlaceholders();
+    recalcSummary();
+    renderCurrentRow();
+  }
+
   function renderCurrentRow() {
+    if (_inlineEditing) return;
     restoreCanvas();
     if (!state.rows.length) return;
     const row = state.rows[state.currentRow];
@@ -1297,6 +1330,8 @@ const BulkMailPanel = (() => {
   return {
     init, getColumns: () => state.headers, detectPlaceholders, recalcSummary, loadParsed,
     refreshRowPreview: () => { if (state.fileLoaded && !_editMode) renderCurrentRow(); },
+    beginCanvasEdit,
+    endCanvasEdit,
   };
 })();
 

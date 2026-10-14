@@ -44,7 +44,36 @@ def _job_id() -> str:
 # ── Placeholder substitution ─────────────────────────────────────────────────
 
 _URL_RE = re.compile(r'^https?://', re.I)
+_URL_IN_TEXT_RE = re.compile(r'''https?://[^\s<>"']+''', re.I)
+_URL_TRAILING = '.,;:!?)]}»'
 _LINK_COLOR = '#7700ff'
+_TAG_RE = re.compile(r'<[^>]*>')
+_ANCHOR_OPEN_RE = re.compile(r'<a[\s>]', re.I)
+_ANCHOR_CLOSE_RE = re.compile(r'</a\s*>', re.I)
+
+
+def _linkify(raw: str) -> str:
+    """HTML-escape ``raw`` and wrap every http(s) URL in a styled <a>.
+
+    The brand colour is set inline so that clients (Evolution, Outlook) do not
+    fall back to the default blue of their own auto-linking.
+    """
+    out = []
+    pos = 0
+    for m in _URL_IN_TEXT_RE.finditer(raw):
+        url = m.group(0)
+        stripped = url.rstrip(_URL_TRAILING)
+        end = m.start() + len(stripped)
+        out.append(_html.escape(raw[pos:m.start()]))
+        href = _html.escape(stripped, quote=True)
+        out.append(
+            f'<a href="{href}" '
+            f'style="color:{_LINK_COLOR}; text-decoration:underline;">'
+            f'{_html.escape(stripped)}</a>'
+        )
+        pos = end
+    out.append(_html.escape(raw[pos:]))
+    return ''.join(out)
 
 
 def _substitute(template: str, mapping: dict, row: dict) -> str:
@@ -53,43 +82,56 @@ def _substitute(template: str, mapping: dict, row: dict) -> str:
     Handles both plain ``{{X}}`` text and spans inserted by the {{}} toolbar:
     ``<span class="bm-inline-ph" ...>{{X}}</span>``
 
-    URL values in text content are wrapped in <a> with the brand link colour so
-    that all clients (including Evolution on Linux) render them as styled links
-    instead of auto-linking them in the default client blue.
-    Attribute contexts (href="{{X}}", src="{{X}}") receive the plain value.
+    The template is processed tag by tag, in a single pass:
+    * inside a tag (href="{{X}}", src="...{{X}}", style) the value is inserted
+      as an escaped attribute value, never as markup;
+    * in text outside <a> a URL in the value becomes a styled <a>;
+    * in text inside an existing <a> the value stays plain (no nested anchors,
+      which Evolution and Outlook render as broken links).
+    Substituted values are not scanned again, so a value that itself looks
+    like ``{{Other}}`` is left as is.
     """
+    if not mapping:
+        return template
+
     result = template
-    for ph, col in mapping.items():
-        raw = str(row.get(col) or '')
-        value = _html.escape(raw)
+    for ph in mapping:
+        result = re.sub(
+            r'<span[^>]+class="[^"]*bm-inline-ph[^"]*"[^>]*>(' + re.escape(ph) + r')</span>',
+            lambda m: m.group(1),
+            result,
+        )
 
-        if _URL_RE.match(raw):
-            linked = (
-                f'<a href="{value}" '
-                f'style="color:{_LINK_COLOR}; text-decoration:underline;">'
-                f'{value}</a>'
-            )
+    ph_re = re.compile(
+        '|'.join(re.escape(ph) for ph in sorted(mapping, key=len, reverse=True))
+    )
+
+    def raw_value(ph: str) -> str:
+        return str(row.get(mapping[ph]) or '')
+
+    out = []
+    pos = 0
+    anchor_depth = 0
+    for tag in _TAG_RE.finditer(result):
+        text = result[pos:tag.start()]
+        if anchor_depth:
+            out.append(ph_re.sub(lambda m: _html.escape(raw_value(m.group(0))), text))
         else:
-            linked = value
+            out.append(ph_re.sub(lambda m: _linkify(raw_value(m.group(0))), text))
 
-        # 1. Span wrapper inserted by {{}} toolbar → text context → linked value
-        result = re.sub(
-            r'<span[^>]+class="[^"]*bm-inline-ph[^"]*"[^>]*>' + re.escape(ph) + r'</span>',
-            linked,
-            result,
-        )
+        markup = tag.group(0)
+        out.append(ph_re.sub(
+            lambda m: _html.escape(raw_value(m.group(0)), quote=True), markup))
+        if _ANCHOR_CLOSE_RE.match(markup):
+            anchor_depth = max(0, anchor_depth - 1)
+        elif _ANCHOR_OPEN_RE.match(markup):
+            anchor_depth += 1
+        pos = tag.end()
 
-        # 2. Inside href/src/action attributes → plain value (no <a> wrapping)
-        result = re.sub(
-            r'((?:href|src|action)=")' + re.escape(ph) + r'(")',
-            lambda m, v=value: m.group(1) + v + m.group(2),
-            result,
-        )
-
-        # 3. Any remaining occurrence is text content → linked value
-        result = result.replace(ph, linked)
-
-    return result
+    tail = result[pos:]
+    func = (lambda m: _html.escape(raw_value(m.group(0)))) if anchor_depth         else (lambda m: _linkify(raw_value(m.group(0))))
+    out.append(ph_re.sub(func, tail))
+    return ''.join(out)
 
 
 def _connect(from_email: str = '', channel: str = 'exchange') -> tuple:

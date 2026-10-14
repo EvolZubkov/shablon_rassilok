@@ -121,6 +121,38 @@ class TestSubstitute:
         result = _substitute('{{X}}', {'{{X}}': 'X'}, {'X': None})
         assert result == ''
 
+    def test_url_in_text_becomes_styled_link(self):
+        result = _substitute('Ссылка: {{L}}', {'{{L}}': 'L'}, {'L': 'https://a.ru/x?y=1&z=2'})
+        assert '<a href="https://a.ru/x?y=1&amp;z=2"' in result
+        assert 'color:' in result
+
+    def test_url_inside_sentence_is_linked_and_punctuation_kept_outside(self):
+        result = _substitute('{{L}}', {'{{L}}': 'L'}, {'L': 'Смотри https://a.ru/p, пожалуйста'})
+        assert '<a href="https://a.ru/p"' in result
+        assert '</a>, пожалуйста' in result
+
+    def test_no_nested_anchor_when_placeholder_inside_link(self):
+        tpl = '<a href="{{L}}">{{L}}</a>'
+        result = _substitute(tpl, {'{{L}}': 'L'}, {'L': 'https://a.ru'})
+        assert result == '<a href="https://a.ru">https://a.ru</a>'
+
+    def test_placeholder_in_partial_href_stays_plain(self):
+        tpl = '<a href="https://a.ru/?id={{ID}}">go</a>'
+        result = _substitute(tpl, {'{{ID}}': 'ID'}, {'ID': 'https://b.ru'})
+        assert result.count('<a ') == 1
+        assert 'href="https://a.ru/?id=https://b.ru"' in result
+
+    def test_attribute_value_cannot_break_out(self):
+        tpl = '<a href="{{L}}">x</a>'
+        result = _substitute(tpl, {'{{L}}': 'L'}, {'L': 'https://a.ru" onclick="evil'})
+        assert 'onclick="evil' not in result
+        assert '&quot;' in result
+
+    def test_substituted_value_not_rescanned(self):
+        mapping = {'{{A}}': 'A', '{{B}}': 'B'}
+        result = _substitute('{{A}}', mapping, {'A': '{{B}}', 'B': 'secret'})
+        assert result == '{{B}}'
+
     def test_ampersand_escaped(self):
         result = _substitute('{{X}}', {'{{X}}': 'X'}, {'X': 'A&B'})
         assert '&amp;' in result

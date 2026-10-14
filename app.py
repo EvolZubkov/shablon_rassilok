@@ -3849,6 +3849,40 @@ def _run_webview_or_browser() -> None:
 
         view = DropAwareWebView()
 
+        # Внешние ссылки (клик в тексте письма, превью, подсказках) открываем
+        # в системном браузере, а не в окне приложения: иначе навигация
+        # сбрасывает собранный шаблон.
+        try:
+            from PyQt5.QtWebEngineWidgets import QWebEnginePage
+
+            class ExternalLinkPage(QWebEnginePage):
+                """Не даёт окну приложения уйти на внешний адрес."""
+
+                _LOCAL_HOSTS = ('127.0.0.1', 'localhost')
+
+                def acceptNavigationRequest(self, qurl, nav_type, is_main_frame):
+                    scheme = qurl.scheme().lower()
+                    if scheme in ('http', 'https', 'mailto', 'tel'):
+                        is_local = (
+                            scheme in ('http', 'https')
+                            and qurl.host().lower() in self._LOCAL_HOSTS
+                        )
+                        if not is_local:
+                            try:
+                                webbrowser.open(qurl.toString())
+                            except Exception as exc:
+                                _logger.warning('Не удалось открыть ссылку %s: %s', qurl.toString(), exc)
+                            return False
+                    return super().acceptNavigationRequest(qurl, nav_type, is_main_frame)
+
+                def createWindow(self, _window_type):
+                    # target="_blank" / window.open: новых окон внутри приложения нет.
+                    return None
+
+            view.setPage(ExternalLinkPage(view))
+        except Exception as _page_exc:
+            _logger.warning('[QWebEngineView] не удалось подключить перехват ссылок: %s', _page_exc)
+
         # Разрешаем JS доступ к буферу обмена (navigator.clipboard.writeText).
         # Без этого шорткат «скопировать HTML письма» (Ctrl+Alt+H) молча падает
         # внутри QtWebEngine, хотя в системном браузере работает.
