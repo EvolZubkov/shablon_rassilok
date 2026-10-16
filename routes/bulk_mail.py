@@ -20,6 +20,7 @@ import mimetypes
 import os
 import queue
 import re
+import smtplib
 import threading
 import unicodedata
 import uuid
@@ -566,6 +567,37 @@ def _now_hms() -> str:
     return datetime.datetime.now().strftime('%H:%M:%S')
 
 
+def _smtp_alive(conn) -> bool:
+    """Жива ли SMTP-сессия (NOOP); сервер мог закрыть её между письмами."""
+    try:
+        code = conn.noop()[0]
+    except Exception:
+        return False
+    return code == 250 if isinstance(code, int) else True
+
+
+def _is_retryable_smtp_error(exc: Exception) -> bool:
+    """Потеря соединения или временный отказ сервера (4xx) — повтор имеет смысл."""
+    if isinstance(exc, ConnectionError):
+        return True
+    cause = exc.__cause__
+    if isinstance(cause, smtplib.SMTPServerDisconnected):
+        return True
+    return (isinstance(cause, smtplib.SMTPResponseException)
+            and 400 <= cause.smtp_code < 500)
+
+
+def _smtp_reconnect(old_conn, from_email: str, q: queue.Queue):
+    """Закрывает старую сессию и открывает новую; ошибка уходит в строку рассылки."""
+    try:
+        old_conn.close()
+    except Exception:
+        pass
+    q.put({'type': 'status', 'message': 'SMTP-сессия закрыта сервером, переподключаюсь…'})
+    new_conn, _creds = _connect(from_email, 'smtp')
+    return new_conn
+
+
 def _run_bulk_send_guarded(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
     """Запускает рассылку так, чтобы поток не умирал молча.
 
@@ -758,15 +790,27 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                         'content': raw_bytes,
                         'mime_type': att.get('mime_type', 'application/octet-stream'),
                     })
-                raw_msg = _m.smtp_send_email(
-                    conn, smtp_from, subject, body,
+                smtp_args = (
+                    smtp_from, subject, body,
                     [email],
                     [a.strip() for a in cc_raw.split(',') if a.strip()],
                     [a.strip() for a in bcc_raw.split(',') if a.strip()],
-                    attachments=smtp_atts,
-                    importance=importance,
-                    read_receipt=read_receipt,
                 )
+                smtp_kwargs = dict(attachments=smtp_atts, importance=importance,
+                                   read_receipt=read_receipt)
+                # Сервер мог закрыть сессию (лимит, простой, антиспам): без
+                # переподключения все следующие строки падали бы, не доходя до сети.
+                if not _smtp_alive(conn):
+                    conn = _smtp_reconnect(conn, from_email_req, q)
+                try:
+                    raw_msg = _m.smtp_send_email(conn, *smtp_args, **smtp_kwargs)
+                except (ConnectionError, ValueError) as send_exc:
+                    if not _is_retryable_smtp_error(send_exc):
+                        raise
+                    _logger.warning('bulk_send: SMTP сессия потеряна на строке %d (%s), '
+                                    'переподключаюсь и повторяю', i + 1, send_exc)
+                    conn = _smtp_reconnect(conn, from_email_req, q)
+                    raw_msg = _m.smtp_send_email(conn, *smtp_args, **smtp_kwargs)
                 meta = _sent_meta(raw_msg)
                 if imap_conn and raw_msg:
                     try:
