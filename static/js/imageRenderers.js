@@ -1396,7 +1396,9 @@ function renderFlatBulletToDataUrl(block, callback) {
         return;
     }
 
-    const SCALE = 2;
+    // Мелкий булит (3–5px) в 2x — это PNG 6–10px: кружок выглядит угловатым.
+    // Рендерим не меньше 64px по стороне, клиент сам уменьшит до нужного размера.
+    const SCALE = Math.max(2, Math.ceil(64 / bulletSize));
     const img = new Image();
     img.crossOrigin = 'anonymous';
     img.src = bulletSrc;
@@ -1408,6 +1410,7 @@ function renderFlatBulletToDataUrl(block, callback) {
         canvas.height = bulletSize * SCALE;
         const ctx = canvas.getContext('2d');
         ctx.scale(SCALE, SCALE);
+        ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(img, 0, 0, bulletSize, bulletSize);
         block.settings.renderedBulletFlat = canvas.toDataURL('image/png');
         canvas.width = 0;

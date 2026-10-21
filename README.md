@@ -2,7 +2,7 @@
 
 Десктопное приложение для создания и отправки HTML-писем и встреч через Microsoft Exchange (EWS).
 
-Текущая версия: **2.7.3** (история изменений — [docs/PATCHNOTES.md](docs/PATCHNOTES.md)).
+Текущая версия: **2.7.4** (история изменений — [docs/PATCHNOTES.md](docs/PATCHNOTES.md)).
 
 Запускается как локальный Flask-сервер со встроенным Chromium-окном (PyQt5 + QWebEngineView). Работает на Windows и ALT Linux.
 

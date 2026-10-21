@@ -808,7 +808,6 @@ function generateListHTML(s) {
     const bulletGap = s.bulletGap ?? 10;
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
-    const cellWidth = bulletSize + bulletGap + 2;
     const fontFamily = resolveTextFontFamily(s);
     const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const itemSpacing = s.itemSpacing ?? 8;
@@ -833,7 +832,7 @@ function generateListHTML(s) {
         let bulletHTML;
 
         if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
-            bulletHTML = `<img src="${s.renderedBullets[index]}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block;">`;
+            bulletHTML = `<img src="${s.renderedBullets[index]}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block; vertical-align:middle; width:${bulletSize}px; height:${bulletSize}px; border:0;">`;
         } else {
             // Для обычных (не нумерованных) списков используем заранее
             // растрированный самодостаточный data:URL (renderFlatBulletToDataUrl
@@ -850,7 +849,7 @@ function generateListHTML(s) {
             const numberFontSize = Math.max(10, Math.round(bulletSize * 0.3));
 
             const baseBullet = bulletSrc
-                ? `<img src="${bulletSrc}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block;">`
+                ? `<img src="${bulletSrc}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block; vertical-align:middle; width:${bulletSize}px; height:${bulletSize}px; border:0;">`
                 : `<span class="email-bullet-dot" style="display:inline-block; width:${bulletSize}px; height:${bulletSize}px; border-radius:999px; background-color:${ctx.bulletColor};"></span>`;
 
             if (isNumbered) {
@@ -871,11 +870,17 @@ function generateListHTML(s) {
             }
         }
 
+        // У ячейки булита font-size:0 и line-height = размер булита + 2px: клиенты, игнорирующие
+        // display:block у картинки, кладут её в строку на базовую линию текста — маленький
+        // булит оказывался внизу. line-height:0 решал это, но клиент обрезал картинку до
+        // полукруга, поэтому высота строки чуть больше булита (+2px запас на округление).
         return `
             <tr>
-                <td valign="middle" width="${cellWidth}" style="padding:${itemSpacing / 2}px ${bulletGap}px;">
+                <td width="${bulletGap}" style="width:${bulletGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
+                <td valign="middle" width="${bulletSize}" style="width:${bulletSize}px; padding:${itemSpacing / 2}px 0; vertical-align:middle; font-size:0; line-height:${bulletSize + 2}px; mso-line-height-rule:exactly;">
                     ${bulletHTML}
                 </td>
+                <td width="${bulletGap}" style="width:${bulletGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
                 <td valign="middle" class="email-text" style="font-size:${fontSize}px; line-height:${lineHeightPx}px; mso-line-height-rule:exactly; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
                     ${formatted}
                 </td>
