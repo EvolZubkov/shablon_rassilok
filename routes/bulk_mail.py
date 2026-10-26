@@ -3,6 +3,10 @@ Flask blueprint: bulk mail — file parsing and sending.
 
 Routes:
     POST /api/bulk/parse              — parse Excel/ODS file
+    GET  /api/bulk/attach/limits      — message size limit and blocked file types
+    POST /api/bulk/attach/upload      — store common attachments (several files)
+    POST /api/bulk/attach/delete      — remove a stored common attachment
+    POST /api/bulk/preflight          — check attachments of all rows, send nothing
     POST /api/bulk/send-test          — send test email to self
     POST /api/bulk/send/start         — start bulk send job, returns job_id
     GET  /api/bulk/send/stream/<id>   — SSE stream: progress events
@@ -30,6 +34,14 @@ _logger = logging.getLogger(__name__)
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 import app as _m  # live access to app.py globals (same pattern as exchange.py)
+from routes import bulk_attachments as _att
+from routes.bulk_attachments import (  # noqa: F401  (имена сохранены для тестов и совместимости)
+    find_file_tolerant as _find_file_tolerant,
+    list_files as _list_files,
+    normalize_filename as _normalize_filename,
+    resolve_attachment as _resolve_attachment,
+    substitute_by_column_name as _substitute_by_column_name,
+)
 
 bp = Blueprint('bulk_mail', __name__)
 
@@ -135,6 +147,20 @@ def _substitute(template: str, mapping: dict, row: dict) -> str:
     return ''.join(out)
 
 
+def _effective_mapping(data: dict) -> dict:
+    """Mapping from the request plus every placeholder the client found but the
+    user left unmapped, pointed at no column: its value is empty.
+
+    Without this an unmapped ``{{X}}`` would stay in the subject and body
+    literally, which looks like a broken letter to the recipient.
+    """
+    mapping = dict(data.get('mapping') or {})
+    for ph in data.get('placeholders') or []:
+        if isinstance(ph, str) and ph not in mapping:
+            mapping[ph] = ''
+    return mapping
+
+
 def _connect(from_email: str = '', channel: str = 'exchange') -> tuple:
     """Load credentials and return (account_or_smtp, creds) or raise.
 
@@ -167,6 +193,80 @@ def _connect(from_email: str = '', channel: str = 'exchange') -> tuple:
         auth_type=creds.get('auth_type', 'ntlm'),
     )
     return account, creds
+
+
+# ── Attachments: upload store, limits, pre-send check ─────────────────────────
+
+def _limits_payload() -> dict:
+    limit = _att.message_limit_bytes(_configured_limit_mb())
+    return {
+        'limit_bytes':  limit,
+        'budget_bytes': _att.files_budget(limit),
+        'max_files':    _att.MAX_COMMON_FILES,
+        'blocked':      sorted(_att.BLOCKED_EXTENSIONS),
+    }
+
+
+@bp.route('/api/bulk/attach/limits', methods=['GET'])
+def api_bulk_attach_limits():
+    """Size limit and blocked types, so the window can refuse a file in advance."""
+    return jsonify(_limits_payload())
+
+
+@bp.route('/api/bulk/attach/upload', methods=['POST'])
+def api_bulk_attach_upload():
+    """Store common attachments (one or several files) until the mailing is sent.
+
+    Form fields: ``files`` (multiple), ``existing_files`` and ``existing_bytes`` —
+    what the window already holds, to check the total against the limit.
+    Files that cannot be added come back in ``rejected`` with the reason.
+    """
+    files = request.files.getlist('files')
+    if not files:
+        return jsonify({'error': 'Файлы не переданы'}), 400
+    try:
+        existing_files = max(0, int(request.form.get('existing_files') or 0))
+        existing_bytes = max(0, int(request.form.get('existing_bytes') or 0))
+    except ValueError:
+        return jsonify({'error': 'Некорректные параметры'}), 400
+
+    limits = _limits_payload()
+    saved, rejected = [], []
+    for upload in files:
+        name = upload.filename or 'file'
+        try:
+            item = _att.save_upload(name, upload.read(), existing_files, existing_bytes,
+                                    limits['budget_bytes'])
+        except _att.UploadError as e:
+            rejected.append({'name': name, 'error': str(e)})
+            continue
+        saved.append(item)
+        existing_files += 1
+        existing_bytes += item['size']
+    return jsonify({'files': saved, 'rejected': rejected, **limits})
+
+
+@bp.route('/api/bulk/attach/delete', methods=['POST'])
+def api_bulk_attach_delete():
+    data = request.get_json(silent=True) or {}
+    return jsonify({'ok': _att.delete_upload(data.get('token', ''))})
+
+
+@bp.route('/api/bulk/preflight', methods=['POST'])
+def api_bulk_preflight():
+    """Check attachments of every row before sending: what is found, what is missing,
+    what exceeds the size limit. Nothing is sent."""
+    data = request.get_json(silent=True) or {}
+    rows = data.get('rows')
+    if not isinstance(rows, list):
+        return jsonify({'error': 'Нет строк для проверки'}), 400
+    specs = _att.normalize_specs(data)
+    report = _att.preflight(
+        rows, specs, _effective_mapping(data), str(data.get('email_column') or 'Email'),
+        data.get('skip_no_email', True) is not False,
+        _att.message_limit_bytes(_configured_limit_mb()),
+    )
+    return jsonify(report)
 
 
 # ── Parse ─────────────────────────────────────────────────────────────────────
@@ -356,7 +456,7 @@ def api_bulk_send_test():
     data = request.get_json(silent=True) or {}
     template_html = data.get('template_html', '')
     row           = data.get('row', {})
-    mapping       = data.get('mapping', {})
+    mapping       = _effective_mapping(data)
     subject_tpl   = data.get('subject', 'Тестовое письмо')
 
     try:
@@ -453,102 +553,6 @@ def api_bulk_send_cancel(job_id):
 
 # ── Background worker ─────────────────────────────────────────────────────────
 
-def _normalize_filename(name: str) -> str:
-    """Key for tolerant file-name comparison: NFC, case-folded, ё→е, single spaces."""
-    text = unicodedata.normalize('NFC', name).casefold().replace('ё', 'е')
-    return re.sub(r'\s+', ' ', text).strip()
-
-
-def _substitute_by_column_name(text: str, row: dict) -> str:
-    """Replace remaining ``{{Column}}`` with the row value of the column with that
-    name (case-, ё/е- and space-insensitive). Unknown placeholders stay as is."""
-    by_name = {_normalize_filename(str(col)): value for col, value in row.items()}
-
-    def _replace(match: re.Match) -> str:
-        key = _normalize_filename(match.group(1))
-        if key not in by_name:
-            return match.group(0)
-        return str(by_name[key] if by_name[key] is not None else '')
-
-    return re.sub(r'\{\{([^{}]+)\}\}', _replace, text)
-
-
-def _list_files(folder: str, cache: dict | None = None) -> list[str]:
-    """File names in ``folder``; with ``cache`` the folder is listed once per job."""
-    if cache is not None and folder in cache:
-        return cache[folder]
-    try:
-        names = [n for n in os.listdir(folder) if os.path.isfile(os.path.join(folder, n))]
-    except OSError:
-        names = []
-    if cache is not None:
-        cache[folder] = names
-    return names
-
-
-def _find_file_tolerant(folder: str, fname: str, cache: dict | None = None) -> str | None:
-    """Exact match first; otherwise compare names ignoring case, ё/е, Unicode
-    form (NFC/NFD) and repeated/trailing spaces — typical differences between
-    a spreadsheet cell and the real file name.
-
-    A cell without extension ("Условия активации") matches by file stem, but only
-    when exactly one file has that stem: with several (``.docx`` and ``.pdf``)
-    the choice is ambiguous and nothing is attached rather than the wrong file.
-    """
-    exact = os.path.join(folder, fname)
-    if os.path.isfile(exact):
-        return exact
-    wanted = _normalize_filename(fname)
-    names = _list_files(folder, cache)
-    for name in names:
-        if _normalize_filename(name) == wanted:
-            return os.path.join(folder, name)
-    stem_matches = [n for n in names if _normalize_filename(os.path.splitext(n)[0]) == wanted]
-    if len(stem_matches) > 1:
-        _logger.warning('bulk_send: ambiguous attachment name %r in %r — candidates: %s',
-                        fname, folder, ', '.join(sorted(stem_matches)))
-        return None
-    if stem_matches:
-        return os.path.join(folder, stem_matches[0])
-    return None
-
-
-def _resolve_attachment(folder: str, filename_tpl: str, mapping: dict, row: dict,
-                        column: str = '', dir_cache: dict | None = None) -> str | None:
-    """Return the full path to an attachment file, or None if not found/not configured.
-
-    The file name is taken from ``column`` of the row when given (mode "Колонка"),
-    otherwise from ``filename_tpl`` with ``{{placeholders}}`` substituted.
-    """
-    if not folder or not (column or filename_tpl):
-        _logger.warning('bulk_send: attach folder/name empty: folder=%r filename_tpl=%r column=%r',
-                        folder, filename_tpl, column)
-        return None
-    if column:
-        fname = str(row.get(column) or '').strip()
-    else:
-        # Substitute placeholders in filename template (plain text, no HTML escape)
-        fname = filename_tpl
-        for ph, col in mapping.items():
-            fname = fname.replace(ph, str(row.get(col) or ''))
-        # ``mapping`` holds only placeholders that occur in the letter body. A
-        # placeholder used only in the file-name template ({{Файл}}) is not in it —
-        # resolve it directly by column name.
-        fname = _substitute_by_column_name(fname, row)
-    # Sanitize: remove characters that are illegal in filenames
-    fname = re.sub(r'[<>:"/\\|?*\x00-\x1f]', '_', fname)
-    if not fname:
-        _logger.warning('bulk_send: attachment name is empty (column=%r)', column)
-        return None
-    found = _find_file_tolerant(folder, fname, dir_cache)
-    if not found:
-        _logger.warning(
-            'bulk_send: attachment NOT found — folder=%r filename_tpl=%r column=%r fname=%r',
-            folder, filename_tpl, column, fname,
-        )
-    return found
-
-
 def _sent_meta(sent) -> dict:
     """``message_id`` и ``server_reply`` из результата ``smtp_send_email``.
 
@@ -598,6 +602,58 @@ def _smtp_reconnect(old_conn, from_email: str, q: queue.Queue):
     return new_conn
 
 
+def _configured_limit_mb() -> float | None:
+    """``max_message_mb`` from config.ini: the largest message the mail server accepts."""
+    try:
+        return float(_m._read_app_config()['app'].get('max_message_mb') or 0) or None
+    except Exception:
+        return None
+
+
+def _smtp_size_limit(conn) -> int | None:
+    """Message size the SMTP server announced in its EHLO reply (SIZE), if any."""
+    try:
+        return int(getattr(conn, 'esmtp_features', {}).get('size') or 0) or None
+    except (TypeError, ValueError):
+        return None
+
+
+def _attachment_action(specs: list, problems: list) -> tuple[str, str]:
+    """What to do with a row whose attachments are not all in place.
+
+    The strictest policy among the problem attachments wins: stop, then skip, then
+    send without the file. Returns ``(action, text)``; ``action`` is ``ok`` when
+    nothing is wrong.
+    """
+    if not problems:
+        return 'ok', ''
+    rank = {'send': 0, 'skip': 1, 'stop': 2}
+    policy = max((specs[p['spec']].get('missing', 'send') for p in problems), key=rank.get)
+    parts = []
+    for p in problems:
+        reason = _att.REASON_TEXT.get(p['reason'], p['reason'])
+        parts.append(f'вложение «{p["expected"]}»: {reason}' if p['expected'] else f'вложение: {reason}')
+    return ('ok' if policy == 'send' else policy), '; '.join(parts) if policy != 'send' else         'без вложения — ' + '; '.join(parts)
+
+
+def _read_attachments(items: list) -> list:
+    """Attachment dicts for the senders (base64 content, as exchange_send_email expects)."""
+    result = []
+    for item in items:
+        try:
+            with open(item['path'], 'rb') as fh:
+                raw = fh.read()
+        except OSError as e:
+            raise ValueError(f'Не удалось прочитать вложение «{item["name"]}»: {e}') from e
+        mime_type, _ = mimetypes.guess_type(item['path'])
+        result.append({
+            'name':      item['name'],
+            'content':   base64.b64encode(raw).decode('utf-8'),
+            'mime_type': mime_type or 'application/octet-stream',
+        })
+    return result
+
+
 def _run_bulk_send_guarded(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
     """Запускает рассылку так, чтобы поток не умирал молча.
 
@@ -613,7 +669,7 @@ def _run_bulk_send_guarded(job_id: str, data: dict, q: queue.Queue, cancel: thre
 
 def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
     rows          = data.get('rows', [])
-    mapping       = data.get('mapping', {})
+    mapping       = _effective_mapping(data)
     template_html = data.get('template_html', '')
     subject_tpl   = data.get('subject', '')
     email_col     = data.get('email_column', 'Email')
@@ -657,18 +713,19 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
 
     total    = len(rows)
 
-    # Attachment settings
-    attach_enabled  = data.get('attach_enabled', False)
-    attach_folder   = data.get('attach_folder', '').strip()
-    attach_tpl      = data.get('attach_template', '').strip()
-    attach_missing  = data.get('attach_missing', 'send')   # send | skip | stop
-    # Mode "Колонка": file name comes from a table column instead of a template.
-    attach_column   = (data.get('attach_column') or '').strip() \
-        if data.get('attach_mode') == 'column' else ''
+    # Attachments: a list of common (uploaded) and individual (per-row) specs
+    specs = _att.normalize_specs(data)
     attach_dir_cache: dict = {}   # one folder listing per job, not per row
-    if attach_enabled:
-        _logger.info('bulk_send: attachments on — folder=%r mode=%r column=%r template=%r missing=%r',
-                     attach_folder, data.get('attach_mode'), attach_column, attach_tpl, attach_missing)
+    limit_bytes = _att.message_limit_bytes(_configured_limit_mb())
+    if specs:
+        _logger.info('bulk_send: attachments on — %s',
+                     '; '.join(_att.spec_label(s, i) for i, s in enumerate(specs)))
+        lost = [t for s in specs if s['kind'] == 'common' for t in s['files']
+                if not _att.store_path(t)]
+        if lost:
+            q.put({'type': 'error',
+                   'message': 'Общий файл вложения больше недоступен: добавьте его заново'})
+            return
 
     # Prepare static CC / BCC once
     cc  = _m.parse_recipients([cc_raw])  if cc_raw  else []
@@ -686,6 +743,7 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
 
     # Determine effective from_email and SMTP-specific settings
     if channel == 'smtp':
+        limit_bytes = _att.message_limit_bytes(_configured_limit_mb(), _smtp_size_limit(conn))
         smtp_from      = from_email_req or creds.get('smtp_from_email', '')
         smtp_imap      = creds.get('smtp_imap_enabled', False)
         smtp_imap_host = creds.get('smtp_imap_host', '')
@@ -721,7 +779,7 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     sent = skipped = errors = 0
 
     # Helper to resolve the display name from mapping
-    fio_col = mapping.get('{{ФИО}}', 'ФИО')
+    fio_col = mapping.get('{{ФИО}}') or 'ФИО'
 
     for i, row in enumerate(rows):
         if cancel.is_set():
@@ -747,36 +805,28 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
             body    = _m.prepare_html_for_email(_substitute(template_html, mapping, row))
             to      = _m.parse_recipients([email])
 
-            # Resolve attachment
+            # Resolve attachments of this row
             attachments = []
-            if attach_enabled and attach_folder and (attach_tpl or attach_column):
-                attach_path = _resolve_attachment(
-                    attach_folder, attach_tpl, mapping, row, attach_column, attach_dir_cache)
-                if attach_path:
-                    # exchange_send_email expects: {'name': str, 'content': base64str, 'mime_type': str}
-                    try:
-                        with open(attach_path, 'rb') as fh:
-                            raw = fh.read()
-                        mime_type, _ = mimetypes.guess_type(attach_path)
-                        attachments = [{
-                            'name':      os.path.basename(attach_path),
-                            'content':   base64.b64encode(raw).decode('utf-8'),
-                            'mime_type': mime_type or 'application/octet-stream',
-                        }]
-                    except Exception as e:
-                        _logger.warning('bulk_send: cannot read attachment %s: %s', attach_path, e)
-                        attachments = []
-                elif attach_missing == 'skip':
+            attach_note = ''
+            if specs:
+                plan = _att.plan_row(specs, mapping, row, attach_dir_cache)
+                action, attach_note = _attachment_action(specs, plan['problems'])
+                if action == 'skip':
                     skipped += 1
                     q.put({'type': 'progress', 'index': i, 'total': total,
                            'name': name, 'email': email, 'status': 'skip',
-                           'comment': 'Пропущено: вложение не найдено'})
+                           'comment': f'Пропущено: {attach_note}'})
                     continue
-                elif attach_missing == 'stop':
+                if action == 'stop':
                     q.put({'type': 'cancelled', 'sent': sent, 'skipped': skipped, 'errors': errors,
-                           'message': f'Остановлено: вложение не найдено для {name}'})
+                           'message': f'Остановлено: {attach_note} (получатель {name or email})'})
                     return
-                # else 'send': proceed without attachment
+                message_bytes = _att.estimated_message_bytes(_att.items_size(plan['items']))
+                if message_bytes > limit_bytes:
+                    raise ValueError(
+                        f'Письмо {_att._mb(message_bytes)} больше допустимых '
+                        f'{_att._mb(limit_bytes)}: уберите вложения или уменьшите файлы')
+                attachments = _read_attachments(plan['items'])
 
             if channel == 'smtp':
                 # Вложения для SMTP: bytes вместо base64-строки
@@ -844,6 +894,8 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                 comment = ('Сохранён черновик' if is_draft
                            else f'Запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}' if send_at
                            else 'Отправлено')
+            if attach_note:
+                comment += f' · {attach_note}'
             q.put({'type': 'progress', 'index': i, 'total': total,
                    'name': name, 'email': email, 'status': 'sent',
                    'comment': comment, 'time': _now_hms(), **meta})

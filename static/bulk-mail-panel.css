@@ -1122,3 +1122,232 @@
 .feature-no-bulk-mail #btn-bulk-send         { display: none !important; }
 /* Кнопка {{}} вставки плейсхолдера в тексте */
 .feature-no-bulk-mail #toolbar-btn-field     { display: none !important; }
+
+/* ── Фаза 1 рассылки: где используется поле, чипы колонок, замена файла ─────── */
+.bm-mapping-usage {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--text-muted, #64748b);
+}
+
+.bm-ph-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+}
+.bm-ph-chips:empty { display: none; }
+
+.bm-btn-ghost--sm {
+  height: 24px;
+  padding: 0 8px;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.bm-replace-note {
+  margin-top: 4px;
+  padding: 8px;
+  font-size: 12px;
+  line-height: 16px;
+  color: var(--text-secondary, #cbd5e1);
+  background: rgba(119, 0, 255, 0.06);
+  border: 1px solid rgba(119, 0, 255, 0.25);
+  border-radius: 8px;
+}
+.bm-replace-note--error {
+  color: #fca5a5;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+}
+
+/* ── Выпадающий список колонок с поиском ───────────────────────────────────── */
+.bm-ph-chips { position: relative; }
+.bm-field-picker-btn {
+  height: 28px;
+  padding: 0 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border2, rgba(148, 163, 184, 0.22));
+  border-radius: 6px;
+  color: var(--text-secondary, #94a3b8);
+  font-size: 12px;
+  cursor: pointer;
+}
+.bm-field-picker-btn:hover,
+.bm-field-picker-btn[aria-expanded="true"] {
+  background: rgba(119, 0, 255, 0.14);
+  border-color: var(--accent, #7700ff);
+  color: #c4b5fd;
+}
+.bm-field-picker {
+  position: absolute;
+  z-index: 20;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  padding: 4px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.bm-field-picker[hidden] { display: none; }
+.bm-field-picker-search {
+  width: 100%;
+  box-sizing: border-box;
+  height: 32px;
+  margin-bottom: 4px;
+  padding: 0 8px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 6px;
+  color: var(--text-primary, #e2e8f0);
+  font-size: 12px;
+}
+.bm-field-picker-list { overflow-y: auto; }
+.bm-field-picker-item {
+  display: block;
+  width: 100%;
+  height: 32px;
+  padding: 0 8px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 12px;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+.bm-field-picker-item:hover,
+.bm-field-picker-item:focus { background: rgba(119, 0, 255, 0.18); color: #c4b5fd; outline: none; }
+.bm-field-picker-empty { padding: 8px; font-size: 12px; color: var(--text-muted, #64748b); }
+
+/* ── Изменяемая ширина боковых панелей (shared/panelResizer.js) ─────────────── */
+.panel-resizer {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 6px;
+  z-index: 30;
+  cursor: col-resize;
+  touch-action: none;
+}
+.panel-resizer::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 2px;
+  width: 2px;
+  background: transparent;
+  transition: background 0.15s;
+}
+.panel-resizer:hover::after,
+.panel-resizer:focus-visible::after,
+.panel-resizer--active::after { background: var(--accent, #7700ff); }
+.panel-resizer:focus-visible { outline: none; }
+body.panel-resizing { cursor: col-resize; user-select: none; }
+@media (max-width: 1100px) {
+  .editor-shell > .panel-resizer { display: none; }
+}
+
+/* ── Вложения: карточки и сводка проверки ──────────────────────────────────── */
+.bm-attach-add { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+#bm-attach-empty[hidden] { display: none; }
+
+.bm-att-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  padding: 8px 12px 12px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-color, #334155);
+  border-left: 4px solid var(--accent, #7700ff);
+  border-radius: 8px;
+}
+.bm-att-card--individual { border-left-color: #f97316; }
+.bm-att-card--drag { background: rgba(119, 0, 255, 0.1); border-color: var(--accent, #7700ff); }
+.bm-att-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.bm-att-title { font-size: 12px; font-weight: 600; color: var(--text-primary, #e2e8f0); }
+.bm-att-files { display: flex; flex-direction: column; gap: 4px; }
+.bm-att-file {
+  display: grid;
+  grid-template-columns: 1fr auto 24px;
+  align-items: center;
+  gap: 8px;
+  min-height: 32px;
+  padding: 0 4px 0 8px;
+  background: rgba(255, 255, 255, 0.04);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.bm-att-file-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bm-att-file-size { color: var(--text-muted, #64748b); white-space: nowrap; }
+.bm-att-meter { display: flex; flex-direction: column; gap: 4px; }
+.bm-att-meter-bar { height: 4px; background: rgba(148, 163, 184, 0.2); border-radius: 2px; overflow: hidden; }
+.bm-att-meter-fill { height: 100%; background: var(--accent, #7700ff); transition: width 0.2s; }
+.bm-att-meter-fill--full { background: #f97316; }
+.bm-att-meter-text { font-size: 11px; line-height: 16px; color: var(--text-muted, #64748b); }
+.bm-att-error { font-size: 12px; line-height: 16px; color: #fca5a5; }
+
+.bm-asum { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.bm-asum:empty { display: none; }
+.bm-asum-title { font-size: 12px; font-weight: 600; color: var(--text-primary, #e2e8f0); }
+.bm-asum-block {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px;
+  border: 1px solid var(--border-color, #334155);
+  border-left-width: 4px;
+  border-radius: 8px;
+}
+.bm-asum-block--ok { border-left-color: #22c55e; }
+.bm-asum-block--warn { border-left-color: #f59e0b; }
+.bm-asum-block--err { border-left-color: #ef4444; }
+.bm-asum-label { font-size: 12px; font-weight: 600; color: var(--text-secondary, #cbd5e1); }
+.bm-asum-line { display: flex; gap: 8px; font-size: 12px; line-height: 16px; }
+.bm-asum-icon { width: 16px; flex-shrink: 0; text-align: center; font-weight: 700; }
+.bm-asum-line--ok .bm-asum-icon { color: #22c55e; }
+.bm-asum-line--warn .bm-asum-icon { color: #f59e0b; }
+.bm-asum-line--err .bm-asum-icon { color: #ef4444; }
+.bm-asum-line--err .bm-asum-text { color: #fca5a5; }
+.bm-asum-muted { font-size: 12px; line-height: 16px; color: var(--text-muted, #64748b); }
+.bm-asum-details summary { cursor: pointer; font-size: 12px; color: #c4b5fd; }
+.bm-asum-problem {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: rgba(245, 158, 11, 0.08);
+  border: none;
+  border-radius: 4px;
+  color: var(--text-secondary, #cbd5e1);
+  font-size: 11px;
+  line-height: 16px;
+  text-align: left;
+  cursor: pointer;
+}
+.bm-asum-problem:hover { background: rgba(245, 158, 11, 0.18); }
+
+/* ── Широкая панель: форма слева, сводка справа ───────────────────────────── */
+.bm-wide > #bm-settings-section {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(256px, 320px);
+}
+.bm-wide > #bm-settings-section > .bm-section { grid-column: 1; }
+.bm-wide > #bm-settings-section > #bm-summary-section {
+  grid-column: 2;
+  grid-row: 1 / span 3;
+  position: sticky;
+  top: 0;
+  align-self: start;
+  border-left: 1px solid rgba(148, 163, 184, 0.1);
+  border-bottom: none;
+}
+.bm-wide > #bm-settings-section > .bm-section:nth-child(n+5) { grid-column: 1 / -1; }

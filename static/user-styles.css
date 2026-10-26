@@ -590,7 +590,7 @@ body {
 .editor-shell {
   flex: 1;
   display: grid;
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-w, 280px) minmax(0, 1fr);
   min-height: 0;
 }
 
@@ -3642,7 +3642,7 @@ body {
 }
 
 .editor-shell {
-  grid-template-columns: 280px minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-w, 280px) minmax(0, 1fr);
   background: var(--bg-primary, #0f172a);
 }
 

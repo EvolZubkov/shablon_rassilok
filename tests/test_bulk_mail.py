@@ -436,6 +436,9 @@ class TestBulkSendStart:
                 'subject': 'Тест',
                 'email_column': 'Email',
             })
+            # задача идёт в фоне: ждём её внутри подмен, иначе она допишет вызовы
+            # в подмены следующего теста
+            time.sleep(0.3)
         assert resp.status_code == 200
         data = resp.get_json()
         assert 'job_id' in data
@@ -1096,3 +1099,234 @@ class TestBulkSendSmtpEvents:
         data = resp.get_json()
         assert data['message_id'] == '<t@test.ru>'
         assert data['server_reply'] == '250 queued'
+
+
+class TestEffectiveMapping:
+    """Несопоставленные плейсхолдеры подставляются пустым значением, а не остаются буквально."""
+
+    def test_unmapped_placeholder_becomes_empty(self):
+        from routes.bulk_mail import _effective_mapping
+        data = {'mapping': {'{{ФИО}}': 'ФИО'}, 'placeholders': ['{{ФИО}}', '{{Город}}']}
+        mapping = _effective_mapping(data)
+        assert mapping == {'{{ФИО}}': 'ФИО', '{{Город}}': ''}
+        assert _substitute('Привет, {{ФИО}} из {{Город}}!', mapping, {'ФИО': 'Иван'}) == 'Привет, Иван из !'
+
+    def test_unmapped_in_subject_does_not_stay_literal(self):
+        from routes.bulk_mail import _effective_mapping
+        mapping = _effective_mapping({'mapping': {}, 'placeholders': ['{{Тема}}']})
+        assert _substitute('Для {{Тема}}', mapping, {}) == 'Для '
+
+    def test_old_client_without_placeholders_keeps_mapping(self):
+        from routes.bulk_mail import _effective_mapping
+        assert _effective_mapping({'mapping': {'{{A}}': 'a'}}) == {'{{A}}': 'a'}
+        assert _effective_mapping({}) == {}
+
+    def test_input_mapping_is_not_mutated(self):
+        from routes.bulk_mail import _effective_mapping
+        original = {'{{A}}': 'a'}
+        _effective_mapping({'mapping': original, 'placeholders': ['{{B}}']})
+        assert original == {'{{A}}': 'a'}
+
+    def test_non_string_placeholders_are_ignored(self):
+        from routes.bulk_mail import _effective_mapping
+        assert _effective_mapping({'placeholders': [None, 5, '{{X}}']}) == {'{{X}}': ''}
+
+    def test_file_name_with_unmapped_placeholder_is_empty_part(self, tmp_path):
+        from routes.bulk_mail import _effective_mapping, _resolve_attachment
+        (tmp_path / '.pdf').write_text('x')
+        mapping = _effective_mapping({'placeholders': ['{{Файл}}']})
+        assert _resolve_attachment(str(tmp_path), '{{Файл}}.pdf', mapping, {'Файл': 'doc'}) is not None
+
+
+# ─── Вложения: общие и индивидуальные, загрузка, проверка до отправки ─────────
+
+from routes import bulk_attachments as _att_mod
+
+
+@pytest.fixture
+def attach_store(tmp_path, monkeypatch):
+    monkeypatch.setattr(_att_mod, 'STORE_DIR', str(tmp_path / 'store'))
+    return tmp_path
+
+
+class TestAttachmentRoutes:
+    def _upload(self, client, files, **form):
+        import io as _io
+        data = {'files': [(_io.BytesIO(body), name) for name, body in files], **form}
+        return client.post('/api/bulk/attach/upload', data=data, content_type='multipart/form-data')
+
+    def test_limits_describe_size_and_blocked_types(self, client):
+        data = client.get('/api/bulk/attach/limits').get_json()
+        assert data['limit_bytes'] == 10 * 1024 * 1024
+        assert data['budget_bytes'] < data['limit_bytes']
+        assert '.exe' in data['blocked']
+        assert data['max_files'] == _att_mod.MAX_COMMON_FILES
+
+    def test_upload_several_files_at_once(self, client, attach_store):
+        data = self._upload(client, [('a.pdf', b'111'), ('b.docx', b'22')]).get_json()
+        assert [f['name'] for f in data['files']] == ['a.pdf', 'b.docx']
+        assert data['rejected'] == []
+        assert all(_att_mod.store_path(f['token']) for f in data['files'])
+
+    def test_blocked_file_is_rejected_others_are_kept(self, client, attach_store):
+        data = self._upload(client, [('ok.pdf', b'1'), ('virus.exe', b'2')]).get_json()
+        assert [f['name'] for f in data['files']] == ['ok.pdf']
+        assert data['rejected'][0]['name'] == 'virus.exe'
+        assert '.exe' in data['rejected'][0]['error']
+
+    def test_file_over_budget_is_rejected(self, client, attach_store):
+        big = b'x' * (_att_mod.files_budget(_att_mod.message_limit_bytes()) + 1)
+        data = self._upload(client, [('big.pdf', big)]).get_json()
+        assert data['files'] == []
+        assert 'Не помещается' in data['rejected'][0]['error']
+
+    def test_existing_bytes_count_toward_the_budget(self, client, attach_store):
+        budget = _att_mod.files_budget(_att_mod.message_limit_bytes())
+        data = self._upload(client, [('a.pdf', b'x' * 1000)], existing_bytes=str(budget - 10)).get_json()
+        assert data['files'] == []
+
+    def test_no_files_is_400(self, client):
+        resp = client.post('/api/bulk/attach/upload', data={}, content_type='multipart/form-data')
+        assert resp.status_code == 400
+
+    def test_delete_removes_the_file(self, client, attach_store):
+        token = self._upload(client, [('a.pdf', b'1')]).get_json()['files'][0]['token']
+        assert client.post('/api/bulk/attach/delete', json={'token': token}).get_json()['ok'] is True
+        assert _att_mod.store_path(token) is None
+
+    def test_preflight_reports_missing_files(self, client, attach_store):
+        folder = attach_store / 'files'
+        folder.mkdir()
+        (folder / 'Иван.pdf').write_bytes(b'x')
+        resp = client.post('/api/bulk/preflight', json={
+            'rows': [{'ФИО': 'Иван', 'Email': 'i@x.ru'}, {'ФИО': 'Пётр', 'Email': 'p@x.ru'}],
+            'mapping': {'{{ФИО}}': 'ФИО'}, 'email_column': 'Email',
+            'attachments': [{'kind': 'individual', 'folder': str(folder), 'mode': 'template',
+                             'template': '{{ФИО}}.pdf', 'missing': 'skip'}],
+        })
+        entry = resp.get_json()['attachments'][0]
+        assert (entry['found'], entry['missing']) == (1, 1)
+        assert entry['problems'][0]['expected'] == 'Пётр.pdf'
+
+    def test_preflight_without_rows_is_400(self, client):
+        assert client.post('/api/bulk/preflight', json={}).status_code == 400
+
+
+class TestBulkSendAttachments:
+    CREDS = {'server': 'x', 'username': 'u', 'password': 'p', 'from_email': 's@t.ru', 'auth_type': 'ntlm'}
+
+    def _run(self, rows, **extra):
+        q = _queue.Queue()
+        data = {'template_html': '<p>{{ФИО}}</p>', 'rows': rows, 'mapping': {'{{ФИО}}': 'ФИО'},
+                'subject': 'S', 'email_column': 'Email', **extra}
+        with patch.object(email_app, 'credentials_exist', return_value=True), \
+             patch.object(email_app, 'load_credentials', return_value=self.CREDS), \
+             patch.object(email_app, 'connect_exchange', return_value=MagicMock()), \
+             patch.object(email_app, 'exchange_send_email') as send, \
+             patch.object(email_app, 'log_send'), \
+             patch.object(email_app, 'prepare_html_for_email', return_value='<html/>'):
+            _run_bulk_send('job', data, q, threading.Event())
+        return _drain(q), send
+
+    def individual(self, folder, missing='send', template='{{ФИО}}.pdf'):
+        return {'kind': 'individual', 'folder': str(folder), 'mode': 'template',
+                'template': template, 'missing': missing}
+
+    def test_common_and_individual_files_go_in_one_letter(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        (folder / 'Иван.pdf').write_bytes(b'personal')
+        common = _att_mod.save_upload('Общий.docx', b'shared')
+        events, send = self._run(
+            [{'ФИО': 'Иван', 'Email': 'i@x.ru'}],
+            attachments=[{'kind': 'common', 'files': [common['token']]}, self.individual(folder)])
+        names = [a['name'] for a in send.call_args.kwargs['attachments']]
+        assert names == ['Общий.docx', 'Иван.pdf']
+        assert events[-1]['sent'] == 1
+
+    def test_several_common_files(self, attach_store):
+        tokens = [_att_mod.save_upload(n, b'x')['token'] for n in ('a.pdf', 'b.pdf', 'c.pdf')]
+        _events, send = self._run([{'ФИО': 'Иван', 'Email': 'i@x.ru'}],
+                                  attachments=[{'kind': 'common', 'files': tokens}])
+        assert [a['name'] for a in send.call_args.kwargs['attachments']] == ['a.pdf', 'b.pdf', 'c.pdf']
+
+    def test_missing_individual_file_sends_without_it_and_says_so(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        common = _att_mod.save_upload('Общий.docx', b'shared')
+        events, send = self._run(
+            [{'ФИО': 'Пётр', 'Email': 'p@x.ru'}],
+            attachments=[{'kind': 'common', 'files': [common['token']]}, self.individual(folder)])
+        assert [a['name'] for a in send.call_args.kwargs['attachments']] == ['Общий.docx']
+        row = next(e for e in events if e['type'] == 'progress')
+        assert row['status'] == 'sent'
+        assert 'Пётр.pdf' in row['comment'] and 'без вложения' in row['comment']
+
+    def test_skip_policy_skips_the_row(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        events, send = self._run([{'ФИО': 'Пётр', 'Email': 'p@x.ru'}],
+                                 attachments=[self.individual(folder, 'skip')])
+        send.assert_not_called()
+        row = next(e for e in events if e['type'] == 'progress')
+        assert row['status'] == 'skip'
+        assert 'Пропущено' in row['comment']
+
+    def test_stop_policy_stops_the_mailing(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        (folder / 'Иван.pdf').write_bytes(b'x')
+        events, send = self._run(
+            [{'ФИО': 'Иван', 'Email': 'i@x.ru'}, {'ФИО': 'Пётр', 'Email': 'p@x.ru'},
+             {'ФИО': 'Анна', 'Email': 'a@x.ru'}],
+            attachments=[self.individual(folder, 'stop')])
+        assert send.call_count == 1
+        assert events[-1]['type'] == 'cancelled'
+        assert 'Пётр.pdf' in events[-1]['message']
+
+    def test_strictest_policy_wins_between_two_attachments(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        (folder / 'Иван.pdf').write_bytes(b'x')
+        _events, send = self._run(
+            [{'ФИО': 'Иван', 'Email': 'i@x.ru'}],
+            attachments=[self.individual(folder, 'send'),
+                         self.individual(folder, 'skip', '{{ФИО}} акт.pdf')])
+        send.assert_not_called()
+
+    def test_row_over_the_limit_is_an_error_not_a_server_rejection(self, attach_store, monkeypatch):
+        big = _att_mod.save_upload('big.pdf', b'x' * 5000)
+        monkeypatch.setattr(_att_mod, 'message_limit_bytes',
+                            lambda *a, **k: _att_mod.estimated_message_bytes(1000))
+        events, send = self._run([{'ФИО': 'Иван', 'Email': 'i@x.ru'}],
+                                 attachments=[{'kind': 'common', 'files': [big['token']]}])
+        send.assert_not_called()
+        row = next(e for e in events if e['type'] == 'progress')
+        assert row['status'] == 'error'
+        assert 'больше допустимых' in row['comment']
+
+    def test_vanished_common_file_stops_before_any_letter(self, attach_store):
+        events, send = self._run([{'ФИО': 'Иван', 'Email': 'i@x.ru'}],
+                                 attachments=[{'kind': 'common', 'files': ['f' * 32]}])
+        send.assert_not_called()
+        assert events[-1]['type'] == 'error'
+        assert 'заново' in events[-1]['message']
+
+    def test_old_client_fields_still_work(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        (folder / 'Иван.pdf').write_bytes(b'x')
+        _events, send = self._run(
+            [{'ФИО': 'Иван', 'Email': 'i@x.ru'}],
+            attach_enabled=True, attach_folder=str(folder), attach_template='{{ФИО}}.pdf',
+            attach_mode='template', attach_missing='send')
+        assert [a['name'] for a in send.call_args.kwargs['attachments']] == ['Иван.pdf']
+
+    def test_unmapped_placeholder_in_file_name_gives_empty_part(self, attach_store):
+        folder = attach_store / 'f'
+        folder.mkdir()
+        (folder / 'Отчёт .pdf').write_bytes(b'x')
+        _events, send = self._run(
+            [{'ФИО': 'Иван', 'Email': 'i@x.ru'}], placeholders=['{{Дата}}'],
+            attachments=[self.individual(folder, template='Отчёт {{Дата}}.pdf')])
+        assert [a['name'] for a in send.call_args.kwargs['attachments']] == ['Отчёт .pdf']

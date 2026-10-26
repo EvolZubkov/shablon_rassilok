@@ -3361,7 +3361,7 @@ body.admin-mode-page .app-container {
   height: auto;
   min-height: 0;
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr) 340px;
+  grid-template-columns: var(--sidebar-w, 320px) minmax(0, 1fr) var(--settings-w, 340px);
   width: 100vw;
 }
 
@@ -4188,7 +4188,7 @@ body.admin-mode-page .settings-panel {
 
 @media (max-width: 1280px) {
   body.admin-mode-page .app-container {
-    grid-template-columns: 280px minmax(0, 1fr) 320px;
+    grid-template-columns: var(--sidebar-w, 280px) minmax(0, 1fr) var(--settings-w, 320px);
   }
 
   .toolbar-btn span {

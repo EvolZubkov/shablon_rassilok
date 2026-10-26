@@ -271,8 +271,11 @@
                     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                     <span class="bm-file-name" id="bm-file-name">файл.xlsx</span>
                     <span class="bm-file-count" id="bm-file-count">5 строк</span>
+                    <button type="button" class="bm-btn-ghost bm-btn-ghost--sm" id="bm-file-replace" title="Заменить файл данных: сопоставление и настройки сохранятся">Заменить</button>
                     <button type="button" class="bm-btn-clear" id="bm-file-clear" title="Убрать файл">×</button>
                   </div>
+                  <input type="file" id="bm-file-replace-input" accept=".xlsx,.ods,.xls,.csv" style="display:none">
+                  <div class="bm-replace-note" id="bm-replace-note" role="status" style="display:none"></div>
                   <!-- Выбор листа (показывается если листов > 1) -->
                   <div class="bm-field" id="bm-sheet-field" style="display:none">
                     <label class="bm-label">Лист</label>
@@ -336,6 +339,7 @@
                     <div class="bm-field">
                       <label class="bm-label">Тема письма</label>
                       <input type="text" class="bm-input" id="bm-subject" placeholder="Уведомление для {{ФИО}}">
+                      <div class="bm-ph-chips" id="bm-subject-chips" aria-label="Вставить поле из файла"></div>
                     </div>
                     <label class="bm-toggle-row">
                       <input type="checkbox" id="bm-skip-no-email" checked>
@@ -356,46 +360,13 @@
                   </div>
 
                   <!-- Блок 4: Вложения -->
-                  <div class="bm-section">
-                    <label class="bm-attach-toggle-row">
-                      <span class="bm-attach-toggle-lbl">Вложения к письмам</span>
-                      <span class="bm-tog">
-                        <input type="checkbox" id="bm-attach-toggle">
-                        <span class="bm-tog-track"><span class="bm-tog-thumb"></span></span>
-                      </span>
-                    </label>
-                    <div id="bm-attach-content" style="display:none">
-                      <!-- Режим вложений -->
-                      <div class="bm-attach-mode-row">
-                        <label class="bm-radio-label">
-                          <input type="radio" name="bm-attach-mode" value="template" id="bm-attach-mode-tpl" checked>
-                          Шаблон имени
-                        </label>
-                        <label class="bm-radio-label">
-                          <input type="radio" name="bm-attach-mode" value="column" id="bm-attach-mode-col">
-                          Колонка
-                        </label>
-                      </div>
-                      <div class="bm-field">
-                        <label class="bm-label">Папка с файлами</label>
-                        <input type="text" class="bm-input" id="bm-attach-folder" placeholder="C:\Документы\">
-                      </div>
-                      <div class="bm-field" id="bm-attach-tpl-field">
-                        <label class="bm-label">Шаблон имени файла</label>
-                        <input type="text" class="bm-input" id="bm-attach-template" placeholder="{{ФИО}}.pdf">
-                      </div>
-                      <div class="bm-field" id="bm-attach-col-field" style="display:none">
-                        <label class="bm-label">Колонка с именем файла</label>
-                        <select class="bm-select" id="bm-attach-col-sel"></select>
-                      </div>
-                      <div class="bm-field">
-                        <label class="bm-label">Если файл не найден</label>
-                        <select class="bm-select" id="bm-attach-missing">
-                          <option value="skip">Пропустить получателя</option>
-                          <option value="send" selected>Отправить без вложения</option>
-                          <option value="stop">Остановить рассылку</option>
-                        </select>
-                      </div>
+                  <div class="bm-section" id="bm-attach-section">
+                    <div class="bm-section-title">Вложения</div>
+                    <div class="bm-no-ph" id="bm-attach-empty">Без вложений. Добавьте файлы для всех или индивидуальные по таблице: можно оба вида и по нескольку.</div>
+                    <div id="bm-attachments"></div>
+                    <div class="bm-attach-add">
+                      <button type="button" class="bm-btn-ghost" id="bm-attach-add-common">+ Файлы для всех</button>
+                      <button type="button" class="bm-btn-ghost" id="bm-attach-add-individual">+ По таблице</button>
                     </div>
                   </div>
 
@@ -404,6 +375,7 @@
                     <div class="bm-section-title">Сводка рассылки</div>
                     <div class="bm-sum-card" id="bm-sum-card"></div>
                     <div id="bm-sum-warns"></div>
+                    <div class="bm-asum" id="bm-sum-attach" aria-live="polite"></div>
                   </div>
 
                   <!-- Блок 6: Дополнительные настройки (скрыты за коллапсом) -->
@@ -1222,7 +1194,13 @@
   <script src="js/shared/emailHistoryStore.js"></script>
   <script src="js/user/exchangeModals.js"></script>
   <!-- <script src="js/user/bulk-mail.js"></script> -->
-  <script src="js/user/bulk-mail-panel.js?v=20261014a"></script>
+  <script src="js/user/bulkPlaceholders.js?v=20261027b"></script>
+  <script src="js/user/bulkFieldPicker.js?v=20261027b"></script>
+  <script src="js/user/bulkAttachSummary.js?v=20261027b"></script>
+  <script src="js/user/bulkAttachments.js?v=20261027b"></script>
+  <script src="js/user/bulk-mail-panel.js?v=20261027b"></script>
+  <script src="js/shared/panelResizer.js?v=20261027a"></script>
+  <script src="js/shared/panelLayout.js?v=20261027a"></script>
 
   <!-- Переключатель режима: фиксированная позиция, виден только при can_switch -->
   <button id="mode-switch-widget" class="mode-toggle-btn" type="button" hidden title="Режим конструктора">

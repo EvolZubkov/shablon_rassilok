@@ -21,6 +21,8 @@ const BulkMailPanel = (() => {
     emailColumn:   '',
     mapping:       {},      // { '{{ФИО}}': 'ФИО', ... }
     placeholders:  [],
+    usage:         {},      // { '{{X}}': { body, subject, file } } — где встречается плейсхолдер
+    preflight:     null,    // ответ /api/bulk/preflight: что с вложениями у каждой строки
     canvasBackups: [],
     sending:       false,
     cancelled:     false,
@@ -29,8 +31,11 @@ const BulkMailPanel = (() => {
     channel:       'exchange',  // 'exchange' | 'smtp'
   };
 
+  const WIDE_PANEL_PX = 560;   // от этой ширины форма и сводка встают в две колонки
+
   // ── Helpers ────────────────────────────────────────────────────────────────────
   const $ = id => document.getElementById(id);
+  let attachments = null;   // карточки вложений (bulkAttachments.js), создаются в init()
   const escHtml = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -172,6 +177,16 @@ const BulkMailPanel = (() => {
       e.target.value = '';
     });
 
+    // «Заменить»: новый файл вместо загруженного, сопоставление и настройки остаются.
+    const replaceBtn   = $('bm-file-replace');
+    const replaceInput = $('bm-file-replace-input');
+    if (replaceBtn)   replaceBtn.addEventListener('click', () => replaceInput?.click());
+    if (replaceInput) replaceInput.addEventListener('change', e => {
+      const f = e.target.files[0];
+      if (f && _checkExt(f)) parseFile(f, null, _getHeaderRow(), { replace: true });
+      e.target.value = '';
+    });
+
     if (zone) {
       zone.addEventListener('dragover',  e => { e.preventDefault(); zone.classList.add('bm-file-zone--drag'); });
       zone.addEventListener('dragleave', ()  => zone.classList.remove('bm-file-zone--drag'));
@@ -201,7 +216,8 @@ const BulkMailPanel = (() => {
   }
 
   // ── Парсинг файла через /api/bulk/parse ───────────────────────────────────
-  async function parseFile(file, sheetName, headerRow) {
+  async function parseFile(file, sheetName, headerRow, opts = {}) {
+    const previousFile = state.currentFile;
     state.currentFile = file;
     _showFileParsing(file.name);
 
@@ -218,10 +234,55 @@ const BulkMailPanel = (() => {
       }
       const data = await resp.json();
       if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
-      _applyParsedData(file.name, data);
+      _applyParsedData(file.name, data, opts);
     } catch (err) {
+      // Не удалось прочитать новый файл при замене: прежние данные остаются в работе.
+      if (opts.replace && state.fileLoaded) {
+        state.currentFile = previousFile;
+        _showFileName($('bm-file-name')?.dataset.current || previousFile?.name || '', state.rows.length);
+        _showReplaceNote([`Не удалось заменить файл «${file.name}»: ${err.message}. Остался прежний файл.`], true);
+        return;
+      }
       _showFileError(file.name, err.message);
     }
+  }
+
+  function _showFileName(filename, total) {
+    const nameEl  = $('bm-file-name');
+    const countEl = $('bm-file-count');
+    if (nameEl)  { nameEl.textContent = filename; nameEl.dataset.current = filename; }
+    if (countEl) { countEl.textContent = total + ' строк'; countEl.style.color = ''; }
+  }
+
+  /** Отчёт о замене файла под именем файла; пустой список прячет его. */
+  function _showReplaceNote(lines, isError) {
+    const note = $('bm-replace-note');
+    if (!note) return;
+    note.textContent = '';
+    note.classList.toggle('bm-replace-note--error', !!isError);
+    if (!lines.length) { note.style.display = 'none'; return; }
+    lines.forEach(text => {
+      const line = document.createElement('div');
+      line.textContent = text;
+      note.appendChild(line);
+    });
+    note.style.display = 'block';
+  }
+
+  /** Что изменилось после замены файла: строки, колонки, потерянные сопоставления. */
+  function _replaceReport(prev, filename, total) {
+    const lines = [`Файл заменён на «${filename}»: ${total} ${_plural(total, 'строка', 'строки', 'строк')}.`];
+    const diff = BulkPlaceholders.diffHeaders(prev.headers, state.headers);
+    if (diff.added.length)   lines.push(`Новые колонки: ${diff.added.join(', ')}.`);
+    if (diff.removed.length) lines.push(`Пропали колонки: ${diff.removed.join(', ')}.`);
+    const lost = BulkPlaceholders.groupByKey(Object.keys(prev.mapping))
+      .filter(g => !g.variants.some(ph => state.mapping[ph]))
+      .map(g => g.label);
+    if (lost.length) lines.push(`Не сопоставлены, выберите колонку заново: ${lost.join(', ')}.`);
+    if (prev.emailColumn && state.emailColumn !== prev.emailColumn) {
+      lines.push(`Колонка email: теперь «${state.emailColumn}» (была «${prev.emailColumn}»).`);
+    }
+    return lines;
   }
 
   function _showFileParsing(filename) {
@@ -247,8 +308,10 @@ const BulkMailPanel = (() => {
     console.error('[BulkMail] parse error:', msg);
   }
 
-  function _applyParsedData(filename, data) {
+  function _applyParsedData(filename, data, opts = {}) {
     const { sheets = [], headers = [], rows = [], total = 0 } = data;
+    // Снимок до перезаписи: нужен для отчёта о замене файла.
+    const prev = { headers: state.headers, mapping: { ...state.mapping }, emailColumn: state.emailColumn };
 
     state.fileLoaded = true;
     state.headers    = headers;
@@ -259,8 +322,6 @@ const BulkMailPanel = (() => {
     // UI
     const zone     = $('bm-file-zone');
     const info     = $('bm-file-info');
-    const nameEl   = $('bm-file-name');
-    const countEl  = $('bm-file-count');
     const settings = $('bm-settings-section');
     const badge    = $('bm-accordion-badge');
     const sheetField = $('bm-sheet-field');
@@ -269,8 +330,7 @@ const BulkMailPanel = (() => {
 
     if (zone)     zone.style.display     = 'none';
     if (info)     info.style.display     = 'flex';
-    if (nameEl)   nameEl.textContent     = filename;
-    if (countEl)  { countEl.textContent  = total + ' строк'; countEl.style.color = ''; }
+    _showFileName(filename, total);
     if (settings) settings.style.display = 'block';
     if (badge)    { badge.textContent = total; badge.style.display = 'inline-flex'; }
     if (hdrField) hdrField.style.display = 'flex';
@@ -283,21 +343,31 @@ const BulkMailPanel = (() => {
     }
 
     populateEmailColumn();
-    populateAttachColSel();
+    attachments?.refreshHeaders();
     detectPlaceholders();
     buildPreviewTable();
     buildPhInsChips();
+    buildFieldChips();
     recalcSummary();
     updateSendButton();
     resetProgress();
     if (state.isOpen) { showRowNav(); renderCurrentRow(); }
     notifyColumnsAvailable(true);
+    _showReplaceNote(opts.replace ? _replaceReport(prev, filename, total) : []);
+    schedulePreflight();
   }
 
   function clearFile() {
     state.fileLoaded = false; state.currentFile = null;
     state.headers = []; state.rows = [];
-    state.mapping = {}; state.placeholders = []; state.currentRow = 0; state.results = [];
+    state.mapping = {}; state.placeholders = []; state.usage = {}; state.currentRow = 0; state.results = [];
+    state.emailColumn = '';
+    FIELD_CHIPS.forEach(({ chips }) => { const el = $(chips); if (el) el.textContent = ''; });
+    state.preflight = null;
+    const attachBox = $('bm-sum-attach');
+    if (attachBox) attachBox.textContent = '';
+    attachments?.refreshHeaders();
+    _showReplaceNote([]);
 
     [$('bm-file-zone'), $('bm-file-info'), $('bm-settings-section'), $('bm-sheet-field'),
      $('bm-header-row-field'), $('bm-preview-block')].forEach(el => {
@@ -351,14 +421,14 @@ const BulkMailPanel = (() => {
   function populateEmailColumn() {
     const sel = $('bm-email-col');
     if (!sel) return;
-    sel.innerHTML = state.headers.map(h => {
-      const lc = h.toLowerCase();
-      const sel_ = (lc.includes('email') || lc.includes('e-mail') || lc.includes('почта') || lc.includes('mail'));
-      if (sel_) state.emailColumn = h;
-      return `<option value="${escHtml(h)}"${sel_ ? ' selected' : ''}>${escHtml(h)}</option>`;
-    }).join('');
-    if (!state.emailColumn && state.headers[0]) state.emailColumn = state.headers[0];
-    sel.addEventListener('change', () => { state.emailColumn = sel.value; updateRowNavInfo(); });
+    // Прежняя колонка email остаётся, если она есть в файле (замена файла, смена листа),
+    // иначе подбираем по имени.
+    const kept = state.emailColumn ? BulkPlaceholders.findColumn(state.headers, state.emailColumn) : null;
+    const guessed = state.headers.find(h => /mail|почта/i.test(h)) || state.headers[0] || '';
+    state.emailColumn = kept || guessed;
+    sel.innerHTML = state.headers.map(h =>
+      `<option value="${escHtml(h)}"${h === state.emailColumn ? ' selected' : ''}>${escHtml(h)}</option>`
+    ).join('');
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -368,11 +438,11 @@ const BulkMailPanel = (() => {
   // тема и (если включены вложения по шаблону) шаблон имени файла.
   function collectPlaceholderSources() {
     const canvas = $(CANVAS_ID);
-    const sources = [canvas ? (canvas.innerText || canvas.textContent || '') : ''];
-    sources.push($('bm-subject')?.value || '');
-    const attachByTemplate = $('bm-attach-toggle')?.checked && !$('bm-attach-mode-col')?.checked;
-    if (attachByTemplate) sources.push($('bm-attach-template')?.value || '');
-    return sources;
+    return {
+      body:    canvas ? (canvas.innerText || canvas.textContent || '') : '',
+      subject: $('bm-subject')?.value || '',
+      file:    (attachments?.getFileTemplates() || []).join('\n'),
+    };
   }
 
   function detectPlaceholders() {
@@ -380,25 +450,23 @@ const BulkMailPanel = (() => {
     // читаем текст только после возврата оригинала, иначе плейсхолдеры тела
     // «пропадают» и их сопоставление сбрасывается.
     restoreCanvas();
-    const raw = collectPlaceholderSources().join('\n');
-    const found = [...new Set([...raw.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[0]))];
+    const sources = collectPlaceholderSources();
+    const found = BulkPlaceholders.findPlaceholders(Object.values(sources).join('\n'));
 
-    // Сопоставления, которые пользователь уже выбрал (в т.ч. «не задано»), не сбрасываем;
-    // автосопоставление по имени колонки — только для новых плейсхолдеров.
-    const prevPlaceholders = state.placeholders;
-    const prevMapping = state.mapping;
+    // Выбор пользователя (в т.ч. «не задано») не сбрасывается, автоподбор по имени
+    // колонки — только для новых плейсхолдеров; {{ФИО}} и {{фио}} — одно поле.
+    state.mapping = BulkPlaceholders.resolveMapping(found, state.placeholders, state.mapping, state.headers);
     state.placeholders = found;
-    state.mapping = {};
-    found.forEach(ph => {
-      const name = ph.slice(2, -2);
-      if (prevPlaceholders.includes(ph)) {
-        if (state.headers.includes(prevMapping[ph])) state.mapping[ph] = prevMapping[ph];
-      } else if (state.headers.includes(name)) {
-        state.mapping[ph] = name;
-      }
-    });
+    state.usage = BulkPlaceholders.countUsage(sources);
 
     renderMappingUI();
+  }
+
+  /** Несопоставленные поля группами: [{label, variants, usage}]. */
+  function unmappedGroups() {
+    return BulkPlaceholders.groupByKey(state.placeholders)
+      .filter(g => !g.variants.some(ph => state.mapping[ph]))
+      .map(g => ({ ...g, usage: BulkPlaceholders.groupUsage(g, state.usage || {}) }));
   }
 
   // Тема/шаблон имени файла набираются вручную — обновляем список плейсхолдеров на лету.
@@ -429,24 +497,35 @@ const BulkMailPanel = (() => {
     }
     if (noPhEl) noPhEl.style.display = 'none';
 
-    state.placeholders.forEach(ph => {
+    BulkPlaceholders.groupByKey(state.placeholders).forEach(group => {
+      const current = group.variants.map(ph => state.mapping[ph]).find(Boolean) || '';
       const row = document.createElement('div');
       row.className = 'bm-mapping-row';
       const tag = document.createElement('span');
-      tag.className = 'bm-mapping-ph'; tag.textContent = ph;
+      tag.className = 'bm-mapping-ph'; tag.textContent = group.label;
       const arrow = document.createElement('span');
       arrow.className = 'bm-mapping-arrow'; arrow.textContent = '→';
       const sel = document.createElement('select');
       sel.className = 'bm-mapping-select';
       sel.innerHTML = `<option value="">— не задано —</option>` +
-        state.headers.map(h => `<option value="${escHtml(h)}"${state.mapping[ph]===h?' selected':''}>${escHtml(h)}</option>`).join('');
+        state.headers.map(h => `<option value="${escHtml(h)}"${current===h?' selected':''}>${escHtml(h)}</option>`).join('');
       sel.addEventListener('change', () => {
-        if (sel.value) state.mapping[ph] = sel.value; else delete state.mapping[ph];
+        group.variants.forEach(ph => {
+          if (sel.value) state.mapping[ph] = sel.value; else delete state.mapping[ph];
+        });
         updateMappingHint();
         recalcSummary();
+        schedulePreflight();
         restoreCanvas(); renderCurrentRow();
       });
       row.append(tag, arrow, sel);
+
+      const where = BulkPlaceholders.usageLabel(BulkPlaceholders.groupUsage(group, state.usage || {}));
+      if (where) {
+        const usage = document.createElement('span');
+        usage.className = 'bm-mapping-usage'; usage.textContent = where;
+        row.appendChild(usage);
+      }
       list.appendChild(row);
     });
 
@@ -456,34 +535,108 @@ const BulkMailPanel = (() => {
   function updateMappingHint() {
     const hintEl = $('bm-mapping-hint');
     if (!hintEl) return;
-    const un = state.placeholders.filter(ph => !state.mapping[ph]).length;
+    const un = unmappedGroups().length;
     hintEl.textContent = un > 0 ? `${un} не сопоставлено` : '';
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
   // БЛОК 4: ВЛОЖЕНИЯ
   // ══════════════════════════════════════════════════════════════════════════════
-  function populateAttachColSel() {
-    const sel = $('bm-attach-col-sel');
-    if (!sel) return;
-    sel.innerHTML = `<option value="">— выберите колонку —</option>` +
-      state.headers.map(h => `<option value="${escHtml(h)}">${escHtml(h)}</option>`).join('');
+  function initAttachments() {
+    const root = $('bm-attachments');
+    if (!root) return;
+    attachments = BulkAttachments.mount(root, {
+      getHeaders: () => state.headers,
+      onChange: onAttachmentsChanged,
+    });
+    $('bm-attach-add-common')?.addEventListener('click', () => attachments.addCommon());
+    $('bm-attach-add-individual')?.addEventListener('click', () => attachments.addIndividual());
   }
 
-  function initAttachMode() {
-    const tplRadio = $('bm-attach-mode-tpl');
-    const colRadio = $('bm-attach-mode-col');
-    const tplField = $('bm-attach-tpl-field');
-    const colField = $('bm-attach-col-field');
-    if (!tplRadio) return;
-    function update() {
-      const isTpl = tplRadio.checked;
-      if (tplField) tplField.style.display = isTpl ? 'block' : 'none';
-      if (colField) colField.style.display = isTpl ? 'none' : 'block';
+  // Панель можно растянуть: в широкой форма слева, сводка справа (класс переключается здесь,
+  // а не container-запросом: во встроенном браузере приложения они могут не поддерживаться).
+  function initWideLayout() {
+    const host = $('bm-settings-section')?.parentElement;
+    if (!host || typeof ResizeObserver === 'undefined') return;
+    // Переключение класса меняет раскладку: делаем это на следующем кадре, иначе
+    // браузер сообщит о «ResizeObserver loop».
+    new ResizeObserver(entries => {
+      const wide = entries[0].contentRect.width >= WIDE_PANEL_PX;
+      requestAnimationFrame(() => host.classList.toggle('bm-wide', wide));
+    }).observe(host);
+  }
+
+  function onAttachmentsChanged() {
+    schedulePlaceholderRefresh();   // имя файла может содержать {{поля}}
+    schedulePreflight();
+  }
+
+  // Проверка вложений до отправки: сервер перебирает все строки и говорит, у кого каких
+  // файлов не хватает и какие письма не поместятся в лимит. Ничего не отправляется.
+  let _preflightTimer = null;
+  let _preflightSeq = 0;
+
+  function schedulePreflight() {
+    clearTimeout(_preflightTimer);
+    _preflightTimer = setTimeout(runPreflight, 400);
+  }
+
+  function renderAttachSummary(opts = {}) {
+    const box = $('bm-sum-attach');
+    if (!box) return;
+    BulkAttachSummary.render(box, state.preflight, { onGoToRow: goToRow, ...opts });
+  }
+
+  function goToRow(rowNumber) {
+    if (rowNumber < 1 || rowNumber > state.rows.length) return;
+    state.currentRow = rowNumber - 1;
+    if (state.isOpen) { showRowNav(); renderCurrentRow(); }
+  }
+
+  async function runPreflight() {
+    clearTimeout(_preflightTimer);
+    const seq = ++_preflightSeq;
+    const specs = attachments?.getSpecs() || [];
+    const box = $('bm-sum-attach');
+    if (!state.fileLoaded || !specs.length) {
+      state.preflight = null;
+      if (box) box.textContent = '';
+      updateRowWarnings();
+      return null;
     }
-    tplRadio.addEventListener('change', update);
-    colRadio.addEventListener('change', update);
-    update();
+    const unfinished = attachments.validate();
+    if (unfinished) {
+      state.preflight = null;
+      if (box) { box.textContent = ''; const hint = document.createElement('div'); hint.className = 'bm-asum-muted'; hint.textContent = `Проверка вложений: ${unfinished.toLowerCase()}`; box.appendChild(hint); }
+      updateRowWarnings();
+      return null;
+    }
+    renderAttachSummary({ state: 'loading' });
+    try {
+      const resp = await fetch('/api/bulk/preflight', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rows: state.rows,
+          mapping: state.mapping,
+          placeholders: state.placeholders,
+          email_column: state.emailColumn,
+          skip_no_email: $('bm-skip-no-email')?.checked !== false,
+          attachments: specs,
+        }),
+      });
+      const data = await resp.json();
+      if (!resp.ok) throw new Error(data.error || `HTTP ${resp.status}`);
+      if (seq !== _preflightSeq) return state.preflight;   // пока считали, настройки изменились
+      state.preflight = data;
+      renderAttachSummary();
+    } catch (err) {
+      if (seq !== _preflightSeq) return state.preflight;
+      state.preflight = null;
+      renderAttachSummary({ state: 'error', message: `Не удалось проверить вложения: ${err.message}` });
+    }
+    updateRowWarnings();
+    return state.preflight;
   }
 
   // ══════════════════════════════════════════════════════════════════════════════
@@ -585,12 +738,14 @@ const BulkMailPanel = (() => {
   // ── Блок 5.4: Фильтр проблемных строк ──────────────────────────────────────
   function goToProblemRow(direction) {
     const skipNoEmail = $('bm-skip-no-email')?.checked;
+    const attachProblemRows = new Set(BulkAttachSummary.problemRows(state.preflight));
     let idx = state.currentRow;
     for (let i = 0; i < state.rows.length; i++) {
       idx = (idx + direction + state.rows.length) % state.rows.length;
       const row = state.rows[idx];
       const hasProblem = (skipNoEmail && !row[state.emailColumn]) ||
-        state.placeholders.some(ph => !state.mapping[ph] || !row[state.mapping[ph]]);
+        state.placeholders.some(ph => !state.mapping[ph] || !row[state.mapping[ph]]) ||
+        attachProblemRows.has(idx + 1);
       if (hasProblem) { state.currentRow = idx; renderCurrentRow(); break; }
     }
   }
@@ -658,12 +813,13 @@ const BulkMailPanel = (() => {
       `<div class="bm-sum-row${cls ? ' bm-sum-row--' + cls : ''}"><span>${l}</span><span class="bm-sum-val">${v}</span></div>`
     ).join('');
     if (warns) {
-      const unPH = state.placeholders.filter(ph => !state.mapping[ph]);
-      warns.innerHTML = unPH.map(ph =>
-        `<div class="bm-warn-box">
+      warns.innerHTML = unmappedGroups().map(g => {
+        const where = BulkPlaceholders.usageLabel(g.usage);
+        return `<div class="bm-warn-box">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
-          Поле <strong>${escHtml(ph)}</strong> не сопоставлено — останется пустым
-        </div>`).join('');
+          Поле <strong>${escHtml(g.label)}</strong>${where ? ` (${escHtml(where)})` : ''} не сопоставлено — останется пустым
+        </div>`;
+      }).join('');
     }
   }
 
@@ -680,6 +836,7 @@ const BulkMailPanel = (() => {
       const col = state.mapping[ph];
       if (col && !row[col]) warns.push(`Поле «${col}» пустое`);
     });
+    warns.push(...BulkAttachSummary.rowProblems(state.preflight, state.currentRow + 1));
     if (!warns.length) { strip.style.display = 'none'; return; }
     strip.style.display = 'flex';
     strip.innerHTML = warns.map(w =>
@@ -783,18 +940,12 @@ const BulkMailPanel = (() => {
     }
     const sendAtVal = getScheduledSendAt();
 
-    // Вложения: без папки и источника имени файла письма уйдут без вложения молча.
-    if ($('bm-attach-toggle')?.checked) {
-      const byColumn = $('bm-attach-mode-col')?.checked;
-      const problem = !($('bm-attach-folder')?.value || '').trim() ? 'Укажите папку с файлами для вложений'
-        : (byColumn && !$('bm-attach-col-sel')?.value) ? 'Выберите колонку с именем файла для вложений'
-        : (!byColumn && !($('bm-attach-template')?.value || '').trim()) ? 'Укажите шаблон имени файла для вложений'
-        : '';
-      if (problem) {
-        Toast.show(problem, 'warning');
-        state.sending = false;
-        return;
-      }
+    // Вложения: недозаполненная карточка отправила бы письма без файла молча.
+    const attachProblem = attachments?.validate();
+    if (attachProblem) {
+      Toast.show(attachProblem, 'warning');
+      state.sending = false;
+      return;
     }
 
     // UI: показать секцию прогресса
@@ -830,6 +981,7 @@ const BulkMailPanel = (() => {
           template_html: templateHtml,
           rows,
           mapping:       state.mapping,
+          placeholders:  state.placeholders,
           subject:       $('bm-subject')?.value || '',
           from_email:    $('bm-from')?.value    || '',
           channel:       state.channel,
@@ -844,12 +996,7 @@ const BulkMailPanel = (() => {
           delay,
           send_at:          sendAtVal || null,
           timezone:         -(new Date().getTimezoneOffset() / 60),
-          attach_enabled:   $('bm-attach-toggle')?.checked  || false,
-          attach_folder:    $('bm-attach-folder')?.value    || '',
-          attach_template:  $('bm-attach-template')?.value  || '',
-          attach_mode:      $('bm-attach-mode-col')?.checked ? 'column' : 'template',
-          attach_column:    $('bm-attach-col-sel')?.value   || '',
-          attach_missing:   $('bm-attach-missing')?.value   || 'send',
+          attachments:      attachments?.getSpecs() || [],
         }),
       });
       const data = await resp.json();
@@ -1009,6 +1156,7 @@ const BulkMailPanel = (() => {
           template_html: await _getTemplateHtml(),
           row,
           mapping:     state.mapping,
+          placeholders: state.placeholders,
           subject:     $('bm-subject')?.value || '',
           from_email:   $('bm-from')?.value    || '',
           channel:      state.channel,
@@ -1149,6 +1297,29 @@ const BulkMailPanel = (() => {
     });
   }
 
+  // Список колонок под темой и шаблоном имени файла (выпадающий, с поиском):
+  // выбор вставляет {{колонка}} в позицию курсора поля.
+  const FIELD_CHIPS = [
+    { chips: 'bm-subject-chips', input: 'bm-subject' },
+  ];
+
+  function buildFieldChips() {
+    const cols = state.headers.filter(h => !/mail|почта/i.test(h));
+    FIELD_CHIPS.forEach(({ chips, input }) => {
+      const container = $(chips);
+      if (!container) return;
+      BulkFieldPicker.mount(container, {
+        getColumns: () => cols,
+        onPick: col => insertIntoField(input, `{{${col}}}`),
+      });
+    });
+  }
+
+  function insertIntoField(inputId, text) {
+    const field = $(inputId);
+    if (field) BulkFieldPicker.insertAtCursor(field, text);   // input-событие обновит список плейсхолдеров
+  }
+
   function insertPlaceholderAtCursor(colName) {
     if (!_editMode) setCanvasMode('edit');
     const span = document.createElement('span');
@@ -1205,7 +1376,8 @@ const BulkMailPanel = (() => {
       toSend++;
     });
 
-    const unPH = state.placeholders.filter(ph => !state.mapping[ph]);
+    const unPH = unmappedGroups();
+    const attachWarns = state.preflight ? BulkAttachSummary.summarize(state.preflight) : null;
     const action = isDraft ? 'черновиков' : 'писем';
 
     const body = $('bm-confirm-body');
@@ -1219,12 +1391,21 @@ const BulkMailPanel = (() => {
       (skip > 0 ? ` ${skip} ${_plural(skip,'строка','строки','строк')} будут пропущены.` : '');
 
     if (warns) warns.innerHTML = [
-      ...unPH.map(ph =>
-        `<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(249,115,22,.08);
+      ...unPH.map(g => {
+        const where = BulkPlaceholders.usageLabel(g.usage);
+        return `<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(249,115,22,.08);
                      border:1px solid rgba(249,115,22,.22);border-radius:7px;font-size:12px;color:#fb923c">
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/></svg>
-           Поле <strong style="font-family:monospace">${escHtml(ph)}</strong> не сопоставлено — останется пустым
-         </div>`),
+           <span>Поле <strong style="font-family:monospace">${escHtml(g.label)}</strong>${where ? ` (${escHtml(where)})` : ''} не сопоставлено — в письмах будет пустое значение</span>
+         </div>`;
+      }),
+      ...(attachWarns ? attachWarns.blocks.filter(b => b.tone !== 'ok').map(b => {
+        const text = b.lines.filter(l => l.tone !== 'ok').map(l => l.text).join('; ');
+        return `<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(249,115,22,.08);
+                     border:1px solid rgba(249,115,22,.22);border-radius:7px;font-size:12px;color:#fb923c">
+           <span><strong>${escHtml(b.label)}</strong> — ${escHtml(text)}</span></div>`;
+      }) : []),
+      ...(attachWarns && attachWarns.size && attachWarns.size.tone === 'err' ? [`<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;font-size:12px;color:#fca5a5"><span>${escHtml(attachWarns.size.text)}</span></div>`] : []),
       ...(badEmail > 0 ? [`<div style="display:flex;gap:8px;padding:8px 10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);border-radius:7px;font-size:12px;color:#fca5a5">
            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
            ${badEmail} ${_plural(badEmail,'строка','строки','строк')} с некорректным email — будут пропущены
@@ -1265,7 +1446,8 @@ const BulkMailPanel = (() => {
   function init() {
     initAccordion();
     initFileUpload();
-    initAttachMode();
+    initAttachments();
+    initWideLayout();
     initCanvasSelectionTracking();
 
     // Переключатель режима — только в admin (в user канвас всегда в preview)
@@ -1273,7 +1455,13 @@ const BulkMailPanel = (() => {
       $('bm-mode-preview')?.addEventListener('click', () => setCanvasMode('preview'));
       $('bm-mode-edit')?.addEventListener('click',    () => setCanvasMode('edit'));
     }
-    $('bm-skip-no-email')?.addEventListener('change', recalcSummary);
+    $('bm-skip-no-email')?.addEventListener('change', () => { recalcSummary(); schedulePreflight(); });
+    $('bm-email-col')?.addEventListener('change', e => {
+      state.emailColumn = e.target.value;
+      updateRowNavInfo();
+      recalcSummary();
+      schedulePreflight();
+    });
 
     // CC / BCC collapse
     const ccBtn  = $('bm-cc-btn');
@@ -1287,20 +1475,8 @@ const BulkMailPanel = (() => {
       });
     }
 
-    // Вложения toggle
-    const attachToggle  = $('bm-attach-toggle');
-    const attachContent = $('bm-attach-content');
-    if (attachToggle && attachContent) {
-      attachToggle.addEventListener('change', () => {
-        attachContent.style.display = attachToggle.checked ? 'block' : 'none';
-      });
-    }
-
-    // Плейсхолдеры из темы и шаблона имени файла тоже попадают в сопоставление колонок
-    ['bm-subject', 'bm-attach-template'].forEach(id =>
-      $(id)?.addEventListener('input', schedulePlaceholderRefresh));
-    ['bm-attach-toggle', 'bm-attach-mode-tpl', 'bm-attach-mode-col'].forEach(id =>
-      $(id)?.addEventListener('change', schedulePlaceholderRefresh));
+    // Плейсхолдеры из темы тоже попадают в сопоставление колонок
+    $('bm-subject')?.addEventListener('input', schedulePlaceholderRefresh);
 
     // Важность — клики по кнопкам
     document.querySelectorAll('#bm-importance .bm-imp-btn').forEach(btn => {
@@ -1346,14 +1522,14 @@ const BulkMailPanel = (() => {
     $('bm-row-next')?.addEventListener('click', () => { if (state.currentRow < state.rows.length-1) { state.currentRow++; renderCurrentRow(); } });
 
     // Кнопки отправки (сайдбар — если элемент остался) + тулбар
-    $('bm-send-btn')?.addEventListener('click', () => {
+    // Перед окном подтверждения вложения проверяются заново: файлы в папке могли измениться.
+    const confirmAndSend = async () => {
       if (!state.rows.length) return;
+      await runPreflight();
       _showConfirmModal(() => { resetProgress(); startSend(); });
-    });
-    document.getElementById('btn-bulk-send')?.addEventListener('click', () => {
-      if (!state.rows.length) return;
-      _showConfirmModal(() => { resetProgress(); startSend(); });
-    });
+    };
+    $('bm-send-btn')?.addEventListener('click', confirmAndSend);
+    document.getElementById('btn-bulk-send')?.addEventListener('click', confirmAndSend);
 
     $('bm-test-btn')?.addEventListener('click', sendTest);
 
