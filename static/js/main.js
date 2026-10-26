@@ -421,7 +421,8 @@ function applySidebarSearchFilter() {
         document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
             if (el.dataset.profileHidden) return; // не трогаем заблокированные профилем
             const match = !query || el.textContent.toLowerCase().includes(query);
-            el.style.display = match ? '' : 'none';
+            // Плитка пресета лежит в обёртке с кнопкой «×» — прячем обёртку целиком
+            (el.closest('.preset-tile-wrap') || el).style.display = match ? '' : 'none';
         });
         return;
     }
@@ -504,12 +505,35 @@ async function setupInlinePresetLibrary() {
         }
         grid.innerHTML = '';
         presets.forEach((template) => {
+            const item = { ...template, type: activeScope };
+            const wrap = document.createElement('div');
+            wrap.className = 'preset-tile-wrap';
+
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'preset-tile';
             button.textContent = template.name;
             button.addEventListener('click', () => TemplatesUI.insertPreset(template));
-            grid.appendChild(button);
+            wrap.appendChild(button);
+
+            if (TemplatesUI.canDeleteTemplate(item)) {
+                button.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    TemplatesUI.deleteTemplate(item);
+                });
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'preset-tile-delete';
+                del.title = 'Удалить пресет';
+                del.setAttribute('aria-label', 'Удалить пресет');
+                del.textContent = '×';
+                del.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    TemplatesUI.deleteTemplate(item);
+                });
+                wrap.appendChild(del);
+            }
+            grid.appendChild(wrap);
         });
     };
 
@@ -534,6 +558,13 @@ async function setupInlinePresetLibrary() {
      * Called from savePreset() in templatesUI.js after a successful save.
      * @param {{ id: string, name: string, type: string, isPreset: boolean }} item
      */
+    /** Убирает удалённый пресет из панели без запроса к серверу. */
+    window.removePresetFromPanel = (item) => {
+        const bucket = item.type === 'personal' ? 'personal' : 'shared';
+        presetCache[bucket] = (presetCache[bucket] || []).filter((t) => t.id !== item.id);
+        render();
+    };
+
     window.addPresetToPanel = (item) => {
         const bucket = item.type === 'personal' ? 'personal' : 'shared';
         const list = presetCache[bucket] || [];

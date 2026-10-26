@@ -41,16 +41,17 @@ function addBlock(type, parentId = null, position = null) {
             // Nested selected block — find its parent row in AppState.blocks
             let inserted = false;
             if (sid !== null) {
-                // Full-width block types must not go inside a column — insert after the parent row instead
-                const FULL_WIDTH_TYPES = ['banner', 'divider', 'spacer', 'image', 'heading', 'text', 'list', 'important', 'table'];
-                const insertIntoColumn = !FULL_WIDTH_TYPES.includes(type);
-
+                // Одно правило для всех типов — то же, что решает перетаскивание
+                // (getRowDropOutcome): блок встаёт в колонку выделенного, если ряд его
+                // принимает; баннер, разделитель и отступ, а также несовместимые с рядом
+                // блоки (например, кнопка в текстовый ряд) — под ряд.
                 outer: for (let rowIdx = 0; rowIdx < AppState.blocks.length; rowIdx++) {
                     const row = AppState.blocks[rowIdx];
                     if (!row.columns) continue;
                     for (const col of row.columns) {
                         const idx = col.blocks.findIndex(b => b.id === sid);
                         if (idx !== -1) {
+                            const insertIntoColumn = canPlaceInColumn(row, newBlock);
                             if (insertIntoColumn) {
                                 col.blocks.splice(idx + 1, 0, newBlock);
                             } else {

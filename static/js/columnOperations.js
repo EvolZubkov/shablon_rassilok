@@ -43,14 +43,37 @@ function splitBlockIntoColumns(blockId) {
 
 
 
+/**
+ * Разбирает ряд колонок в отдельные блоки на его месте: колонки слева направо,
+ * внутри колонки сверху вниз. Фон и настройки самого контейнера не переносятся.
+ * Блок старого формата (обычный блок с полем columns) возвращается к обычному виду.
+ */
 function mergeColumns(blockId) {
     const block = AppState.findBlockById(blockId);
     if (!block || !block.columns) return;
 
-    block.columns = null;
+    AppState.pushUndo();
 
-    renderCanvas();
-    selectBlock(blockId);
+    if (block.type !== 'columns_container') {
+        block.columns = null;
+        renderCanvas();
+        selectBlock(blockId);
+        return;
+    }
+
+    const index = AppState.blocks.findIndex(b => b.id === blockId);
+    if (index === -1) return;
+
+    const children = DropLogic.flattenColumnsContainer(block);
+    AppState.blocks.splice(index, 1, ...children);
+
+    if (children.length) {
+        selectBlock(children[0].id);
+    } else {
+        AppState.clearSelection();
+        renderCanvas();
+        renderSettings();
+    }
 }
 
 function updateColumnWidth(blockId, columnId, newWidth) {

@@ -3865,6 +3865,175 @@ body.admin-mode-page .settings-panel {
   background: var(--bg-hover);
 }
 
+.preset-tile-wrap {
+  position: relative;
+  display: flex;
+}
+
+.preset-tile-wrap .preset-tile {
+  flex: 1;
+  min-width: 0;
+}
+
+.preset-tile-delete {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  font-size: 16px;
+  line-height: 20px;
+  text-align: center;
+  cursor: pointer;
+  opacity: 0.6;
+}
+
+.preset-tile-wrap:hover .preset-tile-delete,
+.preset-tile-delete:focus-visible {
+  opacity: 1;
+}
+
+.preset-tile-delete:hover {
+  background: var(--bg-hover);
+  color: var(--error, #ef4444);
+}
+
+/* ===== Предпросмотр места вставки при перетаскивании (dragPreview.js) ===== */
+.drop-placeholder {
+  box-sizing: border-box;
+  height: 0;
+  margin: 0;
+  border: 0 dashed var(--accent-primary);
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.08);
+  color: var(--accent-primary);
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: height 0.18s ease, margin 0.18s ease, opacity 0.18s ease, border-width 0.18s ease;
+}
+
+.drop-placeholder.open {
+  height: var(--drop-h, 56px);
+  margin-bottom: 12px;
+  border-width: 2px;
+  opacity: 1;
+}
+
+.column-content .drop-placeholder.open {
+  margin-bottom: 0;
+}
+
+.column.drop-active .column-drop-zone {
+  display: none;
+}
+
+.columns-container.drop-growing .column:not(.drop-ghost-column) {
+  flex-shrink: 1;
+}
+
+.drop-ghost-column {
+  box-sizing: border-box;
+  flex-shrink: 0;
+  width: 0;
+  min-width: 0;
+  border: 0 dashed var(--accent-primary);
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.08);
+  color: var(--accent-primary);
+  font-size: 12px;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: width 0.18s ease, opacity 0.18s ease, border-width 0.18s ease;
+}
+
+.drop-ghost-column.open {
+  width: 25%;
+  border-width: 2px;
+  opacity: 1;
+}
+
+/* Слияние в колонки: сужается весь блок вместе с границами, рядом проявляется пустая половина. */
+.email-block.drop-merging {
+  box-sizing: border-box;
+  transition: width 0.18s ease, margin 0.18s ease, opacity 0.18s ease;
+}
+
+.email-block.drop-merge-left {
+  width: calc(50% - 6px) !important;
+  margin-left: calc(50% + 6px);
+}
+
+.email-block.drop-merge-right {
+  width: calc(50% - 6px) !important;
+}
+
+.email-block.drop-merging::after {
+  content: attr(data-drop-label);
+  position: absolute;
+  top: -2px;
+  bottom: -2px;
+  width: 100%;
+  box-sizing: border-box;
+  border: 2px dashed var(--accent-primary);
+  border-radius: 8px;
+  background: rgba(249, 115, 22, 0.08);
+  color: var(--accent-primary);
+  font-size: 12px;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  pointer-events: none;
+}
+
+.email-block.drop-merge-left::after,
+.email-block.drop-merge-right::after {
+  display: flex;
+}
+
+.email-block.drop-merge-left::after {
+  left: calc(-100% - 14px);
+}
+
+.email-block.drop-merge-right::after {
+  left: calc(100% + 14px);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .drop-placeholder,
+  .drop-ghost-column,
+  .email-block.drop-merging {
+    transition: none;
+  }
+}
+
+.drag-chip {
+  position: fixed;
+  top: -200px;
+  left: 0;
+  padding: 4px 12px;
+  border-radius: 8px;
+  background: var(--accent-primary);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
 .sidebar-placeholder {
   padding: 16px;
   border: 1px dashed var(--border-dashed);
