@@ -40,6 +40,7 @@ from exchange_sender import (
     _to_ews_datetime,
     _to_mailboxes,
     _to_attendees,
+    suggest_recipients,
 )
 
 
@@ -864,3 +865,64 @@ class TestSendEmailApiImportance:
                 'subject': 'Test', 'to': ['to@test.ru'], 'html_body': '<p/>',
             })
         assert captured.get('read_receipt') is False
+
+# ─── suggest_recipients ────────────────────────────────────────────────────
+
+def _mb(name, email):
+    m = MagicMock()
+    m.name = name
+    m.email_address = email
+    return m
+
+
+class TestSuggestRecipients:
+    """Подсказки адресов через EWS ResolveNames (адресная книга)."""
+
+    def _run(self, results, query='зубк', limit=8):
+        account = MagicMock()
+        rn = MagicMock()
+        rn.return_value.call.return_value = iter(results)
+        services = MagicMock(ResolveNames=rn)
+        with patch.dict(sys.modules, {'exchangelib.services': services}):
+            out = suggest_recipients(account, query, limit)
+        return out, rn
+
+    def test_returns_name_and_email(self):
+        out, _ = self._run([(_mb('Зубков Евгений', 'Zubkov.E@rt.ru'), None)])
+        assert out == [{'name': 'Зубков Евгений', 'email': 'zubkov.e@rt.ru'}]
+
+    def test_accepts_bare_mailbox_without_tuple(self):
+        out, _ = self._run([_mb('Иванов', 'ivanov@rt.ru')])
+        assert out == [{'name': 'Иванов', 'email': 'ivanov@rt.ru'}]
+
+    def test_skips_entries_without_smtp_address(self):
+        out, _ = self._run([(_mb('Группа', None), None), (_mb('Без', 'нет-собаки'), None)])
+        assert out == []
+
+    def test_skips_error_objects_from_response(self):
+        out, _ = self._run([Exception('NoResults'), (_mb('Иванов', 'i@rt.ru'), None)])
+        assert [s['email'] for s in out] == ['i@rt.ru']
+
+    def test_deduplicates_by_email(self):
+        out, _ = self._run([(_mb('A', 'a@rt.ru'), None), (_mb('A2', 'A@rt.ru'), None)])
+        assert len(out) == 1
+
+    def test_respects_limit(self):
+        results = [(_mb(f'N{i}', f'n{i}@rt.ru'), None) for i in range(20)]
+        out, _ = self._run(results, limit=5)
+        assert len(out) == 5
+
+    def test_short_query_does_not_call_exchange(self):
+        out, rn = self._run([(_mb('A', 'a@rt.ru'), None)], query=' з ')
+        assert out == []
+        rn.assert_not_called()
+
+    def test_passes_query_to_resolve_names(self):
+        _, rn = self._run([], query='  зубков ')
+        kwargs = rn.return_value.call.call_args.kwargs
+        assert kwargs['unresolved_entries'] == ['зубков']
+        assert kwargs['return_full_contact_data'] is False
+
+    def test_name_falls_back_to_email_when_missing(self):
+        out, _ = self._run([(_mb(None, 'x@rt.ru'), None)])
+        assert out[0]['name'] == ''

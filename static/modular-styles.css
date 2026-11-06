@@ -2394,6 +2394,24 @@ dialog.app-dialog::backdrop {
   overflow-y: auto;
 }
 
+/* Блоки тела не сжимаются: при нехватке высоты прокручивается .exc-body,
+   а не обрезается содержимое (аккордеон «Дополнительные настройки» имеет overflow:hidden). */
+.exc-body > * {
+  flex-shrink: 0;
+}
+
+/* Низкие экраны (ноутбуки ~768px и ниже): плотнее отступы. Размеры кратны 4px. */
+@media (max-height: 720px) {
+  .exc-panel {
+    max-height: 96vh;
+  }
+
+  .exc-body {
+    gap: 8px;
+    padding: 12px 16px;
+  }
+}
+
 /* Поле формы */
 .exc-field {
   display: flex;

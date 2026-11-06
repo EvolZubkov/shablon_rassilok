@@ -27,6 +27,31 @@ const MAX_ENTRIES = 200;
  */
 const MAX_SUGGESTIONS = 8;
 
+/**
+ * Minimum token length before the Exchange address book is queried.
+ * @constant {number}
+ */
+const REMOTE_MIN_CHARS = 2;
+
+/**
+ * Pause after the last keystroke before the server is queried.
+ * @constant {number}
+ */
+const REMOTE_DEBOUNCE_MS = 250;
+
+/**
+ * After a server error the address book is not queried for this long.
+ * @constant {number}
+ */
+const REMOTE_BACKOFF_MS = 60000;
+
+/**
+ * How many history entries stay in the list once server entries are added,
+ * so a long history cannot push address-book matches out of the dropdown.
+ * @constant {number}
+ */
+const HISTORY_WITH_REMOTE = 4;
+
 const EmailHistoryStore = (function () {
     const STORAGE_KEY = 'pochtelye-email-history';
 
@@ -102,12 +127,22 @@ const EmailAutocomplete = (function () {
     let _dropdown = null;
     /** @type {HTMLInputElement|HTMLTextAreaElement|null} */
     let _activeEl = null;
-    /** @type {string[]} */
+    /** @type {{value: string, label: string}[]} */
     let _items = [];
     /** @type {number} */
     let _selIdx = -1;
     /** Timeout id for deferred hide on blur. @type {number|null} */
     let _blurTimer = null;
+    /** Debounce timer for the address-book request. @type {number|null} */
+    let _remoteTimer = null;
+    /** True while an address-book request is in flight (one at a time). @type {boolean} */
+    let _remoteBusy = false;
+    /** Latest request that arrived while another was in flight. @type {{el: Element, token: string}|null} */
+    let _remoteQueued = null;
+    /** Why the address book is unavailable (shown while backing off). @type {string} */
+    let _remoteError = '';
+    /** Timestamp until which the address book is not queried. @type {number} */
+    let _remoteBlockedUntil = 0;
 
     // ── Dropdown DOM ──────────────────────────────────────────────────────────
 
@@ -230,16 +265,21 @@ const EmailAutocomplete = (function () {
         const dd = _ensureDropdown();
         if (items.length === 0) { _hide(); return; }
 
-        _items = items;
+        // Notes (e.g. "address book unavailable") are shown but never selectable.
+        _items = items.filter(item => !item.note);
         _selIdx = -1;
 
         dd.innerHTML = '';
-        items.forEach((addr, i) => {
+        items.forEach((item) => {
             const li = document.createElement('li');
-            li.className = 'email-ac-item';
-            li.setAttribute('role', 'option');
-            li.dataset.value = addr;
-            li.textContent = addr;
+            if (item.note) {
+                li.className = 'email-ac-note';
+            } else {
+                li.className = 'email-ac-item';
+                li.setAttribute('role', 'option');
+                li.dataset.value = item.value;
+            }
+            li.textContent = item.label;
             dd.appendChild(li);
         });
 
@@ -257,6 +297,99 @@ const EmailAutocomplete = (function () {
         items.forEach((li, i) => li.classList.toggle('email-ac-item--active', i === idx));
     }
 
+    // ── Address-book (Exchange) suggestions ──────────────────────────────────
+
+    /**
+     * Combine history matches with address-book entries: history first,
+     * no duplicates (case-insensitive), at most {@link MAX_SUGGESTIONS}.
+     *
+     * @param {string[]} history
+     * @param {{name: string, email: string}[]} remote
+     * @returns {{value: string, label: string}[]}
+     */
+    function _mergeSuggestions(history, remote) {
+        const merged = [];
+        const seen = new Set();
+        const push = (value, label) => {
+            const key = value.toLowerCase();
+            if (seen.has(key)) return;
+            seen.add(key);
+            merged.push({ value, label });
+        };
+        const keep = remote.length > 0 ? HISTORY_WITH_REMOTE : MAX_SUGGESTIONS;
+        history.slice(0, keep).forEach(addr => push(addr, addr));
+        remote.forEach(({ name, email }) => push(email, name ? `${name} <${email}>` : email));
+        return merged.slice(0, MAX_SUGGESTIONS);
+    }
+
+    function _cancelRemote() {
+        if (_remoteTimer !== null) { clearTimeout(_remoteTimer); _remoteTimer = null; }
+        _remoteQueued = null;
+    }
+
+    /** Dropdown entry explaining why address-book suggestions are missing. */
+    function _unavailableNote() {
+        const reason = _remoteError ? `: ${_remoteError}` : '';
+        return { note: true, label: `Адресная книга недоступна${reason}` };
+    }
+
+    function _blockRemote(reason) {
+        _remoteBlockedUntil = Date.now() + REMOTE_BACKOFF_MS;
+        _remoteError = reason;
+    }
+
+    /**
+     * Ask the server for address-book matches of {@code token} and refresh the
+     * dropdown, unless the user has moved on in the meantime. Only one request
+     * runs at a time; the latest text typed meanwhile is queried afterwards.
+     *
+     * @param {HTMLInputElement|HTMLTextAreaElement} el
+     * @param {string} token
+     */
+    async function _fetchRemote(el, token) {
+        _remoteBusy = true;
+        try {
+            const resp = await fetch('/api/recipients/suggest?q=' + encodeURIComponent(token));
+            const data = await resp.json().catch(() => ({}));
+            if (!resp.ok) {
+                _blockRemote(data.error || `ошибка сервера (${resp.status})`);
+                if (_activeEl === el && _currentToken(el).token === token) {
+                    _render([..._mergeSuggestions(EmailHistoryStore.search(token), []),
+                             _unavailableNote()], el);
+                }
+                return;
+            }
+            _remoteError = '';
+            if (_activeEl !== el || _currentToken(el).token !== token) return;
+            const remote = Array.isArray(data.suggestions) ? data.suggestions : [];
+            _render(_mergeSuggestions(EmailHistoryStore.search(token), remote), el);
+        } catch (_err) {
+            _blockRemote('нет связи с приложением');
+        } finally {
+            _remoteBusy = false;
+            _runQueued();
+        }
+    }
+
+    /** Query the latest text typed while the previous request was in flight. */
+    function _runQueued() {
+        const queued = _remoteQueued;
+        _remoteQueued = null;
+        if (!queued || Date.now() < _remoteBlockedUntil) return;
+        if (_activeEl !== queued.el || _currentToken(queued.el).token !== queued.token) return;
+        _fetchRemote(queued.el, queued.token);
+    }
+
+    function _scheduleRemote(el, token) {
+        _cancelRemote();
+        if (token.length < REMOTE_MIN_CHARS || Date.now() < _remoteBlockedUntil) return;
+        _remoteTimer = setTimeout(() => {
+            _remoteTimer = null;
+            if (_remoteBusy) { _remoteQueued = { el, token }; return; }
+            _fetchRemote(el, token);
+        }, REMOTE_DEBOUNCE_MS);
+    }
+
     // ── Confirm selection ─────────────────────────────────────────────────────
 
     function _confirm(value) {
@@ -270,9 +403,11 @@ const EmailAutocomplete = (function () {
 
     function _onInput() {
         const { token } = _currentToken(this);
-        if (token.length === 0) { _hide(); return; }
-        const results = EmailHistoryStore.search(token);
-        _render(results, this);
+        if (token.length === 0) { _cancelRemote(); _hide(); return; }
+        const local = _mergeSuggestions(EmailHistoryStore.search(token), []);
+        const backingOff = Date.now() < _remoteBlockedUntil && token.length >= REMOTE_MIN_CHARS;
+        _render(backingOff ? [...local, _unavailableNote()] : local, this);
+        _scheduleRemote(this, token);
     }
 
     function _onKeydown(e) {
@@ -289,9 +424,10 @@ const EmailAutocomplete = (function () {
         } else if (e.key === 'Enter' || e.key === 'Tab') {
             if (_selIdx >= 0 && _items[_selIdx]) {
                 e.preventDefault();
-                _confirm(_items[_selIdx]);
+                _confirm(_items[_selIdx].value);
             }
         } else if (e.key === 'Escape') {
+            _cancelRemote();
             _hide();
         }
     }
@@ -306,6 +442,7 @@ const EmailAutocomplete = (function () {
 
     function _onBlur() {
         _blurTimer = setTimeout(() => {
+            _cancelRemote();
             _hide();
             _blurTimer = null;
         }, 120);
@@ -341,7 +478,7 @@ const EmailAutocomplete = (function () {
         });
     }
 
-    return { attach, attachAll };
+    return { attach, attachAll, _mergeSuggestions };
 }());
 
 window.EmailHistoryStore = EmailHistoryStore;

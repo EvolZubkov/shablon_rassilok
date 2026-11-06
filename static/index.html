@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="theme-variables.css">
   <link rel="stylesheet" href="figma-gradient-panel.css">
   <link rel="stylesheet" href="bulk-mail-panel.css">
+  <link rel="stylesheet" href="email-autocomplete.css">
 </head>
 
 <body class="admin-mode-page">
@@ -43,6 +44,7 @@
         <button type="button" class="menu-root-btn">Правка</button>
         <div class="menu-dropdown">
           <button type="button" class="menu-action" data-action="undo">Отменить</button>
+          <button type="button" class="menu-action" data-action="redo">Повторить</button>
           <button type="button" class="menu-action" data-action="clear-canvas">Очистить холст</button>
         </div>
       </div>
@@ -692,7 +694,9 @@
   <!-- 7. Генерация и экспорт -->
   <script src="js/emailGenerator.js"></script>
   <script src="js/outlookIntegration.js"></script>
+  <script src="js/shared/emailHistoryStore.js"></script>
   <script src="js/user/exchangeModals.js"></script>
+  <script src="js/shared/versionBadge.js"></script>
 
 
   <!-- 8. Личные ресурсы -->

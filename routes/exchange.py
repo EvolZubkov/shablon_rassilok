@@ -14,8 +14,11 @@ Routes:
 """
 
 import datetime
+import hashlib
 import subprocess
 import sys
+import threading
+import time
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -276,6 +279,135 @@ def api_credentials_test():
         current_app.logger.error('credentials_test unexpected error: %s', e, exc_info=True)
         return jsonify({'success': False,
                         'error': f'Внутренняя ошибка: {type(e).__name__}'}), 500
+
+
+# ── Подсказки получателей (адресная книга Exchange) ──────────────────────────
+
+SUGGEST_MIN_QUERY_LEN = 2
+SUGGEST_MAX_QUERY_LEN = 64
+SUGGEST_ACCOUNT_TTL_SEC = 600
+SUGGEST_FAILURE_BACKOFF_SEC = 60
+
+_suggest_lock = threading.Lock()
+# Только один запрос к адресной книге за раз: очередь запросов после сбоя
+# не должна по очереди долбиться в Exchange с теми же (отклонёнными) данными.
+_suggest_call_lock = threading.Lock()
+_suggest_account_cache: dict = {'key': None, 'account': None, 'expires': 0.0}
+_suggest_failure: dict = {'until': 0.0, 'status': 0, 'error': ''}
+
+
+def reset_suggest_account_cache() -> None:
+    """Сбрасывает кеш Exchange-подключения и паузу после сбоя (смена данных, тесты)."""
+    global _suggest_account_cache, _suggest_failure
+    with _suggest_lock:
+        _suggest_account_cache = {'key': None, 'account': None, 'expires': 0.0}
+        _suggest_failure = {'until': 0.0, 'status': 0, 'error': ''}
+
+
+def _suggest_recent_failure():
+    """Возвращает (status, message) недавнего сбоя или None, если паузы нет."""
+    with _suggest_lock:
+        if _suggest_failure['until'] > time.monotonic():
+            return _suggest_failure['status'], _suggest_failure['error']
+    return None
+
+
+def _remember_suggest_failure(status: int, message: str) -> None:
+    global _suggest_failure
+    with _suggest_lock:
+        _suggest_failure = {
+            'until': time.monotonic() + SUGGEST_FAILURE_BACKOFF_SEC,
+            'status': status, 'error': message,
+        }
+
+
+def _is_auth_error(exc: Exception) -> bool:
+    # По имени класса: app.py и routes/ импортируют exchange_sender под разными
+    # путями (exchange_sender / src.exchange_sender), и классы исключений разные.
+    return type(exc).__name__ == 'ExchangeAuthError'
+
+
+def _classify_suggest_error(exc: Exception) -> tuple:
+    """Переводит исключение Exchange в (HTTP-статус, текст для пользователя)."""
+    if not (_is_auth_error(exc) or isinstance(exc, ConnectionError)):
+        try:
+            _m._wrap_exchange_error(exc)
+        except ConnectionError as wrapped:
+            exc = wrapped
+        except Exception as wrapped:
+            exc = wrapped
+    if _is_auth_error(exc):
+        return 401, 'Exchange отклонил учётные данные при поиске в адресной книге'
+    if isinstance(exc, ConnectionError):
+        return 503, 'Exchange недоступен'
+    return 500, 'Не удалось получить подсказки'
+
+
+def _suggest_cache_key(creds: dict) -> tuple:
+    """Ключ кеша; пароль участвует только в виде хеша."""
+    password_digest = hashlib.sha256(str(creds.get('password') or '').encode()).hexdigest()
+    return (creds.get('server'), creds.get('username'), creds.get('from_email'),
+            creds.get('auth_type', 'ntlm'), creds.get('krb_realm', ''), password_digest)
+
+
+def _suggest_account(creds: dict):
+    """Возвращает Exchange Account из кеша или создаёт новый.
+
+    connect_exchange при Kerberos каждый раз оборачивает BaseProtocol.create_session,
+    поэтому вызывать его на каждый ввод символа нельзя.
+    """
+    global _suggest_account_cache
+    key = _suggest_cache_key(creds)
+    now = time.monotonic()
+    with _suggest_lock:
+        cached = _suggest_account_cache
+        if cached['key'] == key and cached['expires'] > now:
+            return cached['account']
+    account = _m.connect_exchange(
+        creds['server'], creds['username'], creds['password'],
+        creds.get('from_email') or creds['username'],
+        auth_type=creds.get('auth_type', 'ntlm'),
+        krb_realm=creds.get('krb_realm', ''),
+    )
+    with _suggest_lock:
+        _suggest_account_cache = {
+            'key': key, 'account': account, 'expires': now + SUGGEST_ACCOUNT_TTL_SEC,
+        }
+    return account
+
+
+def _suggest_error(status: int, message: str):
+    return jsonify({'success': False, 'suggestions': [], 'error': message}), status
+
+
+@bp.route('/api/recipients/suggest', methods=['GET'])
+def api_recipients_suggest():
+    """Подсказки получателей по фрагменту имени/адреса (EWS ResolveNames)."""
+    query = (request.args.get('q') or '').strip()
+    if len(query) > SUGGEST_MAX_QUERY_LEN:
+        return _suggest_error(400, 'Слишком длинный запрос')
+    if len(query) < SUGGEST_MIN_QUERY_LEN:
+        return jsonify({'success': True, 'suggestions': []})
+
+    path = _m.get_credentials_path()
+    if not _m.credentials_exist(path):
+        return _suggest_error(401, 'Учётные данные не настроены')
+    creds = _m.load_credentials(path)
+    if not creds:
+        return _suggest_error(401, 'Не удалось загрузить учётные данные')
+
+    with _suggest_call_lock:
+        recent = _suggest_recent_failure()
+        if recent:
+            return _suggest_error(*recent)
+        try:
+            suggestions = _m.suggest_recipients(_suggest_account(creds), query)
+        except Exception as e:
+            current_app.logger.error('recipients_suggest error: %s', e, exc_info=True)
+            status, message = _classify_suggest_error(e)
+            _remember_suggest_failure(status, message)
+            return _suggest_error(status, message)
+    return jsonify({'success': True, 'suggestions': suggestions})
 
 
 @bp.route('/api/send/email', methods=['POST'])

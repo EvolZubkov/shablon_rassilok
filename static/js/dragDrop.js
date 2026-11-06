@@ -460,7 +460,7 @@ function executeDrop(target) {
 
     const moving = detachDragged(drag);
     if (!moving) {
-        AppState.undo();
+        AppState.undo(false);
         return;
     }
 

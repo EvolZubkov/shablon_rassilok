@@ -661,6 +661,10 @@ const ExchangeModals = (() => {
         const open = body.style.display !== 'none';
         body.style.display = open ? 'none' : '';
         trigger?.classList.toggle('exc-extra-open', !open);
+        // На низком экране раскрытый блок уходит ниже видимой части: подводим его в поле зрения.
+        if (!open) {
+            _q('email-extra-accordion')?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
     }
 
     function _switchSettingsChannel(ch) {

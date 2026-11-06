@@ -4105,7 +4105,7 @@ try:
     )
     from exchange_sender import (
         connect_exchange, exchange_send_email, exchange_send_meeting,
-        exchange_save_draft,
+        exchange_save_draft, suggest_recipients,
         parse_datetime, parse_recipients, _wrap_exchange_error,
     )
     from smtp_sender import (
