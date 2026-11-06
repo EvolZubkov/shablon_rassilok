@@ -81,4 +81,23 @@ function renderDividerSettings(container, block) {
     }
 
     container.appendChild(imageGroup);
+
+    // Ширина: на всю ширину письма или с отступами, как основной контент
+    const widthGroup = document.createElement('div');
+    widthGroup.className = 'setting-group';
+    const widthLabel = document.createElement('label');
+    widthLabel.style.cssText = 'display:flex;align-items:flex-start;gap:8px;cursor:pointer;font-size:12px;color:var(--text-secondary);';
+    const widthInput = document.createElement('input');
+    widthInput.type = 'checkbox';
+    widthInput.checked = s.fullWidth !== false;
+    widthInput.addEventListener('change', () => {
+        updateBlockSetting(block.id, 'fullWidth', widthInput.checked);
+        renderCanvas();
+    });
+    const widthText = document.createElement('span');
+    widthText.textContent = 'На всю ширину письма. Если выключить, разделитель выровняется по отступам основного контента.';
+    widthLabel.appendChild(widthInput);
+    widthLabel.appendChild(widthText);
+    widthGroup.appendChild(widthLabel);
+    container.appendChild(widthGroup);
 }

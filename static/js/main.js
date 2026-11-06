@@ -49,6 +49,7 @@ function init() {
     setupDownloadButton();
     setupCanvas();
     setupAdminUndo();
+    setupAdminEditShortcuts();
     setupBlockClipboardShortcuts();
     setupCopyHtmlShortcut();
     
@@ -287,12 +288,10 @@ function setupAdminMenu() {
                     document.getElementById('btn-exchange-settings')?.click();
                     break;
                 case 'undo':
-                    if (AppState.canUndo) {
-                        AppState.undo();
-                        renderCanvas();
-                        renderSettings();
-                        showAdminUndoToast();
-                    }
+                    undoAdmin();
+                    break;
+                case 'redo':
+                    redoAdmin();
                     break;
                 case 'clear-canvas':
                     TemplatesUI.clearCanvas();
@@ -421,7 +420,8 @@ function applySidebarSearchFilter() {
         document.querySelectorAll('.blocks-grid .block-btn, #presets-grid .preset-tile').forEach((el) => {
             if (el.dataset.profileHidden) return; // не трогаем заблокированные профилем
             const match = !query || el.textContent.toLowerCase().includes(query);
-            el.style.display = match ? '' : 'none';
+            // Плитка пресета лежит в обёртке с кнопкой «×» — прячем обёртку целиком
+            (el.closest('.preset-tile-wrap') || el).style.display = match ? '' : 'none';
         });
         return;
     }
@@ -504,12 +504,35 @@ async function setupInlinePresetLibrary() {
         }
         grid.innerHTML = '';
         presets.forEach((template) => {
+            const item = { ...template, type: activeScope };
+            const wrap = document.createElement('div');
+            wrap.className = 'preset-tile-wrap';
+
             const button = document.createElement('button');
             button.type = 'button';
             button.className = 'preset-tile';
             button.textContent = template.name;
             button.addEventListener('click', () => TemplatesUI.insertPreset(template));
-            grid.appendChild(button);
+            wrap.appendChild(button);
+
+            if (TemplatesUI.canDeleteTemplate(item)) {
+                button.addEventListener('contextmenu', (e) => {
+                    e.preventDefault();
+                    TemplatesUI.deleteTemplate(item);
+                });
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'preset-tile-delete';
+                del.title = 'Удалить пресет';
+                del.setAttribute('aria-label', 'Удалить пресет');
+                del.textContent = '×';
+                del.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    TemplatesUI.deleteTemplate(item);
+                });
+                wrap.appendChild(del);
+            }
+            grid.appendChild(wrap);
         });
     };
 
@@ -534,6 +557,13 @@ async function setupInlinePresetLibrary() {
      * Called from savePreset() in templatesUI.js after a successful save.
      * @param {{ id: string, name: string, type: string, isPreset: boolean }} item
      */
+    /** Убирает удалённый пресет из панели без запроса к серверу. */
+    window.removePresetFromPanel = (item) => {
+        const bucket = item.type === 'personal' ? 'personal' : 'shared';
+        presetCache[bucket] = (presetCache[bucket] || []).filter((t) => t.id !== item.id);
+        render();
+    };
+
     window.addPresetToPanel = (item) => {
         const bucket = item.type === 'personal' ? 'personal' : 'shared';
         const list = presetCache[bucket] || [];
@@ -573,23 +603,97 @@ async function downloadEmail() {
  * Undo (Ctrl+Z) для admin-редактора.
  * Аналог undoLastAction() из userEditor.js, но использует AppState.
  */
+function isTypingTarget() {
+    const el = document.activeElement;
+    const tag = el?.tagName?.toLowerCase();
+    return Boolean(el?.isContentEditable || tag === 'input' || tag === 'textarea');
+}
+
+function applyAdminHistoryStep(step, message) {
+    if (!step()) return;
+    AppState.clearMultiSelection();
+    renderCanvas();
+    refreshGroupToolbar();
+    renderSettings();
+    showAdminUndoToast(message);
+}
+
+function undoAdmin() {
+    applyAdminHistoryStep(() => AppState.undo(), '↩ Действие отменено');
+}
+
+function redoAdmin() {
+    applyAdminHistoryStep(() => AppState.redo(), '↪ Действие повторено');
+}
+
+/**
+ * Undo/Redo для admin-редактора: Ctrl+Z — отмена, Ctrl+Shift+Z и Ctrl+Y — повтор.
+ * Аналог undoLastAction() из userEditor.js, но использует AppState.
+ */
 function setupAdminUndo() {
     document.addEventListener('keydown', (e) => {
-        if (!(e.ctrlKey || e.metaKey) || e.code !== 'KeyZ') return;
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
 
-        const el = document.activeElement;
-        const tag = el?.tagName?.toLowerCase();
-        if (el?.isContentEditable || tag === 'input' || tag === 'textarea') return;
+        const isUndoKey = e.code === 'KeyZ' && !e.shiftKey;
+        const isRedoKey = (e.code === 'KeyZ' && e.shiftKey) || (e.code === 'KeyY' && !e.shiftKey);
+        if (!isUndoKey && !isRedoKey) return;
+
+        if (isTypingTarget()) return;
 
         e.preventDefault();
-
-        if (!AppState.canUndo) return;
-
-        AppState.undo();
-        renderCanvas();
-        renderSettings();
-        showAdminUndoToast();
+        if (isUndoKey) undoAdmin();
+        else redoAdmin();
     });
+}
+
+/**
+ * Ctrl+A — выделить все блоки верхнего уровня; Ctrl+G / Ctrl+Shift+G —
+ * сгруппировать выделение / разгруппировать выбранную группу;
+ * Ctrl+S / Ctrl+Shift+S — сохранить / «Сохранить как».
+ * Ctrl+S перехватываем и в полях ввода, иначе браузер откроет «Сохранить
+ * страницу»; остальные сочетания в полях оставляем нативными.
+ */
+function setupAdminEditShortcuts() {
+    document.addEventListener('keydown', (e) => {
+        if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+
+        if (e.code === 'KeyS') {
+            e.preventDefault();
+            if (e.shiftKey) document.getElementById('btn-save-as-template')?.click();
+            else window.saveOrOverwriteCurrentTemplate?.();
+            return;
+        }
+
+        if (!['KeyA', 'KeyG'].includes(e.code) || isTypingTarget()) return;
+        e.preventDefault();
+
+        if (e.code === 'KeyA' && !e.shiftKey) selectAllTopLevelBlocks();
+        else if (e.code === 'KeyG' && !e.shiftKey) groupSelectedBlocks();
+        else if (e.code === 'KeyG') ungroupSelectedGroup();
+    });
+}
+
+function selectAllTopLevelBlocks() {
+    if (!AppState.blocks.length) return;
+
+    AppState.clearMultiSelection();
+    AppState.blocks.forEach((b) => AppState.multiSelectedBlockIds.add(b.id));
+    AppState.multiSelectAnchorId = AppState.blocks[0].id;
+    AppState.selectBlock(AppState.blocks[AppState.blocks.length - 1].id);
+
+    renderCanvas();
+    refreshSelectionStyles();
+    refreshGroupToolbar();
+    renderSettings();
+}
+
+function ungroupSelectedGroup() {
+    const block = AppState.findBlockById(AppState.selectedBlockId);
+    if (block?.type !== 'group_container') {
+        Toast.warning('Выберите группу, чтобы разгруппировать');
+        return;
+    }
+    ungroupBlock(block.id);
 }
 
 /**
@@ -614,7 +718,7 @@ function setupBlockClipboardShortcuts() {
     });
 }
 
-function showAdminUndoToast() {
+function showAdminUndoToast(message = '↩ Действие отменено') {
     let toast = document.getElementById('admin-undo-toast');
     if (!toast) {
         toast = document.createElement('div');
@@ -637,7 +741,7 @@ function showAdminUndoToast() {
         `;
         document.body.appendChild(toast);
     }
-    toast.textContent = '↩ Действие отменено';
+    toast.textContent = message;
     toast.style.opacity = '1';
     clearTimeout(toast._timer);
     toast._timer = setTimeout(() => { toast.style.opacity = '0'; }, 1500);

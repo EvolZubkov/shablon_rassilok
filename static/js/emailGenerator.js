@@ -464,7 +464,8 @@ ${buildEmailThemeStyles()}
             && block.settings?.bgEnabled !== false
             && block.settings?.bgColor
             && block.settings?.bgFullWidth;
-        if (block.type === 'banner' || block.type === 'divider' || isFullWidthColumns) {
+        const isFullWidthDivider = block.type === 'divider' && block.settings?.fullWidth !== false;
+        if (block.type === 'banner' || isFullWidthDivider || isFullWidthColumns) {
             // Баннер, разделитель и колонки с full-width фоном — полная ширина
             // (их HTML уже сам компенсирует боковой отступ изнутри при необходимости).
             // При 3-колоночной раскладке первый <td> должен охватить все 3 колонки.
@@ -807,7 +808,6 @@ function generateListHTML(s) {
     const bulletGap = s.bulletGap ?? 10;
     const fontSize = s.fontSize || LAYOUT.DEFAULT_FONT_SIZE;
     const lineHeight = s.lineHeight || LAYOUT.DEFAULT_LINE_HEIGHT;
-    const cellWidth = bulletSize + bulletGap + 2;
     const fontFamily = resolveTextFontFamily(s);
     const adaptedColor = resolveBlockTextColor(s, ctx, 'textColor');
     const itemSpacing = s.itemSpacing ?? 8;
@@ -818,8 +818,17 @@ function generateListHTML(s) {
     // этом файле для колонок-отступов), чтобы высота строки была именно
     // той, что мы посчитали, а не тем, что Word решит сам.
     const lineHeightPx = Math.round(fontSize * lineHeight);
+    // Зазор между булитом и текстом, как в прежней вёрстке (отступ ячейки булита
+    // gap + ширина ячейки gap+2): иначе крупный булит «слипается» с текстом.
+    const textGap = bulletGap * 2 + 2;
 
     const isNumbered = s.listStyle === 'numbered';
+    // Булит ниже строки текста клиенты кладут на базовую линию (оказывается внизу):
+    // для него сжимаем строку ячейки до высоты булита. Булит не ниже строки (в том числе
+    // нумерованный) сам задаёт высоту строки, и сжатие его только обрезало бы.
+    const bulletCellFix = (!isNumbered && bulletSize < lineHeightPx)
+        ? ` font-size:0; line-height:${bulletSize + 2}px; mso-line-height-rule:exactly;`
+        : '';
 
     const listItems = (s.items || []).map((item, index) => {
         const formatted = TextSanitizer.render(
@@ -832,7 +841,7 @@ function generateListHTML(s) {
         let bulletHTML;
 
         if (isNumbered && s.renderedBullets && s.renderedBullets[index]) {
-            bulletHTML = `<img src="${s.renderedBullets[index]}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block;">`;
+            bulletHTML = `<img src="${s.renderedBullets[index]}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block; vertical-align:middle; width:${bulletSize}px; height:${bulletSize}px; border:0;">`;
         } else {
             // Для обычных (не нумерованных) списков используем заранее
             // растрированный самодостаточный data:URL (renderFlatBulletToDataUrl
@@ -849,7 +858,7 @@ function generateListHTML(s) {
             const numberFontSize = Math.max(10, Math.round(bulletSize * 0.3));
 
             const baseBullet = bulletSrc
-                ? `<img src="${bulletSrc}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block;">`
+                ? `<img src="${bulletSrc}" alt="" width="${bulletSize}" height="${bulletSize}" style="display:block; vertical-align:middle; width:${bulletSize}px; height:${bulletSize}px; border:0;">`
                 : `<span class="email-bullet-dot" style="display:inline-block; width:${bulletSize}px; height:${bulletSize}px; border-radius:999px; background-color:${ctx.bulletColor};"></span>`;
 
             if (isNumbered) {
@@ -872,9 +881,11 @@ function generateListHTML(s) {
 
         return `
             <tr>
-                <td valign="middle" width="${cellWidth}" style="padding:${itemSpacing / 2}px ${bulletGap}px;">
+                <td width="${bulletGap}" style="width:${bulletGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
+                <td valign="middle" width="${bulletSize}" style="width:${bulletSize}px; padding:${itemSpacing / 2}px 0; vertical-align:middle;${bulletCellFix}">
                     ${bulletHTML}
                 </td>
+                <td width="${textGap}" style="width:${textGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
                 <td valign="middle" class="email-text" style="font-size:${fontSize}px; line-height:${lineHeightPx}px; mso-line-height-rule:exactly; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
                     ${formatted}
                 </td>
@@ -1185,10 +1196,18 @@ function generateDividerHTML(s) {
         return '';
     }
 
+    // В колонке — по её ширине. На верхнем уровне: fullWidth !== false — на всю
+    // ширину письма (как раньше); false — по ширине основного контента, с боковыми
+    // отступами профиля.
+    const columnWidth = getCurrentEmailRenderContext().parentContentWidth;
+    const width = columnWidth
+        ? columnWidth
+        : (s.fullWidth === false ? (_emailContentWidth || LAYOUT.TABLE_WIDTH) : LAYOUT.TABLE_WIDTH);
+
     return `
         <tr>
             <td align="center" style="${getPadding()}">
-                <img src="${imageSrc}" alt="" width="${LAYOUT.TABLE_WIDTH}" style="${getImageStyle(LAYOUT.TABLE_WIDTH, 'width:100%;')}">
+                <img src="${imageSrc}" alt="" width="${width}" style="${getImageStyle(width, 'width:100%;')}">
             </td>
         </tr>
     `;

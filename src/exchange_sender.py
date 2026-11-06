@@ -128,6 +128,51 @@ def _resolve_to_mailbox(account: 'Account', name: str) -> 'Mailbox':
     )
 
 
+SUGGEST_MIN_QUERY_LEN = 2
+SUGGEST_DEFAULT_LIMIT = 8
+
+
+def suggest_recipients(account: 'Account', query: str,
+                       limit: int = SUGGEST_DEFAULT_LIMIT) -> list:
+    """Подсказки получателей из адресной книги Exchange (EWS ResolveNames).
+
+    Возвращает список ``{'name': str, 'email': str}`` — только записи с SMTP-адресом
+    (личные группы без адреса пропускаются), без дублей, не более ``limit``.
+    Для запроса короче ``SUGGEST_MIN_QUERY_LEN`` символов Exchange не вызывается.
+
+    Ошибки сети/авторизации не подавляются — их обрабатывает вызывающий код.
+    """
+    text = (query or '').strip()
+    if len(text) < SUGGEST_MIN_QUERY_LEN or limit <= 0:
+        return []
+
+    from exchangelib.services import ResolveNames
+    service = ResolveNames(protocol=account.protocol)
+    resolutions = service.call(
+        unresolved_entries=[text],
+        return_full_contact_data=False,
+        search_scope='ContactsActiveDirectory',
+    )
+
+    suggestions = []
+    seen = set()
+    for item in resolutions:
+        mailbox = item[0] if isinstance(item, tuple) else item
+        if isinstance(mailbox, Exception):
+            continue
+        address = (getattr(mailbox, 'email_address', None) or '').strip().lower()
+        if '@' not in address or address in seen:
+            continue
+        seen.add(address)
+        suggestions.append({
+            'name': (getattr(mailbox, 'name', None) or '').strip(),
+            'email': address,
+        })
+        if len(suggestions) >= limit:
+            break
+    return suggestions
+
+
 def _to_mailboxes(emails: list, account: 'Account' = None) -> list:
     """Конвертирует список строк в список Mailbox.
     Строки без @ разрешаются через EWS ResolveNames (включая личные группы).

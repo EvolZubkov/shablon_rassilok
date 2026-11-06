@@ -22,7 +22,10 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', 'src'))
 
 from smtp_sender import (
+    SentMessage,
     _build_message,
+    _extract_inline_images,
+    _html_to_text,
     connect_smtp,
     smtp_send_email,
     connect_imap,
@@ -68,8 +71,8 @@ class TestBuildMessage:
 
     def test_html_body_present(self):
         msg = self._parse(html='<b>Bold</b>')
-        raw = msg.as_string()
-        assert 'Bold' in raw
+        html_part = next(p for p in msg.walk() if p.get_content_type() == 'text/html')
+        assert '<b>Bold</b>' in html_part.get_payload(decode=True).decode('utf-8')
 
     # Importance headers
     def test_importance_high_sets_headers(self):
@@ -361,3 +364,209 @@ class TestTestSmtpConnection:
                    side_effect=ValueError('Неверный логин или пароль SMTP')):
             with pytest.raises(ValueError, match='Неверный'):
                 test_smtp_connection('mail.test.ru', 587, 'bad', 'wrong', 'f@t.ru')
+
+
+# ─── Date / Message-ID / текстовая версия ─────────────────────────────────────
+
+class TestMessageHeaders:
+
+    def _msg(self, **kw):
+        return _build_message('sender@corp.ru', ['to@t.ru'], [], [], 'S',
+                              kw.pop('html', '<p>Hi</p>'), **kw)
+
+    def test_date_header_set(self):
+        assert self._msg()['Date']
+
+    def test_message_id_uses_sender_domain(self):
+        mid = self._msg()['Message-ID']
+        assert mid.startswith('<') and mid.endswith('@corp.ru>')
+
+    def test_message_ids_are_unique(self):
+        assert self._msg()['Message-ID'] != self._msg()['Message-ID']
+
+    def test_message_id_without_at_sign_falls_back(self):
+        msg = _build_message('noat', ['t@t.ru'], [], [], 'S', '<p/>')
+        assert msg['Message-ID'].endswith('@localhost>')
+
+    def test_plain_text_alternative_present(self):
+        msg = self._msg(html='<p>Привет, <b>мир</b></p>')
+        types = [p.get_content_type() for p in msg.walk()]
+        assert 'text/plain' in types and 'text/html' in types
+        plain = next(p for p in msg.walk() if p.get_content_type() == 'text/plain')
+        assert 'Привет, мир' in plain.get_payload(decode=True).decode('utf-8')
+
+
+class TestHtmlToText:
+
+    def test_tags_stripped(self):
+        assert _html_to_text('<p>Hello <b>world</b></p>') == 'Hello world'
+
+    def test_paragraphs_become_lines(self):
+        assert _html_to_text('<p>One</p><p>Two</p>') == 'One\nTwo'
+
+    def test_br_becomes_newline(self):
+        assert _html_to_text('A<br>B') == 'A\nB'
+
+    def test_style_and_script_dropped(self):
+        assert _html_to_text('<style>p{color:red}</style><p>Text</p>') == 'Text'
+
+    def test_link_keeps_url(self):
+        out = _html_to_text('<a href="https://x.ru/a">Опрос</a>')
+        assert out == 'Опрос (https://x.ru/a)'
+
+    def test_link_with_same_label_not_duplicated(self):
+        out = _html_to_text('<a href="https://x.ru">https://x.ru</a>')
+        assert out == 'https://x.ru'
+
+    def test_entities_unescaped(self):
+        assert _html_to_text('<p>a &amp; b&nbsp;c</p>') == 'a & b c'
+
+    def test_blank_lines_collapsed_to_one(self):
+        assert _html_to_text('<p>A</p><p></p><p></p><p>B</p>') == 'A\n\nB'
+
+
+# ─── Картинки: data: → cid: ───────────────────────────────────────────────────
+
+_PNG_B64 = ('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA'
+            '60e6kgAAAABJRU5ErkJggg==')
+
+
+class TestInlineImages:
+
+    def test_data_uri_replaced_with_cid(self):
+        html, parts = _extract_inline_images(f'<img src="data:image/png;base64,{_PNG_B64}">')
+        assert 'data:image' not in html
+        assert 'src="cid:' in html
+        assert len(parts) == 1
+
+    def test_part_has_matching_content_id_and_is_inline(self):
+        html, parts = _extract_inline_images(f'<img src="data:image/png;base64,{_PNG_B64}">')
+        cid = html.split('cid:')[1].split('"')[0]
+        assert parts[0]['Content-ID'] == f'<{cid}>'
+        assert parts[0]['Content-Disposition'].startswith('inline')
+
+    def test_identical_images_attached_once(self):
+        tag = f'<img src="data:image/png;base64,{_PNG_B64}">'
+        html, parts = _extract_inline_images(tag + tag + tag)
+        assert len(parts) == 1
+        assert html.count('src="cid:') == 3
+
+    def test_invalid_base64_left_untouched(self):
+        src = '<img src="data:image/png;base64,@@not-base64@@">'
+        html, parts = _extract_inline_images(src)
+        assert html == src and parts == []
+
+    def test_http_images_not_touched(self):
+        src = '<img src="https://x.ru/a.png">'
+        html, parts = _extract_inline_images(src)
+        assert html == src and parts == []
+
+    def test_message_with_images_is_related(self):
+        msg = _build_message('f@t.ru', ['t@t.ru'], [], [], 'S',
+                             f'<img src="data:image/png;base64,{_PNG_B64}">')
+        types = [p.get_content_type() for p in msg.walk()]
+        assert 'multipart/related' in types
+        assert 'image/png' in types
+        html_part = next(p for p in msg.walk() if p.get_content_type() == 'text/html')
+        assert 'cid:' in html_part.get_payload(decode=True).decode('utf-8')
+
+    def test_message_without_images_has_no_related(self):
+        msg = _build_message('f@t.ru', ['t@t.ru'], [], [], 'S', '<p>x</p>')
+        assert 'multipart/related' not in [p.get_content_type() for p in msg.walk()]
+
+
+# ─── Ответ сервера и отказы по получателям ────────────────────────────────────
+
+class _FakeSmtp:
+    """SMTP, у которого sendmail вызывает data(), как настоящий smtplib."""
+
+    def __init__(self, refused=None, reply=(250, b'ok: queued as 1175098142')):
+        self._refused = refused or {}
+        self._reply = reply
+        self.sent_raw = None
+
+    def data(self, msg):
+        self.sent_raw = msg
+        return self._reply
+
+    def sendmail(self, from_addr, to_addrs, msg):
+        self.data(msg)
+        return self._refused
+
+
+class TestServerReply:
+
+    def test_returns_sent_message_bytes(self):
+        result = smtp_send_email(_FakeSmtp(), 'f@t.ru', 'S', '<p/>', ['t@t.ru'])
+        assert isinstance(result, SentMessage)
+        assert isinstance(result, bytes)
+
+    def test_server_reply_captured(self):
+        result = smtp_send_email(_FakeSmtp(), 'f@t.ru', 'S', '<p/>', ['t@t.ru'])
+        assert result.server_reply == '250 ok: queued as 1175098142'
+
+    def test_message_id_matches_header_in_raw(self):
+        result = smtp_send_email(_FakeSmtp(), 'f@corp.ru', 'S', '<p/>', ['t@t.ru'])
+        assert result.message_id
+        assert message_from_bytes(result)['Message-ID'] == result.message_id
+
+    def test_data_method_restored_after_send(self):
+        smtp = _FakeSmtp()
+        smtp_send_email(smtp, 'f@t.ru', 'S', '<p/>', ['t@t.ru'])
+        assert smtp.data.__func__ is _FakeSmtp.data
+
+    def test_data_method_restored_after_error(self):
+        smtp = _FakeSmtp()
+        smtp.sendmail = MagicMock(side_effect=smtplib.SMTPServerDisconnected('x'))
+        with pytest.raises(ConnectionError):
+            smtp_send_email(smtp, 'f@t.ru', 'S', '<p/>', ['t@t.ru'])
+        assert smtp.data.__func__ is _FakeSmtp.data
+
+    def test_primary_recipient_refused_raises(self):
+        smtp = _FakeSmtp(refused={'t@t.ru': (550, b'5.1.1 User unknown')})
+        with pytest.raises(ValueError, match='550'):
+            smtp_send_email(smtp, 'f@t.ru', 'S', '<p/>', ['t@t.ru'], cc=['c@t.ru'])
+
+    def test_refused_copy_does_not_fail_row_but_is_reported(self):
+        smtp = _FakeSmtp(refused={'c@t.ru': (550, b'no such user')})
+        result = smtp_send_email(smtp, 'f@t.ru', 'S', '<p/>', ['t@t.ru'], cc=['c@t.ru'])
+        assert 'c@t.ru' in result.server_reply
+        assert '550' in result.server_reply
+
+    def test_sender_refused_raises_value_error(self):
+        smtp = _FakeSmtp()
+        smtp.sendmail = MagicMock(
+            side_effect=smtplib.SMTPSenderRefused(553, b'not owned by user', 'f@t.ru'))
+        with pytest.raises(ValueError, match='отправителя'):
+            smtp_send_email(smtp, 'f@t.ru', 'S', '<p/>', ['t@t.ru'])
+
+    def test_data_error_raises_value_error(self):
+        smtp = _FakeSmtp()
+        smtp.sendmail = MagicMock(side_effect=smtplib.SMTPDataError(552, b'message too large'))
+        with pytest.raises(ValueError, match='552'):
+            smtp_send_email(smtp, 'f@t.ru', 'S', '<p/>', ['t@t.ru'])
+
+
+# ─── IMAP: таймаут и результат сохранения ─────────────────────────────────────
+
+class TestImapTimeoutAndResult:
+
+    def test_ssl_connection_has_timeout(self):
+        with patch('smtp_sender.imaplib.IMAP4_SSL') as ssl_cls:
+            connect_imap('h', 993, 'u', 'p')
+        assert ssl_cls.call_args.kwargs.get('timeout')
+
+    def test_starttls_connection_has_timeout(self):
+        with patch('smtp_sender.imaplib.IMAP4') as plain_cls:
+            connect_imap('h', 143, 'u', 'p')
+        assert plain_cls.call_args.kwargs.get('timeout')
+
+    def test_save_sent_returns_true_on_success(self):
+        imap = MagicMock()
+        imap.append.return_value = ('OK', [b'1'])
+        assert imap_save_sent(imap, b'msg') is True
+
+    def test_save_sent_returns_false_when_all_folders_fail(self):
+        imap = MagicMock()
+        imap.append.side_effect = Exception('nope')
+        assert imap_save_sent(imap, b'msg') is False

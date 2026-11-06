@@ -1113,3 +1113,123 @@ class TestRecipientsParser:
     def test_empty_list_after_parse(self):
         result = self._parse(['', '  ', ''])
         assert result == []
+
+
+# =============================================================================
+# GET /api/recipients/suggest — подсказки получателей из адресной книги
+# =============================================================================
+
+class TestApiRecipientsSuggest:
+    CREDS = {
+        'server': 'cas-pr.pr.rt.ru', 'username': 'u@rt.ru', 'password': 'p',
+        'from_email': 'u@rt.ru', 'auth_type': 'kerberos', 'krb_realm': 'PR.RT.RU',
+    }
+
+    @pytest.fixture(autouse=True)
+    def _fresh_cache(self):
+        from routes import exchange as exchange_routes
+        exchange_routes.reset_suggest_account_cache()
+        yield
+        exchange_routes.reset_suggest_account_cache()
+
+    def _get(self, client, q, creds=CREDS, exists=True, suggestions=None, connect=None):
+        suggest = MagicMock(return_value=suggestions or [])
+        connect = connect or MagicMock(return_value=MagicMock())
+        with patch.object(email_app, 'credentials_exist', return_value=exists, create=True), \
+             patch.object(email_app, 'load_credentials', return_value=creds, create=True), \
+             patch.object(email_app, 'connect_exchange', connect, create=True), \
+             patch.object(email_app, 'suggest_recipients', suggest, create=True):
+            resp = client.get('/api/recipients/suggest', query_string={'q': q})
+        return resp, suggest, connect
+
+    def test_returns_suggestions(self, client):
+        found = [{'name': 'Зубков Евгений', 'email': 'zubkov.e@rt.ru'}]
+        resp, suggest, _ = self._get(client, 'зубк', suggestions=found)
+        assert resp.status_code == 200
+        assert resp.get_json() == {'success': True, 'suggestions': found}
+        assert suggest.call_args.args[1] == 'зубк'
+
+    def test_short_query_returns_empty_without_exchange_call(self, client):
+        resp, suggest, connect = self._get(client, 'з')
+        assert resp.status_code == 200
+        assert resp.get_json()['suggestions'] == []
+        suggest.assert_not_called()
+        connect.assert_not_called()
+
+    def test_overlong_query_is_rejected(self, client):
+        resp, suggest, _ = self._get(client, 'a' * 200)
+        assert resp.status_code == 400
+        suggest.assert_not_called()
+
+    def test_no_credentials_returns_401(self, client):
+        resp, suggest, _ = self._get(client, 'зубк', exists=False)
+        assert resp.status_code == 401
+        suggest.assert_not_called()
+
+    def test_account_is_reused_between_requests(self, client):
+        connect = MagicMock(return_value=MagicMock())
+        self._get(client, 'зубк', connect=connect)
+        self._get(client, 'зубков', connect=connect)
+        assert connect.call_count == 1
+
+    def test_connection_error_returns_503(self, client):
+        connect = MagicMock(return_value=MagicMock())
+        suggest = MagicMock(side_effect=ConnectionError('нет связи'))
+        with patch.object(email_app, 'credentials_exist', return_value=True, create=True), \
+             patch.object(email_app, 'load_credentials', return_value=self.CREDS, create=True), \
+             patch.object(email_app, 'connect_exchange', connect, create=True), \
+             patch.object(email_app, 'suggest_recipients', suggest, create=True):
+            resp = client.get('/api/recipients/suggest', query_string={'q': 'зубк'})
+        assert resp.status_code == 503
+        assert resp.get_json()['suggestions'] == []
+
+    def test_unexpected_error_does_not_leak_details(self, client):
+        suggest = MagicMock(side_effect=RuntimeError('secret-host-details'))
+        with patch.object(email_app, 'credentials_exist', return_value=True, create=True), \
+             patch.object(email_app, 'load_credentials', return_value=self.CREDS, create=True), \
+             patch.object(email_app, 'connect_exchange', MagicMock(), create=True), \
+             patch.object(email_app, 'suggest_recipients', suggest, create=True):
+            resp = client.get('/api/recipients/suggest', query_string={'q': 'зубк'})
+        assert resp.status_code == 500
+        assert 'secret-host-details' not in resp.get_data(as_text=True)
+
+
+class TestApiRecipientsSuggestFailures:
+    """Ошибки Exchange: понятный текст, и без повторных обращений к серверу."""
+
+    CREDS = TestApiRecipientsSuggest.CREDS
+
+    @pytest.fixture(autouse=True)
+    def _fresh_cache(self):
+        from routes import exchange as exchange_routes
+        exchange_routes.reset_suggest_account_cache()
+        yield
+        exchange_routes.reset_suggest_account_cache()
+
+    def _get(self, client, q, suggest):
+        with patch.object(email_app, 'credentials_exist', return_value=True, create=True),              patch.object(email_app, 'load_credentials', return_value=self.CREDS, create=True),              patch.object(email_app, 'connect_exchange', MagicMock(), create=True),              patch.object(email_app, 'suggest_recipients', suggest, create=True):
+            return client.get('/api/recipients/suggest', query_string={'q': q})
+
+    def test_exchange_unauthorized_is_reported_as_auth_error(self, client):
+        class UnauthorizedError(Exception):
+            pass
+        suggest = MagicMock(side_effect=UnauthorizedError('Invalid credentials for https://x'))
+        resp = self._get(client, 'зубк', suggest)
+        assert resp.status_code == 401
+        body = resp.get_json()
+        assert body['suggestions'] == []
+        assert 'адресн' in body['error'].lower()
+
+    def test_after_failure_exchange_is_not_called_again_for_a_while(self, client):
+        suggest = MagicMock(side_effect=ConnectionError('нет связи'))
+        first = self._get(client, 'зубк', suggest)
+        second = self._get(client, 'зубков', suggest)
+        assert first.status_code == 503
+        assert second.status_code == 503
+        assert suggest.call_count == 1
+
+    def test_success_is_not_blocked_by_earlier_success(self, client):
+        suggest = MagicMock(return_value=[])
+        self._get(client, 'зубк', suggest)
+        self._get(client, 'зубков', suggest)
+        assert suggest.call_count == 2

@@ -8,6 +8,7 @@ Routes:
     - POST /api/heartbeat   — reset watchdog timer
     - POST /api/jslog       — forward JS console messages to protocol.log
     - POST /api/open-url    — open an external URL in the system browser
+    - GET  /api/version     — application version for the on-screen badge
 """
 
 import webbrowser
@@ -23,6 +24,12 @@ bp = Blueprint('utility', __name__)
 def api_heartbeat():
     _m.update_heartbeat()
     return jsonify({'ok': True})
+
+
+@bp.route('/api/version', methods=['GET'])
+def api_version():
+    """Returns the application version (single source: pyproject.toml via _version.py)."""
+    return jsonify({'version': _m.__version__})
 
 
 @bp.route('/api/jslog', methods=['POST'])

@@ -12,6 +12,7 @@ const AppState = {
     // ── Undo (Ctrl+Z) ──────────────────────────────────────────────
     undoStack: [],
     UNDO_MAX: 20,
+    redoStack: [],
 
     // Drag and Drop состояние
     draggedBlockIndex: null,
@@ -105,26 +106,52 @@ const AppState = {
     },
 
     // ── Undo методы ────────────────────────────────────────────────
-    pushUndo() {
-        this.undoStack.push(JSON.stringify({
+    snapshotState() {
+        return JSON.stringify({
             blocks: this.blocks,
             selectedBlockId: this.selectedBlockId
-        }));
+        });
+    },
+
+    restoreSnapshot(snapshot) {
+        const state = JSON.parse(snapshot);
+        this.blocks = state.blocks || [];
+        this.selectedBlockId = state.selectedBlockId ?? null;
+    },
+
+    pushUndo() {
+        this.undoStack.push(this.snapshotState());
         if (this.undoStack.length > this.UNDO_MAX) {
             this.undoStack.shift();
         }
+        // Новое действие обрывает ветку redo
+        this.redoStack.length = 0;
     },
 
-    undo() {
+    /**
+     * @param {boolean} recordRedo false — откат без возможности повтора
+     *   (например, когда действие не удалось и снимок pushUndo больше не нужен).
+     */
+    undo(recordRedo = true) {
         if (!this.undoStack.length) return false;
-        const prev = JSON.parse(this.undoStack.pop());
-        this.blocks = prev.blocks || [];
-        this.selectedBlockId = prev.selectedBlockId ?? null;
+        if (recordRedo) this.redoStack.push(this.snapshotState());
+        this.restoreSnapshot(this.undoStack.pop());
+        return true;
+    },
+
+    redo() {
+        if (!this.redoStack.length) return false;
+        this.undoStack.push(this.snapshotState());
+        this.restoreSnapshot(this.redoStack.pop());
         return true;
     },
 
     get canUndo() {
         return this.undoStack.length > 0;
+    },
+
+    get canRedo() {
+        return this.redoStack.length > 0;
     },
 
     // Методы для Drag and Drop

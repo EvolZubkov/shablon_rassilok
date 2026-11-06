@@ -77,20 +77,11 @@ function createBlockElement(block, index) {
         div.classList.add('multi-selected');
     }
 
-    // Если блок НЕ разбит на колонки — обычный dnd
-    if (!block.columns) {
-        div.draggable = true;
-        div.addEventListener('dragstart', (e) => {
-            const multi = AppState.multiSelectedBlockIds || new Set();
-            const isGroup = multi.has(block.id) && multi.size > 1;
-            handleDragStart(e, index, block, isGroup);
-        });
-        div.addEventListener('dragover', (e) => handleDragOver(e, index));
-        div.addEventListener('drop', (e) => handleDrop(e, index));
-        div.addEventListener('dragend', handleDragEnd);
-    } else {
-        div.draggable = true;
-    }
+    // Любой блок верхнего уровня (в том числе ряд колонок) можно переносить.
+    // Наведение и дроп обрабатывает холст целиком (setupCanvasDragDrop в dragDrop.js).
+    div.draggable = true;
+    div.addEventListener('dragstart', (e) => handleDragStart(e, index, block));
+    div.addEventListener('dragend', handleDragEnd);
 
     // Клик для выбора блока
     div.addEventListener('click', (e) => {
@@ -135,7 +126,7 @@ function createBlockHeader(block) {
     ` : `
         <button class="block-action-btn merge"
                 onclick="mergeColumns(${block.id}); event.stopPropagation();"
-                title="Объединить колонки">
+                title="Разобрать колонки на блоки">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                 <rect x="5" y="4" width="14" height="16"></rect>
             </svg>

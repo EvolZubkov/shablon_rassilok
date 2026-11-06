@@ -1,0 +1,47 @@
+/* Выпадающий список подсказок получателей (общий для пользователя и админа).
+   Размеры кратны 4px (docs/AGENTS.md). */
+.email-ac-dropdown {
+  position: fixed;
+  z-index: 9999;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+  display: none;
+  max-height: 260px;
+  overflow-y: auto;
+}
+
+.email-ac-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  color: #cbd5e1;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  transition: background 0.1s;
+}
+
+.email-ac-item:hover,
+.email-ac-item--active {
+  background: #334155;
+  color: #f1f5f9;
+}
+
+/* Пояснение вместо подсказок, например «Адресная книга недоступна: …». Не выбирается. */
+.email-ac-note {
+  padding: 8px 12px;
+  font-size: 12px;
+  line-height: 16px;
+  color: #fbbf24;
+  border-top: 1px solid #334155;
+  cursor: default;
+}
+
+.email-ac-note:first-child {
+  border-top: 0;
+}

@@ -677,7 +677,7 @@ const TemplatesUI = {
 
         if (isPresetTemplate(template)) {
             addItem('Вставить', false, () => this.insertPreset(template));
-            if (this._isAdmin && template.type === 'shared') {
+            if (this.canDeleteTemplate(template)) {
                 addItem('Удалить', true, () => this.deleteTemplate(template));
             }
         } else {
@@ -687,7 +687,7 @@ const TemplatesUI = {
             addItem('Обновить из холста', false, () => this.updateTemplateFromCanvas(template));
             const favLabel = FavoritesStore.isFavorite(template.id) ? 'Убрать из избранного' : 'Добавить в избранное';
             addItem(favLabel, false, () => this._toggleFavorite(template));
-            if (template.type === 'personal' || (this._isAdmin && template.type === 'shared')) {
+            if (this.canDeleteTemplate(template)) {
                 addItem('Удалить', true, () => this.deleteTemplate(template));
             }
         }
@@ -1294,16 +1294,25 @@ const TemplatesUI = {
         }
     },
 
+    /**
+     * Личные шаблоны и пресеты удаляет их владелец, общие — только администратор.
+     * Личные хранятся на компьютере пользователя, чужие админ удалить не может.
+     */
+    canDeleteTemplate(template) {
+        return template.type === 'personal' || (this._isAdmin && template.type === 'shared');
+    },
+
+    /** @returns {Promise<boolean>} true, если шаблон или пресет удалён. */
     async deleteTemplate(template) {
         this.closeTemplatePreview();
         this.closeRowPreview();
         if (template.type === 'shared' && !this._isAdmin) {
             Toast.error('Недостаточно прав для удаления общего шаблона.');
-            return;
+            return false;
         }
 
         // Защита от двойного клика
-        if (this._deleting) return;
+        if (this._deleting) return false;
 
         const kind = getTemplateKindLabel(template);
 
@@ -1311,7 +1320,7 @@ const TemplatesUI = {
             `Удалить ${kind} «${decodeHtml(template.name)}»?\n\nЭто действие нельзя отменить.`
         );
 
-        if (!confirmed) return;
+        if (!confirmed) return false;
 
         this._deleting = true;
         try {
@@ -1329,7 +1338,9 @@ const TemplatesUI = {
                     this.templates[template.type] = list.filter(t => t.id !== template.id);
                 }
                 this.renderTemplates();
+                window.removePresetFromPanel?.(template);
             }
+            return !!success;
         } finally {
             this._deleting = false;
         }
