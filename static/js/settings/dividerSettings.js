@@ -99,5 +99,9 @@ function renderDividerSettings(container, block) {
     widthLabel.appendChild(widthInput);
     widthLabel.appendChild(widthText);
     widthGroup.appendChild(widthLabel);
-    container.appendChild(widthGroup);
+    const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('divider') : [];
+    if (!hiddenSettings.includes('fullWidth')) {
+        container.appendChild(widthGroup);
+    }
 }

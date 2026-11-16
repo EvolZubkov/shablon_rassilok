@@ -22,13 +22,16 @@ Routes:
 """
 
 import os
+import re
 import shutil
 import sys
 import subprocess
 import threading
 import time
 
-from flask import Blueprint, current_app, jsonify, request
+from flask import Blueprint, Response, current_app, jsonify, request
+
+from src.category_visibility import build_config_text
 
 import app as _m  # module reference — gives live access to all app.py globals
 
@@ -210,6 +213,33 @@ def api_app_settings_save():
         'repo_valid': ok,
         'repo_reason': reason,
     })
+
+
+@bp.route('/api/config/export', methods=['POST'])
+def api_config_export():
+    """Скачать готовый config.ini для пользователя: аудитория + видимые категории.
+
+    Только для администратора. Остальные ключи [app] берутся из текущего config.ini.
+    """
+    if _m.get_app_mode() != 'admin':
+        return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+
+    data = request.get_json(silent=True) or {}
+    profile = str(data.get('profile') or '').strip()
+    categories = data.get('categories') or []
+    if not profile or not re.fullmatch(r'[\w\-]+', profile):
+        return jsonify({'success': False, 'error': 'Не указана аудитория'}), 400
+    if not isinstance(categories, list) or not all(isinstance(c, str) for c in categories):
+        return jsonify({'success': False, 'error': 'Некорректный список категорий'}), 400
+    if any(';' in c for c in categories):
+        return jsonify({'success': False, 'error': 'В названии категории нельзя использовать «;»'}), 400
+
+    text = build_config_text(dict(_m._read_app_config()['app']), profile, categories)
+    return Response(
+        text,
+        mimetype='text/plain; charset=utf-8',
+        headers={'Content-Disposition': 'attachment; filename="config.ini"'},
+    )
 
 
 @bp.route('/api/app-settings/repo/verify', methods=['POST'])

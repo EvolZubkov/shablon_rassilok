@@ -823,12 +823,19 @@ function generateListHTML(s) {
     const textGap = bulletGap * 2 + 2;
 
     const isNumbered = s.listStyle === 'numbered';
-    // Булит ниже строки текста клиенты кладут на базовую линию (оказывается внизу):
-    // для него сжимаем строку ячейки до высоты булита. Булит не ниже строки (в том числе
-    // нумерованный) сам задаёт высоту строки, и сжатие его только обрезало бы.
-    const bulletCellFix = (!isNumbered && bulletSize < lineHeightPx)
-        ? ` font-size:0; line-height:${bulletSize + 2}px; mso-line-height-rule:exactly;`
+    // Булит не выше строки текста клиенты (Outlook/Word) кладут на базовую линию —
+    // он «падает» вниз, поэтому строке его ячейки задаём ту же высоту, что у текста.
+    // Запас EXTRA нужен Word: при строке ровно по высоте булита (или на 1–2px больше)
+    // он обрезает булит сверху, причём порог зависит от интервала (строки). Лишние
+    // EXTRA px забираем из вертикального padding ячейки, чтобы высота пункта не менялась.
+    // Булит выше строки сам задаёт высоту строки — ему фиксация не нужна.
+    const BULLET_LINE_EXTRA = 4;
+    const bulletFixed = !isNumbered && bulletSize <= lineHeightPx;
+    const bulletExtra = bulletFixed ? Math.min(BULLET_LINE_EXTRA, itemSpacing) : 0;
+    const bulletCellFix = bulletFixed
+        ? ` font-size:0; line-height:${lineHeightPx + bulletExtra}px; mso-line-height-rule:exactly;`
         : '';
+    const bulletCellPadding = (itemSpacing - bulletExtra) / 2;
 
     const listItems = (s.items || []).map((item, index) => {
         const formatted = TextSanitizer.render(
@@ -882,7 +889,7 @@ function generateListHTML(s) {
         return `
             <tr>
                 <td width="${bulletGap}" style="width:${bulletGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
-                <td valign="middle" width="${bulletSize}" style="width:${bulletSize}px; padding:${itemSpacing / 2}px 0; vertical-align:middle;${bulletCellFix}">
+                <td valign="middle" width="${bulletSize}" style="width:${bulletSize}px; padding:${bulletCellPadding}px 0; vertical-align:middle;${bulletCellFix}">
                     ${bulletHTML}
                 </td>
                 <td width="${textGap}" style="width:${textGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>

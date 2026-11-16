@@ -118,11 +118,14 @@ function createTextElementCard(blockId, textEl, index, totalCount) {
     lineHeightRange.min = '1.0';
     lineHeightRange.max = '2.5';
     lineHeightRange.step = '0.1';
-    lineHeightRange.value = textEl.lineHeight || 1.0;
+    // У старых баннеров интервал не сохранён — рендер берёт 1.4 (imageRenderers.js),
+    // показываем ту же цифру, а не 1.0.
+    const effectiveLineHeight = textEl.lineHeight || 1.4;
+    lineHeightRange.value = effectiveLineHeight;
     lineHeightRange.style.cssText = 'flex: 1;';
 
     const lineHeightValue = document.createElement('span');
-    lineHeightValue.textContent = (textEl.lineHeight || 1.0).toFixed(1);
+    lineHeightValue.textContent = effectiveLineHeight.toFixed(1);
     lineHeightValue.style.cssText = 'font-size: 12px; color: var(--text-secondary); min-width: 30px;';
 
     lineHeightRange.addEventListener('input', (e) => {

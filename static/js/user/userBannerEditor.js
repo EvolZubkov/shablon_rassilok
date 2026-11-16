@@ -48,19 +48,44 @@ function closeBannerEditor() {
 /**
  * Инициализация вкладок
  */
+// Вкладка редактора → ключ в `hidden` профиля аудитории (как в админке,
+// settings/bannerSettings.js). Так скрытое админом не появляется у пользователя.
+const BANNER_TAB_HIDDEN_KEYS = {
+    texts: 'textElements',
+    logo: 'logo',
+    image: 'rightImage',
+    colors: 'colors',
+};
+
+function getHiddenBannerSettings() {
+    return (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getHiddenSettings('banner')
+        : [];
+}
+
 function initBannerTabs() {
-    const tabs = document.querySelectorAll('.banner-tab');
+    const tabs = Array.from(document.querySelectorAll('.banner-tab'));
     const panes = document.querySelectorAll('.banner-tab-pane');
+    const hidden = getHiddenBannerSettings();
+
+    const isTabHidden = (tab) => hidden.includes(BANNER_TAB_HIDDEN_KEYS[tab.dataset.tab]);
+    const visibleTabs = tabs.filter(tab => !isTabHidden(tab));
+
+    const showTab = (tab) => {
+        tabs.forEach(t => t.classList.remove('active'));
+        tab.classList.add('active');
+        panes.forEach(p => p.style.display = 'none');
+        const pane = document.getElementById(`banner-tab-${tab.dataset.tab}`);
+        if (pane) pane.style.display = 'flex';
+    };
 
     tabs.forEach(tab => {
-        tab.onclick = () => {
-            tabs.forEach(t => t.classList.remove('active'));
-            tab.classList.add('active');
-            panes.forEach(p => p.style.display = 'none');
-            const pane = document.getElementById(`banner-tab-${tab.dataset.tab}`);
-            if (pane) pane.style.display = 'flex';
-        };
+        tab.style.display = isTabHidden(tab) ? 'none' : '';
+        tab.onclick = () => showTab(tab);
     });
+
+    // Модалка открывается заново — всегда начинаем с первой доступной вкладки.
+    if (visibleTabs.length > 0) showTab(visibleTabs[0]);
 }
 
 /**

@@ -685,6 +685,9 @@ const TemplatesUI = {
             addItem('Применить', false, () => this.selectTemplate(template));
             addItem('Переименовать', false, () => this.startRenaming(nameSpan, template));
             addItem('Обновить из холста', false, () => this.updateTemplateFromCanvas(template));
+            if (template.type === 'shared' && this._isAdmin) {
+                addItem('Переместить в категорию', false, () => this.moveTemplateToCategory(template));
+            }
             const favLabel = FavoritesStore.isFavorite(template.id) ? 'Убрать из избранного' : 'Добавить в избранное';
             addItem(favLabel, false, () => this._toggleFavorite(template));
             if (this.canDeleteTemplate(template)) {
@@ -1344,6 +1347,74 @@ const TemplatesUI = {
         } finally {
             this._deleting = false;
         }
+    },
+
+    /**
+     * Спрашивает категорию и переносит общий шаблон в неё.
+     * @returns {Promise<boolean>} true, если шаблон перенесён.
+     */
+    async moveTemplateToCategory(template) {
+        const categories = await TemplatesAPI.getCategories();
+        const target = await this._pickCategory(categories, template.category || '');
+        if (target === null || target === (template.category || '')) return false;
+
+        const ok = await TemplatesAPI.move(template.id, target, template.type);
+        if (!ok) return false;
+
+        template.category = target;
+        this.renderTemplates();
+        Toast.success(`Шаблон перенесён: ${target || 'Без категории'}`);
+        return true;
+    },
+
+    /** Небольшое окно выбора категории. Resolve: имя категории, '' или null (отмена). */
+    _pickCategory(categories, current) {
+        return new Promise(resolve => {
+            const overlay = document.createElement('div');
+            // Встроенный Chromium (Qt 5.15.2 = Chromium 83) не знает `inset` и flex-`gap`:
+            // отступы и положение задаём явно, иначе окно уезжает за экран.
+            overlay.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;z-index:10000;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;';
+
+            const box = document.createElement('div');
+            box.style.cssText = 'width:320px;padding:20px;border-radius:12px;background:var(--bg-primary);border:1px solid var(--border-primary);display:flex;flex-direction:column;';
+
+            const title = document.createElement('div');
+            title.textContent = 'Переместить в категорию';
+            title.style.cssText = 'font-size:14px;font-weight:600;color:var(--text-primary);margin-bottom:12px;';
+
+            const select = document.createElement('select');
+            select.style.cssText = 'height:36px;padding:0 12px;border-radius:6px;border:1px solid var(--border-primary);background:var(--bg-secondary);color:var(--text-primary);font-size:13px;margin-bottom:12px;';
+            [['', 'Без категории'], ...categories.map(c => [c, c])].forEach(([value, label]) => {
+                const option = document.createElement('option');
+                option.value = value;
+                option.textContent = label;
+                option.selected = value === current;
+                select.appendChild(option);
+            });
+
+            const row = document.createElement('div');
+            row.style.cssText = 'display:flex;justify-content:flex-end;';
+            const finish = (value) => { overlay.remove(); resolve(value); };
+
+            const cancel = document.createElement('button');
+            cancel.type = 'button';
+            cancel.textContent = 'Отмена';
+            cancel.style.cssText = 'height:36px;padding:0 16px;border-radius:6px;border:1px solid var(--border-primary);background:transparent;color:var(--text-secondary);cursor:pointer;margin-right:8px;';
+            cancel.addEventListener('click', () => finish(null));
+
+            const ok = document.createElement('button');
+            ok.type = 'button';
+            ok.textContent = 'Переместить';
+            ok.style.cssText = 'height:36px;padding:0 16px;border-radius:6px;border:none;background:#7c3aed;color:#fff;font-weight:600;cursor:pointer;';
+            ok.addEventListener('click', () => finish(select.value));
+
+            overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(null); });
+            row.append(cancel, ok);
+            box.append(title, select, row);
+            overlay.appendChild(box);
+            document.body.appendChild(overlay);
+            select.focus();
+        });
     },
 
     startRenaming(nameSpan, template) {

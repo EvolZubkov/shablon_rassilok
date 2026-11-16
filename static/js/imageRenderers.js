@@ -735,7 +735,8 @@ function drawBannerTextElement(ctx, el, iconImg, index = 0, bgColor = '#1D2533')
     const fontSize = (index === 0) ? 28 : 14;
     const fontFamily = getBannerFontFamily(el.fontFamily || 'rt-regular');
     const color = getReadableTextColor(bgColor);
-    const text = el.text || '';
+    // Кавычки в тексте баннера — всегда «ёлочки» (хранимый текст не меняем).
+    const text = Typography.toGuillemets(el.text || '');
     const letterSpacing = el.letterSpacing || 0;
 
     // Настройка шрифта для измерения

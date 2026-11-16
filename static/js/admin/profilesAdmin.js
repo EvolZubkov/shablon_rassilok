@@ -110,7 +110,14 @@ const ProfilesAdmin = (() => {
         },
         {
             type: 'divider', label: 'Разделитель', icon: '—', desc: 'Горизонтальная линия',
-            defaults: [], hideable: [], caps: ['background', 'border', 'clickable'],
+            defaults: [
+                { key: 'fullWidth', label: 'Ширина', type: 'select', options: [
+                    { value: true,  label: 'Во всю ширину письма' },
+                    { value: false, label: 'С отступами контента' },
+                ]},
+            ],
+            hideable: ['fullWidth'],
+            caps: ['background', 'border', 'clickable'],
         },
         {
             type: 'image', label: 'Изображение', icon: '🖼', desc: 'Блок с картинкой',
@@ -324,6 +331,8 @@ const ProfilesAdmin = (() => {
         `;
         editor.appendChild(layoutCard);
 
+        editor.appendChild(_renderConfigExport());
+
         // Блоки
         const blocksTitle = document.createElement('div');
         blocksTitle.style.cssText = 'font-size:11px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px';
@@ -333,6 +342,79 @@ const ProfilesAdmin = (() => {
         BLOCK_SCHEMA.forEach(schema => {
             editor.appendChild(_renderBlockRow(schema));
         });
+    }
+
+    // ── Конфиг для пользователя: аудитория + видимые категории ──────────────
+
+    function _renderConfigExport() {
+        const card = document.createElement('div');
+        card.style.cssText = 'border:1px solid var(--border-primary);border-radius:8px;padding:14px 16px;margin-bottom:16px;';
+
+        const title = document.createElement('div');
+        title.style.cssText = 'font-size:13px;color:var(--text-secondary);';
+        title.textContent = 'Конфиг для пользователя';
+        const hint = document.createElement('div');
+        hint.style.cssText = 'font-size:11px;color:var(--text-muted);margin:2px 0 10px;';
+        hint.textContent = 'Отметьте категории, шаблоны которых увидит пользователь (ничего не отмечено — видны все), и скачайте готовый config.ini с этой аудиторией.';
+
+        const list = document.createElement('div');
+        list.style.cssText = 'display:flex;flex-direction:column;gap:4px;margin-bottom:12px;';
+        list.textContent = 'Загрузка категорий…';
+
+        const download = document.createElement('button');
+        download.type = 'button';
+        download.textContent = 'Скачать config.ini';
+        download.style.cssText = 'height:36px;padding:0 16px;border-radius:6px;border:none;background:#7c3aed;color:#fff;font-size:13px;font-weight:600;cursor:pointer;';
+
+        const selected = new Set();
+        TemplatesAPI.getCategories().then(categories => {
+            list.textContent = '';
+            if (!categories.length) {
+                list.textContent = 'Категорий пока нет';
+                return;
+            }
+            categories.forEach(name => {
+                const row = document.createElement('label');
+                row.style.cssText = 'display:flex;align-items:center;gap:8px;font-size:12px;color:var(--text-secondary);cursor:pointer;';
+                const box = document.createElement('input');
+                box.type = 'checkbox';
+                box.addEventListener('change', () => {
+                    if (box.checked) selected.add(name); else selected.delete(name);
+                });
+                row.append(box, document.createTextNode(name));
+                list.appendChild(row);
+            });
+        });
+
+        download.addEventListener('click', () => _downloadConfig([...selected]));
+        card.append(title, hint, list, download);
+        return card;
+    }
+
+    async function _downloadConfig(categories) {
+        try {
+            const resp = await fetch('/api/config/export', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ profile: _current, categories }),
+            });
+            if (!resp.ok) {
+                const err = await resp.json().catch(() => ({}));
+                Toast.error(err.error || 'Не удалось сформировать config.ini');
+                return;
+            }
+            const url = URL.createObjectURL(await resp.blob());
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = 'config.ini';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+        } catch (error) {
+            console.error('Ошибка экспорта config.ini:', error);
+            Toast.error('Ошибка подключения к серверу');
+        }
     }
 
     function _renderBlockRow(schema) {
@@ -598,7 +680,9 @@ const ProfilesAdmin = (() => {
                 sel.appendChild(o);
             });
             sel.addEventListener('change', () => {
-                const v = isNaN(sel.value) ? sel.value : Number(sel.value);
+                let v;
+                if (sel.value === 'true' || sel.value === 'false') v = sel.value === 'true';
+                else v = isNaN(sel.value) ? sel.value : Number(sel.value);
                 _setDefault(blockType, field.key, v);
             });
             wrap.appendChild(sel);

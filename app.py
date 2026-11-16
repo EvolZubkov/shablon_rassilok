@@ -814,6 +814,19 @@ def _read_app_config():
     return cfg
 
 
+def get_visible_categories() -> list:
+    """Категории общих шаблонов, видимые этой установке (пусто — все).
+
+    Берётся из ``visible_categories`` в ``config.ini`` (значения через ``;``).
+    """
+    from src.category_visibility import VISIBLE_CATEGORIES_KEY, parse_visible_categories
+    try:
+        return parse_visible_categories(_read_app_config()['app'].get(VISIBLE_CATEGORIES_KEY, ''))
+    except Exception as e:
+        _logger.warning('[visible_categories] %s', e)
+        return []
+
+
 def _write_app_config(cfg):
     """Persist ``config.ini`` in UTF-8."""
     with open(_CONFIG_PATH, 'w', encoding='utf-8') as f:

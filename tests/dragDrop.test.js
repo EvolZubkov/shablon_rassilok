@@ -63,21 +63,37 @@ function startDrag(ctx, drag) {
 }
 
 describe('правила ряда (getRowDropOutcome / canPlaceInColumn)', () => {
-    test('текстовый ряд: кнопка уходит под ряд, остальное встаёт в колонку', () => {
+    test('текстовый ряд: кнопка, текст и эксперт встают в колонку', () => {
         const { getRowDropOutcome, canPlaceInColumn } = loadDragDrop([])
         const row = container(1, [[block(2, 'text')], [block(3, 'text')]])
-        expect(getRowDropOutcome(row, block(9, 'button'), false, false)).toBe('below')
-        expect(canPlaceInColumn(row, block(9, 'button'))).toBe(false)
+        expect(getRowDropOutcome(row, block(9, 'button'), false, false)).toBe('stack')
+        expect(canPlaceInColumn(row, block(9, 'button'))).toBe(true)
         expect(canPlaceInColumn(row, block(9, 'text'))).toBe(true)
         expect(canPlaceInColumn(row, block(9, 'expert'))).toBe(true)
     })
 
-    test('ряд кнопок: кнопка встаёт в колонку, всё остальное — под ряд', () => {
+    test('ряд кнопок: в колонку встаёт и кнопка, и другие блоки', () => {
         const { canPlaceInColumn } = loadDragDrop([])
         const row = container(1, [[block(2, 'button')], [block(3, 'button')]])
         expect(canPlaceInColumn(row, block(9, 'button'))).toBe(true)
-        expect(canPlaceInColumn(row, block(9, 'expert'))).toBe(false)
-        expect(canPlaceInColumn(row, block(9, 'text'))).toBe(false)
+        expect(canPlaceInColumn(row, block(9, 'expert'))).toBe(true)
+        expect(canPlaceInColumn(row, block(9, 'text'))).toBe(true)
+        expect(canPlaceInColumn(row, block(9, 'banner'))).toBe(false)
+    })
+
+    test('кнопка у правого края текстового ряда растёт новой колонкой, пока есть место', () => {
+        const { getRowDropOutcome } = loadDragDrop([])
+        const row = container(1, [[block(2, 'text')], [block(3, 'text')]])
+        expect(getRowDropOutcome(row, block(9, 'button'), false, true)).toBe('grow')
+        const full = container(1, [[block(2, 'text')], [block(3, 'text')], [block(4, 'text')]])
+        expect(getRowDropOutcome(full, block(9, 'button'), false, true)).toBe('below')
+    })
+
+    test('ряд кнопок: кнопка растёт до 4 колонок, текст — только до 3', () => {
+        const { getRowDropOutcome } = loadDragDrop([])
+        const three = container(1, [[block(2, 'button')], [block(3, 'button')], [block(4, 'button')]])
+        expect(getRowDropOutcome(three, block(9, 'button'), false, true)).toBe('grow')
+        expect(getRowDropOutcome(three, block(9, 'text'), false, true)).toBe('below')
     })
 
     test('баннер не встаёт в колонку, разделитель и отступ встают', () => {
