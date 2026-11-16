@@ -118,7 +118,7 @@ const AdminBulkMail = (() => {
     }
 
     // ── Секция плейсхолдеров для правой панели настроек ──────────────────────
-    function createPlaceholderSection(blockId, settingKey) {
+    function createPlaceholderSection(blockId, settingKey, insert = (name) => insertIntoTextarea(blockId, settingKey, name)) {
         const wrap = document.createElement('div');
         wrap.className = 'abm-ph-section';
 
@@ -142,7 +142,7 @@ const AdminBulkMail = (() => {
                 chip.className = 'abm-ph-chip';
                 chip.textContent = col;
                 chip.title = `Вставить {{${col}}}`;
-                chip.addEventListener('click', () => insertIntoTextarea(blockId, settingKey, col));
+                chip.addEventListener('click', () => insert(col));
                 chipWrap.appendChild(chip);
             });
             wrap.appendChild(chipWrap);
@@ -172,7 +172,7 @@ const AdminBulkMail = (() => {
         function doInsert() {
             const name = input.value.trim();
             if (!name) return;
-            insertIntoTextarea(blockId, settingKey, name);
+            insert(name);
             input.value = '';
             input.focus();
         }
@@ -187,8 +187,10 @@ const AdminBulkMail = (() => {
     // Вставляет {{name}} в textarea настроек по data-атрибутам
     function insertIntoTextarea(blockId, settingKey, name) {
         const placeholder = `{{${name}}}`;
+        // Текст — textarea, заголовок — однострочный input: ищем оба.
         const textarea = document.querySelector(
-            `textarea[data-block-id="${blockId}"][data-setting-key="${settingKey}"]`
+            `textarea[data-block-id="${blockId}"][data-setting-key="${settingKey}"], ` +
+            `input[data-block-id="${blockId}"][data-setting-key="${settingKey}"]`
         );
 
         if (!textarea) {
@@ -227,6 +229,61 @@ const AdminBulkMail = (() => {
         }, 50);
     }
 
+    /**
+     * Вставляет {{name}} в пункт списка: у списка каждый пункт — отдельный textarea,
+     * поэтому берём тот, где курсор стоял последним (или последний пункт, если ни в один
+     * ещё не кликали). Вставка идёт на место курсора, выделение заменяется.
+     * Событие input сохраняет пункт и перерисовывает холст штатным обработчиком списка.
+     * @param {ParentNode} container  панель настроек списка
+     * @param {number|string} blockId
+     * @param {string} name  имя поля без скобок
+     * @param {HTMLTextAreaElement|null} [lastFocused]  пункт, где курсор был последним
+     */
+    function insertIntoListItem(container, blockId, name, lastFocused = null) {
+        const items = [...container.querySelectorAll(
+            `textarea.list-item-textarea[data-block-id="${blockId}"]`
+        )];
+        if (!items.length) return;
+        const target = lastFocused && items.includes(lastFocused) ? lastFocused : items[items.length - 1];
+
+        spliceIntoField(target, name);
+    }
+
+    /**
+     * Вставляет {{name}} на место курсора поля (выделение заменяется) и сообщает об этом
+     * событием input: сохранение значения, санитайзер и перерисовку холста делает штатный
+     * обработчик самого поля. Потом обновляет список плейсхолдеров рассылки.
+     * @param {HTMLTextAreaElement|HTMLInputElement} field
+     * @param {string} name  имя поля без скобок
+     */
+    function spliceIntoField(field, name) {
+        const placeholder = `{{${name}}}`;
+        const start = field.selectionStart ?? field.value.length;
+        const end = field.selectionEnd ?? field.value.length;
+        field.value = field.value.slice(0, start) + placeholder + field.value.slice(end);
+        field.dispatchEvent(new Event('input', { bubbles: true }));
+
+        field.focus();
+        const caret = start + placeholder.length;
+        field.setSelectionRange(caret, caret);
+
+        setTimeout(() => {
+            if (typeof window.BulkMail?.refresh === 'function') window.BulkMail.refresh();
+        }, 50);
+    }
+
+    /**
+     * Для блоков, где поле настроек хранит очищенный HTML (например, «Важно»):
+     * ищет поле по data-атрибутам и вставляет через его обработчик input.
+     */
+    function insertViaInput(blockId, settingKey, name) {
+        const field = document.querySelector(
+            `textarea[data-block-id="${blockId}"][data-setting-key="${settingKey}"], ` +
+            `input[data-block-id="${blockId}"][data-setting-key="${settingKey}"]`
+        );
+        if (field) spliceIntoField(field, name);
+    }
+
     // ── Патч renderSettings — вешается после инициализации ───────────────────
     let _patched = false;
     function patchRenderSettings() {
@@ -239,6 +296,31 @@ const AdminBulkMail = (() => {
             _origText(container, block);
             container.appendChild(createPlaceholderSection(block.id, 'content'));
         };
+
+        if (typeof renderListSettings === 'function') {
+            const _origList = renderListSettings;
+            window.renderListSettings = function(container, block) {
+                _origList(container, block);
+                let lastFocused = null;
+                container.addEventListener('focusin', e => {
+                    if (e.target.classList && e.target.classList.contains('list-item-textarea')) lastFocused = e.target;
+                });
+                container.appendChild(createPlaceholderSection(
+                    block.id, 'items',
+                    name => insertIntoListItem(container, block.id, name, lastFocused)
+                ));
+            };
+        }
+
+        if (typeof renderImportantSettings === 'function') {
+            const _origImportant = renderImportantSettings;
+            window.renderImportantSettings = function(container, block) {
+                _origImportant(container, block);
+                container.appendChild(createPlaceholderSection(
+                    block.id, 'text', name => insertViaInput(block.id, 'text', name)
+                ));
+            };
+        }
 
         const _origHead = renderHeadingSettings;
         window.renderHeadingSettings = function(container, block) {
@@ -732,6 +814,6 @@ const AdminBulkMail = (() => {
 
     document.addEventListener('DOMContentLoaded', init);
 
-    return { open, close, goTo, changeRow, setFilter, searchRows, autoMap, sendTest, startSend, togglePause, cancelSend, retryErrors, openSendConfirm, closeSendConfirm, getColumns, updateColumns, patchRenderSettings };
+    return { open, close, goTo, changeRow, setFilter, searchRows, autoMap, sendTest, startSend, togglePause, cancelSend, retryErrors, openSendConfirm, closeSendConfirm, getColumns, updateColumns, patchRenderSettings, insertIntoTextarea, insertIntoListItem, insertViaInput };
 
 })();

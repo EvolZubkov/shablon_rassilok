@@ -125,3 +125,88 @@ describe('diffHeaders', () => {
         expect(BP.diffHeaders(['A'], ['A'])).toEqual({ added: [], removed: [] })
     })
 })
+
+describe('substitute', () => {
+    test('подставляет значения вместо {{плейсхолдеров}}', () => {
+        expect(BP.substitute('Привет, {{ФИО}}!', { '{{ФИО}}': 'Иван Петров' })).toBe('Привет, Иван Петров!')
+    })
+
+    test('пустое значение даёт пометку «не задано»', () => {
+        expect(BP.substitute('Привет, {{ФИО}}!', { '{{ФИО}}': '' })).toBe('Привет, [ФИО — не задано]!')
+    })
+
+    test('значение, похожее на плейсхолдер, повторно не подставляется', () => {
+        const map = { '{{A}}': '{{B}}', '{{B}}': 'x' }
+        expect(BP.substitute('{{A}} {{B}}', map)).toBe('{{B}} x')
+    })
+
+    test('без плейсхолдеров текст не меняется', () => {
+        expect(BP.substitute('Привет!', { '{{ФИО}}': 'Иван' })).toBe('Привет!')
+    })
+})
+
+describe('mapOffsetToOriginal', () => {
+    const original = 'Привет, {{ФИО}}!'
+    const map = { '{{ФИО}}': 'Иван Петров' }
+    const shown = BP.substitute(original, map) // «Привет, Иван Петров!»
+
+    test('курсор перед «!» остаётся перед «!»', () => {
+        const before = shown.indexOf('!')
+        expect(BP.mapOffsetToOriginal(original, map, before)).toBe(original.indexOf('!'))
+    })
+
+    test('курсор до плейсхолдера не сдвигается', () => {
+        expect(BP.mapOffsetToOriginal(original, map, 3)).toBe(3)
+        expect(BP.mapOffsetToOriginal(original, map, 8)).toBe(8)
+    })
+
+    test('курсор внутри подставленного значения уходит после плейсхолдера', () => {
+        expect(BP.mapOffsetToOriginal(original, map, 12)).toBe(original.indexOf('!'))
+    })
+
+    test('курсор в самом конце остаётся в конце', () => {
+        expect(BP.mapOffsetToOriginal(original, map, shown.length)).toBe(original.length)
+    })
+
+    test('несколько плейсхолдеров: сдвиги накапливаются', () => {
+        const text = '{{A}} и {{B}}.'
+        const m = { '{{A}}': 'длинное значение', '{{B}}': 'x' }
+        const out = BP.substitute(text, m)
+        expect(BP.mapOffsetToOriginal(text, m, out.indexOf('.'))).toBe(text.indexOf('.'))
+        expect(BP.mapOffsetToOriginal(text, m, out.indexOf(' и '))).toBe(text.indexOf(' и '))
+    })
+
+    test('пометка «не задано» тоже учитывается', () => {
+        const text = 'Привет, {{ФИО}}!'
+        const m = { '{{ФИО}}': '' }
+        const out = BP.substitute(text, m)
+        expect(BP.mapOffsetToOriginal(text, m, out.indexOf('!'))).toBe(text.indexOf('!'))
+    })
+
+    test('без плейсхолдеров позиция та же', () => {
+        expect(BP.mapOffsetToOriginal('Привет!', { '{{ФИО}}': 'x' }, 3)).toBe(3)
+    })
+})
+
+describe('addedPlaceholders', () => {
+    test('возвращает только новые плейсхолдеры', () => {
+        expect(BP.addedPlaceholders(['{{ФИО}}'], ['{{ФИО}}', '{{Договор}}'])).toEqual(['{{Договор}}'])
+    })
+
+    test('другой регистр или ё/е — тот же плейсхолдер, не новый', () => {
+        expect(BP.addedPlaceholders(['{{ФИО}}'], ['{{фио}}'])).toEqual([])
+        expect(BP.addedPlaceholders(['{{Всё}}'], ['{{все}}'])).toEqual([])
+    })
+
+    test('удалённые не возвращаются', () => {
+        expect(BP.addedPlaceholders(['{{A}}', '{{B}}'], ['{{A}}'])).toEqual([])
+    })
+
+    test('из пустого списка новыми считаются все', () => {
+        expect(BP.addedPlaceholders([], ['{{A}}', '{{B}}'])).toEqual(['{{A}}', '{{B}}'])
+    })
+
+    test('одинаковые по ключу варианты в новых не дублируются', () => {
+        expect(BP.addedPlaceholders([], ['{{ФИО}}', '{{фио}}'])).toEqual(['{{ФИО}}'])
+    })
+})

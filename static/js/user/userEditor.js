@@ -203,6 +203,14 @@ function updateButtonAttentionUI(modal, block) {
 /**
  * Рендер canvas с блоками для редактирования
  */
+/**
+ * Состав письма изменился (блок удалён, шаблон загружен и т. п.) — панель рассылки
+ * заново ищет плейсхолдеры и возвращает превью строки на перерисованный холст.
+ */
+function notifyBulkMailCanvasChanged() {
+    if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
+}
+
 function renderUserCanvas() {
     const canvas = document.getElementById('user-canvas');
     if (!canvas) return;
@@ -218,6 +226,7 @@ function renderUserCanvas() {
             </div>
         `;
         window.updateUserEditorMeta?.();
+        notifyBulkMailCanvasChanged();
         return;
     }
 
@@ -230,6 +239,7 @@ function renderUserCanvas() {
     initInlineEditing();
     _adjustListMarkerIndents();
     window.updateUserEditorMeta?.();
+    notifyBulkMailCanvasChanged();
 
     // Рендерим canvas-блоки у которых есть элементы но нет PNG
     _renderPendingCanvasBlocks(UserAppState.blocks);
@@ -1051,6 +1061,12 @@ function initInlineEditing() {
             showTextToolbar(e.target);
         });
 
+        // Список плейсхолдеров в панели рассылки следит за текстом на лету:
+        // добавленный появляется (с подсветкой), удалённый исчезает.
+        el.addEventListener('input', () => {
+            if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
+        });
+
         // Сохраняем выделение при изменении мышью или клавиатурой
         el.addEventListener('mouseup', () => {
             const sel = window.getSelection();
@@ -1118,6 +1134,7 @@ function initInlineEditing() {
             selection.collapseToEnd();
 
             saveTextChanges(e.target);
+            if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
 
             // Читаем правильное поле через dataset
             const blockId = parseInt(e.target.dataset.blockId);

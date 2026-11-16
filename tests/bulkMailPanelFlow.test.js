@@ -236,3 +236,36 @@ describe('панель рассылки: широкая раскладка', () 
         expect(host.classList.contains('bm-wide')).toBe(false)
     })
 })
+
+describe('панель рассылки: курсор при правке текста на холсте', () => {
+    let window
+    beforeEach(async () => {
+        window = await makePanel()
+    })
+
+    // Холст показывает значения строки; клик в текст возвращает {{плейсхолдеры}}.
+    // Курсор должен остаться там, куда кликнули (раньше уезжал в конец).
+    const BLOCKS = {
+        'текст': '<div class="editable-text" id="ed" contenteditable="true"><p>Здравствуйте, {{ФИО}}! Ждём вас.</p></div>',
+        'заголовок': '<div class="editable-text" id="ed" contenteditable="true">\n            Уведомление для {{ФИО}}!\n        </div>',
+    }
+
+    test.each(Object.entries(BLOCKS))('%s: курсор перед «!» остаётся перед «!»', (_name, markup) => {
+        const doc = window.document
+        doc.getElementById('user-canvas').innerHTML = markup
+        window.BulkMailPanel.loadParsed('данные.xlsx', FIRST)
+        window.BulkMailPanel.refreshRowPreview()
+
+        const node = doc.getElementById('ed').querySelector('p')?.firstChild || doc.getElementById('ed').firstChild
+        expect(node.nodeValue).toContain('Иван!')
+        const caret = node.nodeValue.indexOf('!')
+        window.getSelection().setBaseAndExtent(node, caret, node, caret)
+
+        window.BulkMailPanel.beginCanvasEdit()
+
+        const sel = window.getSelection()
+        expect(node.nodeValue).toContain('{{ФИО}}!')
+        expect(sel.anchorNode).toBe(node)
+        expect(node.nodeValue.slice(sel.anchorOffset).startsWith('!')).toBe(true)
+    })
+})
