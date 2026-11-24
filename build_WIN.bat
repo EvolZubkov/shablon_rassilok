@@ -98,6 +98,16 @@ if not exist "%DIST_DIR%\Pochtelye.exe" (
 )
 echo        OK
 
+echo        Verifying bundled static files...
+python scripts\verify_bundle.py "%DIST_DIR%\Pochtelye.exe"
+if errorlevel 2 (
+    echo [WARNING] Could not verify the bundle, check it manually
+) else if errorlevel 1 (
+    echo [ERROR] Built exe does not match the sources - rebuild
+    goto error
+)
+echo        OK
+
 echo [5/6] Preparing base config...
 if exist config.ini (
     copy /y config.ini "%DIST_DIR%\config.ini" >nul

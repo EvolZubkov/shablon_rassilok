@@ -8,6 +8,13 @@
 // остаётся обычным background-color на <td> — его Word поддерживает,
 // ломается только сам border-radius. Средняя полоса тянется на любую
 // высоту (сколько бы блоков внутри ни было), т.к. это не картинка.
+// Фон (bgcolor + background-color) задан на КАЖДОЙ вложенной таблице и
+// ячейке, а не только на средней: Outlook 2016 при масштабировании экрана
+// (RDP, 125%+) оставляет между строками вложенных таблиц волосяные щели,
+// и сквозь них просвечивает белый фон письма (белые полосы и квадраты).
+// Ячейки с картинками-уголками: font-size:1px; line-height:1px, а НЕ font-size:0; line-height:0 —
+// Outlook 2016 срезает верхние ~3 px у картинки в ячейке с нулевой строкой (верхние углы
+// получались «приплюснутыми», нижние — нет). Проверено на тестовой странице с вариантами ячейки.
 // Не-Outlook клиенты border-radius поддерживают нативно — им отдаём
 // прежнюю (более простую и лёгкую) однотабличную версию через
 // MSO-conditional comments (`<!--[if !mso]><!-->`/`<!--[if mso]>`).
@@ -137,15 +144,20 @@ CapabilityRegistry.register({
         const bgColor   = s.bgColor;
         const bgRadius  = Number(s.bgRadius) || 0;
         const bgPadding = Number(s.bgPadding) || 0;
+        // Цвета может не быть (блок без подложки, но с обёрткой, например баннер):
+        // тогда фон не пишем — иначе в письмо попадёт bgcolor="undefined".
+        const fillAttr  = bgColor ? ` bgcolor="${bgColor}"` : '';
+        const fillStyle = bgColor ? `background-color:${bgColor};` : '';
 
         const plainRow = `
         <tr>
           <td style="padding:0">
             <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
-                   style="background-color:${bgColor};border-radius:${bgRadius}px;">
+                   ${fillAttr} style="${fillStyle}border-radius:${bgRadius}px;">
               <tr>
-                <td style="padding:${bgPadding}px">
-                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                <td ${fillAttr} style="padding:${bgPadding}px;${fillStyle}">
+                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation"
+                         ${fillAttr} style="${fillStyle}">
                     ${html}
                   </table>
                 </td>
@@ -192,13 +204,13 @@ CapabilityRegistry.register({
         <tr>
           <td style="padding:0">
             <table width="${boxW}" cellpadding="0" cellspacing="0" role="presentation" style="width:${boxW}px;">
-              <tr><td style="padding:0;font-size:0;line-height:0;"><img src="${topImg}" width="${boxW}" height="${bgRadius}" alt="" style="${imgStyle}"></td></tr>
+              <tr><td style="padding:0;font-size:1px;line-height:1px;"><img src="${topImg}" width="${boxW}" height="${bgRadius}" alt="" style="${imgStyle}"></td></tr>
               <tr>
-                <td style="background-color:${bgColor};padding:0 ${bgPadding}px;">
-                  <table width="${contentW}" cellpadding="0" cellspacing="0" role="presentation" style="width:${contentW}px;">
+                <td ${fillAttr} style="${fillStyle}padding:0 ${bgPadding}px;">
+                  <table width="${contentW}" cellpadding="0" cellspacing="0" role="presentation" ${fillAttr} style="width:${contentW}px;${fillStyle}">
                     <tr>
-                      <td style="padding:${bgPadding}px 0;">
-                        <table width="${contentW}" cellpadding="0" cellspacing="0" role="presentation" style="width:${contentW}px;">
+                      <td ${fillAttr} style="padding:${bgPadding}px 0;${fillStyle}">
+                        <table width="${contentW}" cellpadding="0" cellspacing="0" role="presentation" ${fillAttr} style="width:${contentW}px;${fillStyle}">
                           ${html}
                         </table>
                       </td>
@@ -206,7 +218,7 @@ CapabilityRegistry.register({
                   </table>
                 </td>
               </tr>
-              <tr><td style="padding:0;font-size:0;line-height:0;"><img src="${bottomImg}" width="${boxW}" height="${bgRadius}" alt="" style="${imgStyle}"></td></tr>
+              <tr><td style="padding:0;font-size:1px;line-height:1px;"><img src="${bottomImg}" width="${boxW}" height="${bgRadius}" alt="" style="${imgStyle}"></td></tr>
             </table>
           </td>
         </tr>`;

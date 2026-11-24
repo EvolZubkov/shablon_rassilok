@@ -2,7 +2,7 @@
 
 Десктопное приложение для создания и отправки HTML-писем и встреч через Microsoft Exchange (EWS).
 
-Текущая версия: **2.10.0** (история изменений — [docs/PATCHNOTES.md](docs/PATCHNOTES.md)).
+Текущая версия: **2.10.2** (история изменений — [docs/PATCHNOTES.md](docs/PATCHNOTES.md)).
 
 Запускается как локальный Flask-сервер со встроенным Chromium-окном (PyQt5 + QWebEngineView). Работает на Windows и ALT Linux.
 
@@ -187,6 +187,11 @@ build_linux_alt.bat
 ```
 
 Результат: `dist\linux\Pochtelye`
+
+### Проверка сборки и обновление у пользователей
+
+- После PyInstaller `scripts/verify_bundle.py` сверяет файлы `static/` внутри exe/бинарника с исходниками; при расхождении сборка останавливается (Windows — `build_WIN.bat`, Linux — `scripts/make_installer.sh`). Вручную: `python scripts/verify_bundle.py dist/win32/Pochtelye.exe`.
+- Linux-установщик (`Pochtelye.sh`) заменяет бинарник, если версия выше установленной **или** версия та же, но SHA256 бинарника другой (`~/Pochtelye/binary.sha256`). Всё равно поднимайте версию для каждого релиза: по ней пользователи и поддержка отличают сборки.
 
 ### Подготовка перед сборкой
 

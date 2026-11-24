@@ -488,13 +488,13 @@ ${buildEmailThemeStyles()}
             html += blockHtml;
         } else {
             html += `<tr>
-  <td width="${_cp}" style="width:${_cp}px;min-width:${_cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+  <td width="${_cp}" style="width:${_cp}px;min-width:${_cp}px;padding:0;font-size:1px;line-height:1px;mso-line-height-rule:exactly;">&nbsp;</td>
   <td width="${_innerW}" style="width:${_innerW}px;padding:0;">
     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${_innerW}" style="width:${_innerW}px;">
       ${blockHtml}
     </table>
   </td>
-  <td width="${_cp}" style="width:${_cp}px;min-width:${_cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+  <td width="${_cp}" style="width:${_cp}px;min-width:${_cp}px;padding:0;font-size:1px;line-height:1px;mso-line-height-rule:exactly;">&nbsp;</td>
 </tr>`;
         }
     });
@@ -642,6 +642,27 @@ function getBackgroundPaddingFor(block) {
     if (typeof ProfileLoader === 'undefined' || !ProfileLoader.loaded) return 0;
     if (!ProfileLoader.getCapabilities(block.type).includes('background')) return 0;
     return Math.max(0, Number(s.bgPadding) || 0);
+}
+
+// ===== ФОН ЯЧЕЕК-РАСПОРОК =====
+// Пустые ячейки-распорки (`&nbsp;`) внутри цветного контейнера без собственного
+// фона Outlook 2016 на масштабируемом экране (RDP) заливает белым — получаются
+// белые квадраты по бокам и полосы между блоками. Поэтому внутри контейнера
+// распорка получает его цвет (bgcolor + background-color); вне контейнера — ничего.
+//
+// ВАЖНО: в ячейках с `&nbsp;` нельзя ставить font-size:0 — Outlook 2016 рисует в такой
+// ячейке белый прямоугольник (белые полосы и квадраты поверх цветных блоков; проверено на
+// тестовой странице: font-size:0 — артефакты, font-size:1px с line-height по высоте — чисто).
+// Поэтому у распорок font-size:1px, а line-height равен высоте отступа (mso-line-height-rule:exactly).
+
+/** Атрибут bgcolor для ячейки-распорки ('' — цвет не задан). */
+function bgCellAttrs(color) {
+    return color ? ` bgcolor="${color}"` : '';
+}
+
+/** Стиль background-color для ячейки-распорки ('' — цвет не задан). */
+function bgCellStyle(color) {
+    return color ? `background-color:${color};` : '';
 }
 
 // ===== ГЕНЕРАТОРЫ БЛОКОВ =====
@@ -888,11 +909,11 @@ function generateListHTML(s) {
 
         return `
             <tr>
-                <td width="${bulletGap}" style="width:${bulletGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
+                <td width="${bulletGap}" style="width:${bulletGap}px; padding:0; font-size:1px; line-height:1px; mso-line-height-rule:exactly;">&nbsp;</td>
                 <td valign="middle" width="${bulletSize}" style="width:${bulletSize}px; padding:${bulletCellPadding}px 0; vertical-align:middle;${bulletCellFix}">
                     ${bulletHTML}
                 </td>
-                <td width="${textGap}" style="width:${textGap}px; padding:0; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td>
+                <td width="${textGap}" style="width:${textGap}px; padding:0; font-size:1px; line-height:1px; mso-line-height-rule:exactly;">&nbsp;</td>
                 <td valign="middle" class="email-text" style="font-size:${fontSize}px; line-height:${lineHeightPx}px; mso-line-height-rule:exactly; color:${adaptedColor}; padding:${itemSpacing / 2}px 0; font-family:${fontFamily};">
                     ${formatted}
                 </td>
@@ -977,9 +998,9 @@ function generateTableHTML(s) {
     // Горизонтальная линия-разделитель, инсетнутая по бокам на cellPaddingH.
     const dividerRow = (heightPx) => `
         <tr>
-            <td colspan="${columns.length}" style="padding:0 ${cellPaddingH}px;">
+            <td colspan="${columns.length}" bgcolor="${containerBg}" style="padding:0 ${cellPaddingH}px; font-size:0; line-height:0; background-color:${containerBg};">
                 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
-                    <tr><td height="${heightPx}" style="height:${heightPx}px; font-size:1px; line-height:${heightPx}px; background-color:${dividerColor};">&nbsp;</td></tr>
+                    <tr><td height="${heightPx}" style="height:${heightPx}px; max-height:${heightPx}px; overflow:hidden; font-size:1px; line-height:${heightPx}px; mso-line-height-rule:exactly; background-color:${dividerColor};">&nbsp;</td></tr>
                 </table>
             </td>
         </tr>`;
@@ -1003,7 +1024,7 @@ function generateTableHTML(s) {
     const titleBarHTML = s.renderedTitleBar
         ? `
         <tr>
-            <td style="padding:0; line-height:0; font-size:0; background-color:${ctx.bodyBg};">
+            <td style="padding:0; line-height:1px; font-size:1px; background-color:${ctx.bodyBg};">
                 <img src="${s.renderedTitleBar}" alt="" width="${titleImgWidth}" style="${getImageStyle(titleImgWidth, 'width:100%;')}">
             </td>
         </tr>`
@@ -1036,7 +1057,7 @@ function generateTableHTML(s) {
     const bottomCapHTML = bottomCapSrc
         ? `
         <tr>
-            <td style="padding:0; line-height:0; font-size:0; background-color:${ctx.bodyBg};">
+            <td style="padding:0; line-height:1px; font-size:1px; background-color:${ctx.bodyBg};">
                 <img src="${bottomCapSrc}" alt="" width="${bottomCapImgWidth}" style="${getImageStyle(bottomCapImgWidth, 'width:100%; display:block;')}">
             </td>
         </tr>`
@@ -1062,7 +1083,7 @@ function generateTableHTML(s) {
     const headerCellsHTML = columns.map((col, i) => {
         const isLastCol = i === columns.length - 1;
         return `
-                <td style="width:${widths[i]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-weight:bold; font-size:${headerFontSize}px; color:${headerTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle}${isLastCol ? '' : ` border-right:2px solid ${dividerColor};`}">
+                <td bgcolor="${containerBg}" style="background-color:${containerBg}; width:${widths[i]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-weight:bold; font-size:${headerFontSize}px; color:${headerTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle}${isLastCol ? '' : ` border-right:2px solid ${dividerColor};`}">
                     ${renderCell(col)}
                 </td>`;
     }).join('');
@@ -1073,7 +1094,7 @@ function generateTableHTML(s) {
             const isLastCol = colIndex === columns.length - 1;
             const borderRight = isLastCol ? '' : `border-right:2px solid ${dividerColor};`;
             return `
-                <td style="width:${widths[colIndex]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-size:${fontSize}px; line-height:${lineHeight}; color:${bodyTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle} ${borderRight}">
+                <td bgcolor="${containerBg}" style="background-color:${containerBg}; width:${widths[colIndex]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-size:${fontSize}px; line-height:${lineHeight}; color:${bodyTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle} ${borderRight}">
                     ${renderCell(row[colIndex])}
                 </td>`;
         }).join('');
@@ -1092,8 +1113,8 @@ function generateTableHTML(s) {
                 <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${cardWidth}" style="width:${cardWidth}px;">
                     ${titleBarHTML}
                     <tr>
-                        <td style="padding:15px 0 20px; background-color:${containerBg};">
-                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${cardWidth}" style="width:${cardWidth}px; border-collapse:collapse; table-layout:fixed;">
+                        <td bgcolor="${containerBg}" style="padding:15px 0 20px; background-color:${containerBg};">
+                            <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${cardWidth}" bgcolor="${containerBg}" style="width:${cardWidth}px; border-collapse:collapse; table-layout:fixed; background-color:${containerBg};">
                                 <tr>${headerCellsHTML}</tr>
                                 ${dividerRow(2)}
                                 ${bodyRowsHTML}
@@ -1269,10 +1290,11 @@ function generateSpacerHTML(s) {
     if (!s) return '';
 
     const height = s.height || 20;
+    const parentBg = getCurrentEmailRenderContext().parentBgColor;
 
     return `
         <tr>
-            <td style="padding:0; height:${height}px;"></td>
+            <td height="${height}"${bgCellAttrs(parentBg)} style="padding:0; height:${height}px; font-size:1px; line-height:${height}px; mso-line-height-rule:exactly; ${bgCellStyle(parentBg)}">&nbsp;</td>
         </tr>
     `;
 }
@@ -1426,7 +1448,7 @@ function generateColumnsHTML(block) {
     // выводятся как <tr> (email-таблица), склеить их напрямую как div'ы
     // с CSS gap нельзя, поэтому вставляем отдельную строку нужной высоты.
     const blockGapRow = blockGap > 0
-        ? `<tr><td style="padding:0; height:${blockGap}px; font-size:0; line-height:0; mso-line-height-rule:exactly;">&nbsp;</td></tr>`
+        ? `<tr><td height="${blockGap}"${bgCellAttrs(containerBgColor)} style="padding:0; height:${blockGap}px; font-size:1px; line-height:${blockGap}px; mso-line-height-rule:exactly; ${bgCellStyle(containerBgColor)}">&nbsp;</td></tr>`
         : '';
 
     // Боковые отступы каждой колонки: между колонками — половина gap с каждой стороны,
@@ -1521,13 +1543,13 @@ function generateColumnsHTML(block) {
         // никогда не превышает targetWidth, так что размеры здесь всегда согласованы.
         const contentRow = cp > 0 ? `
             <tr>
-                <td width="${cp}" style="width:${cp}px;min-width:${cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+                <td width="${cp}"${bgCellAttrs(containerBgColor)} style="width:${cp}px;min-width:${cp}px;padding:0;font-size:1px;line-height:1px;mso-line-height-rule:exactly;${bgCellStyle(containerBgColor)}">&nbsp;</td>
                 <td width="${effectiveContentWidth}" style="width:${effectiveContentWidth}px;padding:0;">
                     <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${effectiveContentWidth}">
                         ${innerRow}
                     </table>
                 </td>
-                <td width="${cp}" style="width:${cp}px;min-width:${cp}px;padding:0;font-size:0;line-height:0;mso-line-height-rule:exactly;">&nbsp;</td>
+                <td width="${cp}"${bgCellAttrs(containerBgColor)} style="width:${cp}px;min-width:${cp}px;padding:0;font-size:1px;line-height:1px;mso-line-height-rule:exactly;${bgCellStyle(containerBgColor)}">&nbsp;</td>
             </tr>
         ` : innerRow;
         return bgCap.wrapEmail(contentRow, s, targetWidth);

@@ -5,7 +5,8 @@
 # The generated script:
 #   - fresh install  : extracts binary, icon, config, creates desktop shortcut
 #   - update         : replaces binary and icon, keeps config/lic unchanged
-#   - same version   : skips install block, launches immediately
+#   - same version   : skips install block, launches immediately —
+#                      unless the binary differs (rebuild without a version bump)
 #
 # Usage (called from build_linux_alt.bat):
 #   bash make_installer.sh <dist_dir>
@@ -37,6 +38,20 @@ if [ -z "$VERSION" ]; then
 fi
 VERSION="${VERSION:-0.0.0}"
 echo "Версия инсталлятора: $VERSION"
+
+# Бинарник должен содержать ту же статику, что лежит в исходниках: иначе пользователь
+# получит «новую версию» со старым интерфейсом. 1 — расхождение (сборку повторить),
+# 2 — проверить не удалось (предупреждаем, сборку не валим).
+set +e
+python3 "$PROJECT_ROOT/scripts/verify_bundle.py" "$BINARY"
+VERIFY_RC=$?
+set -e
+if [ "$VERIFY_RC" -eq 1 ]; then
+  echo "Error: бинарник не совпадает с исходниками — пересоберите"
+  exit 1
+elif [ "$VERIFY_RC" -ne 0 ]; then
+  echo "[WARN] проверка бинарника не выполнена (код $VERIFY_RC)"
+fi
 
 HAS_ICON=0
 [ -f "$ICON" ] && HAS_ICON=1
@@ -135,6 +150,17 @@ _version_gt() {
   return 1  # equal
 }
 
+# Нужно ли заменить установленный бинарник.
+# Версия выросла — да. Версия та же, но бинарник другой (пересборка без смены версии) —
+# тоже да: иначе пользователь остаётся на старом файле и видит «уже актуален».
+# Хеш установленного бинарника лежит в binary.sha256; нет файла — переустановим один раз.
+# $1 версия установщика  $2 установленная  $3 хеш установленного  $4 хеш из установщика
+_needs_update() {
+  _version_gt "$1" "${2:-0.0.0}" && return 0
+  [ "$1" = "$2" ] && [ "$3" != "$4" ] && return 0
+  return 1
+}
+
 # (Re)create the desktop .desktop file
 _make_shortcut() {
   printf '%s\n' \
@@ -176,6 +202,8 @@ _sync_config() {
 INSTALLED_VERSION=""
 [ -f "$INSTALL_DIR/version.txt" ] \
   && INSTALLED_VERSION=$(cat "$INSTALL_DIR/version.txt" 2>/dev/null || true)
+INSTALLED_SHA=""
+[ -f "$INSTALL_DIR/binary.sha256" ]   && INSTALLED_SHA=$(cat "$INSTALL_DIR/binary.sha256" 2>/dev/null || true)
 
 if [ ! -f "$BIN" ]; then
 
@@ -205,15 +233,20 @@ if [ ! -f "$BIN" ]; then
   fi
 
   echo "$INSTALLER_VERSION" > "$INSTALL_DIR/version.txt"
+  echo "$BINARY_SHA256" > "$INSTALL_DIR/binary.sha256"
 
   _make_shortcut
   echo "  Ярлык создан: $DESKTOP_FILE"
   echo "Установка завершена."
 
-elif _version_gt "$INSTALLER_VERSION" "${INSTALLED_VERSION:-0.0.0}"; then
+elif _needs_update "$INSTALLER_VERSION" "$INSTALLED_VERSION" "$INSTALLED_SHA" "$BINARY_SHA256"; then
 
   # ── Update ────────────────────────────────────────────────────────────────
-  echo "Обновление Почтелье ${INSTALLED_VERSION:-?} → $INSTALLER_VERSION..."
+  if [ "$INSTALLER_VERSION" = "$INSTALLED_VERSION" ]; then
+    echo "Обновление Почтелье $INSTALLER_VERSION: в установщике более новая сборка..."
+  else
+    echo "Обновление Почтелье ${INSTALLED_VERSION:-?} → $INSTALLER_VERSION..."
+  fi
 
   echo "  Обновление бинарного файла..."
   if ! _extract BINARY "$BIN.new"; then
@@ -238,6 +271,7 @@ elif _version_gt "$INSTALLER_VERSION" "${INSTALLED_VERSION:-0.0.0}"; then
   fi
 
   echo "$INSTALLER_VERSION" > "$INSTALL_DIR/version.txt"
+  echo "$BINARY_SHA256" > "$INSTALL_DIR/binary.sha256"
 
   _make_shortcut
   echo "Обновление завершено."

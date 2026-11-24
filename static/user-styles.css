@@ -2,6 +2,14 @@
    USER VERSION STYLES - Email Builder
    ============================================================================ */
 
+/* === ШРИФТЫ ДЛЯ CANVAS (баннер, кнопка) ===
+   В user-режиме modular-styles.css не подключён: без этих правил canvas рисует
+   баннер и кнопку запасным Arial вместо Rostelecom. */
+@font-face { font-family: 'RostelecomBasis-Light';   src: url('fonts/RostelecomBasis-Light.woff') format('woff');   font-weight: normal; font-style: normal; }
+@font-face { font-family: 'RostelecomBasis-Regular'; src: url('fonts/RostelecomBasis-Regular.woff') format('woff'); font-weight: normal; font-style: normal; }
+@font-face { font-family: 'RostelecomBasis-Medium';  src: url('fonts/RostelecomBasis-Medium.woff') format('woff');  font-weight: normal; font-style: normal; }
+@font-face { font-family: 'RostelecomBasis-Bold';    src: url('fonts/RostelecomBasis-Bold.woff') format('woff');    font-weight: normal; font-style: normal; }
+
 /* === RESET & BASE === */
 * {
   margin: 0;
