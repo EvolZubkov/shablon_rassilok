@@ -34,6 +34,7 @@ _logger = logging.getLogger(__name__)
 from flask import Blueprint, Response, jsonify, request, stream_with_context
 
 import app as _m  # live access to app.py globals (same pattern as exchange.py)
+import scheduled_store
 from routes import bulk_attachments as _att
 from routes.bulk_attachments import (  # noqa: F401  (имена сохранены для тестов и совместимости)
     find_file_tolerant as _find_file_tolerant,
@@ -654,6 +655,14 @@ def _read_attachments(items: list) -> list:
     return result
 
 
+def _remember_scheduled_mailbox(address: str) -> None:
+    """Чтобы ящик рассылки был в списке панели «Запланированные»."""
+    try:
+        scheduled_store.remember_mailbox(_m.CACHE_BASE, address)
+    except OSError:
+        _logger.warning('scheduled: ящик не запомнен', exc_info=True)
+
+
 def _run_bulk_send_guarded(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
     """Запускает рассылку так, чтобы поток не умирал молча.
 
@@ -881,6 +890,8 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                                        timezone=timezone,
                                        importance=importance,
                                        read_receipt=read_receipt)
+                if send_at and sent == 0:
+                    _remember_scheduled_mailbox(from_email_req)
 
             sent += 1
             if channel == 'smtp':

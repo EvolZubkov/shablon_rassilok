@@ -4157,9 +4157,13 @@ body {
 /* Диалог выбора (например, «Сохранить шаблон») */
 dialog.app-dialog {
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
   margin: auto;
   width: min(480px, calc(100vw - 32px));
+  height: -webkit-fit-content;
   height: fit-content;
   padding: 24px;
   background: var(--bg-secondary, #1e293b);
@@ -4191,7 +4195,10 @@ dialog.app-dialog::backdrop {
 .app-dialog__actions {
   display: flex;
   justify-content: flex-end;
-  gap: 4px;
+}
+
+.app-dialog__actions > * + * {
+  margin-left: 4px;
 }
 
 .app-dialog__actions .btn-editor {

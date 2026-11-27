@@ -23,6 +23,7 @@ import time
 from flask import Blueprint, current_app, jsonify, request
 
 import app as _m  # module reference — gives live access to all app.py globals
+import scheduled_store
 from src.exchange_sender import ExchangeAuthError
 
 bp = Blueprint('exchange', __name__)
@@ -471,6 +472,11 @@ def api_send_email():
         except Exception:
             current_app.logger.warning('analytics log_send failed', exc_info=True)
         if send_at:
+            try:
+                scheduled_store.remember_mailbox(
+                    _m.CACHE_BASE, from_email or creds['from_email'])
+            except OSError:
+                current_app.logger.warning('scheduled: ящик не запомнен', exc_info=True)
             send_at_utc = send_at - datetime.timedelta(hours=timezone)
             current_app.logger.info(
                 'send scheduled: local=%s tz=UTC+%s utc=%s',

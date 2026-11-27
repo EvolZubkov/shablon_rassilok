@@ -4256,6 +4256,7 @@ from routes.settings import bp as settings_bp
 from routes.profile import bp as profile_bp
 from routes.profiles_admin import bp as profiles_admin_bp
 from routes.bulk_mail import bp as bulk_mail_bp
+from routes.scheduled import bp as scheduled_bp
 
 app.register_blueprint(utility_bp)
 app.register_blueprint(static_files_bp)
@@ -4266,6 +4267,7 @@ app.register_blueprint(exchange_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(profiles_admin_bp)
+app.register_blueprint(scheduled_bp)
 
 
 if __name__ == '__main__':

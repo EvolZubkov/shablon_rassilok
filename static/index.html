@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="figma-gradient-panel.css">
   <link rel="stylesheet" href="bulk-mail-panel.css">
   <link rel="stylesheet" href="email-autocomplete.css">
+  <link rel="stylesheet" href="scheduled-panel.css">
 </head>
 
 <body class="admin-mode-page">
@@ -131,6 +132,13 @@
 
       <div class="admin-toolbar-right">
         <div class="toolbar-group">
+          <button id="btn-scheduled-panel" type="button" class="toolbar-btn" title="Запланированные письма" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Запланированные</span>
+          </button>
           <button id="btn-profiles-admin" type="button" class="toolbar-btn" title="Управление аудиториями" style="display:none">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -709,6 +717,8 @@
   <!-- 9. Инициализация приложения -->
   <script src="js/main.js?v=20261116d"></script>
   <script src="js/admin/profilesAdmin.js"></script>
+  <script src="js/admin/scheduledEditForm.js"></script>
+  <script src="js/admin/scheduledPanel.js"></script>
   <script src="js/admin-bulk-mail.js?v=20261116f"></script>
   <script src="js/user/bulkPlaceholders.js?v=20261116b"></script>
   <script src="js/user/bulkFieldPicker.js?v=20261027b"></script>

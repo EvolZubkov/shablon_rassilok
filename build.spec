@@ -162,7 +162,7 @@ hiddenimports = [
     'cryptography.hazmat.backends.openssl',
     'requests', 'urllib3', 'certifi', 'lxml', 'lxml.etree',
     # App modules
-    'credentials_manager', 'exchange_sender', '_version', 'build_features',
+    'credentials_manager', 'exchange_sender', 'exchange_scheduled', 'scheduled_store', '_version', 'build_features',
     *([BUILD_FLAGS_MODULE] if not BULK_MAIL else []),
     # Excel / ODS parsing
     'openpyxl', 'openpyxl.styles', 'openpyxl.utils',
