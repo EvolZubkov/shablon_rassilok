@@ -231,6 +231,15 @@ def shared_resources_delete():
         if os.path.isfile(path):
             os.remove(path)
 
+        # Локальный кеш — зеркало сетевой папки; пикеры блоков сканируют именно его,
+        # поэтому без этого удалённый ресурс оставался бы в настройках блоков.
+        cache_path = os.path.join(_m.CACHE_DIR, category, safe)
+        if os.path.isfile(cache_path):
+            try:
+                os.remove(cache_path)
+            except OSError:
+                current_app.logger.warning('Не удалось удалить файл кеша: %s', cache_path)
+
         # Remove from config.json and bump repo version
         pub_url = f'/cache/{category}/{safe}'
         _m._remove_from_config_json(category, pub_url)

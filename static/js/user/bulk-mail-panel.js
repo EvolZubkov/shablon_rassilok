@@ -362,6 +362,7 @@ const BulkMailPanel = (() => {
     state.headers = []; state.rows = [];
     state.mapping = {}; state.placeholders = []; state.usage = {}; state.currentRow = 0; state.results = [];
     state.emailColumn = '';
+    _mappingShown = false; _freshPlaceholders.clear();
     FIELD_CHIPS.forEach(({ chips }) => { const el = $(chips); if (el) el.textContent = ''; });
     state.preflight = null;
     const attachBox = $('bm-sum-attach');
@@ -445,6 +446,24 @@ const BulkMailPanel = (() => {
     };
   }
 
+  // Новые плейсхолдеры подсвечиваются в списке сопоставления, чтобы было видно,
+  // что именно добавилось; через FRESH_MS подсветка снимается.
+  const FRESH_MS = 6000;
+  let _freshPlaceholders = new Set();
+  let _freshTimer = null;
+  let _mappingShown = false;   // до первого показа списка «новыми» ничего не считаем
+
+  function markFresh(added) {
+    if (!added.length) return;
+    added.forEach(ph => _freshPlaceholders.add(ph));
+    clearTimeout(_freshTimer);
+    _freshTimer = setTimeout(() => {
+      _freshPlaceholders.clear();
+      $('bm-mapping-list')?.querySelectorAll('.bm-mapping-row--new')
+        .forEach(row => row.classList.remove('bm-mapping-row--new'));
+    }, FRESH_MS);
+  }
+
   function detectPlaceholders() {
     // В режиме превью канвас показывает значения выбранной строки вместо {{…}}:
     // читаем текст только после возврата оригинала, иначе плейсхолдеры тела
@@ -456,6 +475,8 @@ const BulkMailPanel = (() => {
     // Выбор пользователя (в т.ч. «не задано») не сбрасывается, автоподбор по имени
     // колонки — только для новых плейсхолдеров; {{ФИО}} и {{фио}} — одно поле.
     state.mapping = BulkPlaceholders.resolveMapping(found, state.placeholders, state.mapping, state.headers);
+    if (_mappingShown) markFresh(BulkPlaceholders.addedPlaceholders(state.placeholders, found));
+    _mappingShown = true;
     state.placeholders = found;
     state.usage = BulkPlaceholders.countUsage(sources);
 
@@ -497,10 +518,13 @@ const BulkMailPanel = (() => {
     }
     if (noPhEl) noPhEl.style.display = 'none';
 
+    let firstFreshRow = null;
     BulkPlaceholders.groupByKey(state.placeholders).forEach(group => {
       const current = group.variants.map(ph => state.mapping[ph]).find(Boolean) || '';
+      const isFresh = group.variants.some(ph => _freshPlaceholders.has(ph));
       const row = document.createElement('div');
-      row.className = 'bm-mapping-row';
+      row.className = 'bm-mapping-row' + (isFresh ? ' bm-mapping-row--new' : '');
+      if (isFresh && !firstFreshRow) firstFreshRow = row;
       const tag = document.createElement('span');
       tag.className = 'bm-mapping-ph'; tag.textContent = group.label;
       const arrow = document.createElement('span');
@@ -529,6 +553,8 @@ const BulkMailPanel = (() => {
       list.appendChild(row);
     });
 
+    // Новая строка может оказаться ниже видимой части панели — подводим к ней.
+    firstFreshRow?.scrollIntoView?.({ block: 'nearest' });
     updateMappingHint();
   }
 
@@ -671,22 +697,32 @@ const BulkMailPanel = (() => {
   // правка и сохранение блока должны видеть исходные {{плейсхолдеры}}, иначе
   // значения строки записываются в блок «статичным» текстом.
   let _inlineEditing = false;
+  // Значения, которые холст показывает сейчас вместо {{плейсхолдеров}} (см. renderCurrentRow).
+  let _shownSubMap = {};
 
   function beginCanvasEdit() {
     _inlineEditing = true;
     clearTimeout(_placeholderTimer);
     if (!state.canvasBackups.length) return;
-    // restoreCanvas перезаписывает текстовые узлы — курсор из них уехал бы в начало.
+    // restoreCanvas перезаписывает текстовые узлы, а длина текста меняется
+    // («Иван Петров» → «{{ФИО}}»). Курсор остаётся там, куда кликнул пользователь:
+    // позицию пересчитываем из подставленного текста в исходный.
     const sel = window.getSelection();
-    const anchor = sel && sel.rangeCount ? sel.anchorNode : null;
-    const caretInSubstituted = !!anchor && state.canvasBackups.some(b => b.node === anchor);
+    const originalOf = node => state.canvasBackups.find(b => b.node === node)?.original;
+    const mapOffset = (node, offset) => {
+      const original = originalOf(node);
+      return original == null ? offset : BulkPlaceholders.mapOffsetToOriginal(original, _shownSubMap, offset);
+    };
+    const caret = sel && sel.rangeCount
+      && (originalOf(sel.anchorNode) != null || originalOf(sel.focusNode) != null)
+      ? {
+          anchor: sel.anchorNode, anchorOffset: mapOffset(sel.anchorNode, sel.anchorOffset),
+          focus: sel.focusNode, focusOffset: mapOffset(sel.focusNode, sel.focusOffset),
+        }
+      : null;
     restoreCanvas();
-    if (caretInSubstituted && anchor.nodeType === 3) {
-      const r = document.createRange();
-      r.setStart(anchor, anchor.nodeValue.length);
-      r.collapse(true);
-      sel.removeAllRanges();
-      sel.addRange(r);
+    if (caret) {
+      try { sel.setBaseAndExtent(caret.anchor, caret.anchorOffset, caret.focus, caret.focusOffset); } catch (_) {}
     }
   }
 
@@ -706,6 +742,7 @@ const BulkMailPanel = (() => {
     const row = state.rows[state.currentRow];
     const subMap = {};
     Object.entries(state.mapping).forEach(([ph, col]) => { subMap[ph] = row[col] != null ? String(row[col]) : ''; });
+    _shownSubMap = subMap;
     if (Object.keys(subMap).length > 0) {
       const canvas = $(CANVAS_ID);
       if (canvas) walkAndSubstitute(canvas, subMap);
@@ -719,14 +756,11 @@ const BulkMailPanel = (() => {
     let n;
     while ((n = walker.nextNode())) nodes.push(n);
     nodes.forEach(textNode => {
-      let text = textNode.nodeValue; let changed = false;
-      Object.entries(subMap).forEach(([ph, val]) => {
-        if (text.includes(ph)) {
-          text = text.split(ph).join(val || `[${ph.slice(2,-2)} — не задано]`);
-          changed = true;
-        }
-      });
-      if (changed) { state.canvasBackups.push({ node: textNode, original: textNode.nodeValue }); textNode.nodeValue = text; }
+      const text = BulkPlaceholders.substitute(textNode.nodeValue, subMap);
+      if (text !== textNode.nodeValue) {
+        state.canvasBackups.push({ node: textNode, original: textNode.nodeValue });
+        textNode.nodeValue = text;
+      }
     });
   }
 
@@ -971,6 +1005,10 @@ const BulkMailPanel = (() => {
     // Получаем чистый HTML шаблона через emailGenerator (без лейблов, со светлой темой)
     const templateHtml = await _getTemplateHtml();
 
+    // Блоки для правки отложенной рассылки в панели «Запланированные» (админ).
+    const laterBlocks = sendAtVal && typeof ExchangeModals !== 'undefined'
+      ? await ExchangeModals.copyBlocksForLater() : null;
+
     // Стартуем задачу
     let jobId;
     try {
@@ -995,6 +1033,7 @@ const BulkMailPanel = (() => {
           stop_on_error:    stopOnError,
           delay,
           send_at:          sendAtVal || null,
+          source:           laterBlocks && { blocks: laterBlocks },
           timezone:         -(new Date().getTimezoneOffset() / 60),
           attachments:      attachments?.getSpecs() || [],
         }),
@@ -1574,7 +1613,7 @@ const BulkMailPanel = (() => {
   }
 
   return {
-    init, getColumns: () => state.headers, detectPlaceholders, recalcSummary, loadParsed,
+    init, getColumns: () => state.headers, detectPlaceholders, schedulePlaceholderRefresh, recalcSummary, loadParsed,
     refreshRowPreview: () => { if (state.fileLoaded && !_editMode) renderCurrentRow(); },
     beginCanvasEdit,
     endCanvasEdit,

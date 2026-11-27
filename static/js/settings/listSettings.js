@@ -1,5 +1,77 @@
 // settings/listSettings.js — renderListSettings
 
+const LIST_FMT_BTN_STYLE = 'padding: 4px 12px; background: var(--bg-hover); border: 1px solid var(--border-secondary); border-radius: 4px; color: var(--text-secondary); cursor: pointer; display: flex; align-items: center;';
+const LIST_FMT_BOLD_MARK = '**';
+
+const LIST_FMT_LINK_ICON = `
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+    </svg>`;
+
+/**
+ * Панель форматирования одного пункта списка (жирный, ссылка) —
+ * те же кнопки и та же разметка (**текст**, [текст](url)), что в текстовом блоке.
+ * @param {HTMLTextAreaElement} textarea поле пункта
+ * @param {(value: string) => void} commit сохраняет новое plain-значение пункта
+ */
+function _createItemFormatToolbar(textarea, commit) {
+    const toolbar = document.createElement('div');
+    toolbar.style.cssText = 'display: flex;';
+
+    const applyValue = (value, selStart, selEnd) => {
+        textarea.value = value;
+        commit(value);
+        textarea.focus();
+        textarea.setSelectionRange(selStart, selEnd);
+    };
+
+    const btnBold = document.createElement('button');
+    btnBold.type = 'button';
+    btnBold.title = 'Жирный текст (выделите текст и нажмите)';
+    // Chromium 83 во встроенном браузере не знает flex-gap — зазор 4px задаём margin.
+    btnBold.style.cssText = LIST_FMT_BTN_STYLE + ' font-weight: bold; margin-right: 4px;';
+    btnBold.innerHTML = '<strong>B</strong>';
+    btnBold.addEventListener('click', () => {
+        const { selectionStart: start, selectionEnd: end, value } = textarea;
+        if (start === end) {
+            Toast.warning('Выделите текст, который нужно сделать жирным');
+            return;
+        }
+        const mark = LIST_FMT_BOLD_MARK;
+        const selected = value.slice(start, end);
+        const isBold = selected.length > mark.length * 2
+            && selected.startsWith(mark) && selected.endsWith(mark);
+        const replacement = isBold
+            ? selected.slice(mark.length, -mark.length)
+            : mark + selected + mark;
+        applyValue(value.slice(0, start) + replacement + value.slice(end),
+            start, start + replacement.length);
+    });
+
+    const btnLink = document.createElement('button');
+    btnLink.type = 'button';
+    btnLink.title = 'Сделать выделенный текст ссылкой';
+    btnLink.style.cssText = LIST_FMT_BTN_STYLE;
+    btnLink.innerHTML = LIST_FMT_LINK_ICON;
+    btnLink.addEventListener('click', () => {
+        const { selectionStart: start, selectionEnd: end, value } = textarea;
+        if (start === end) {
+            Toast.warning('Сначала выделите текст в поле выше.');
+            return;
+        }
+        const url = prompt('Введите ссылку (https://… или mailto:…):');
+        if (!url) return;
+        const replacement = `[${value.slice(start, end)}](${url})`;
+        applyValue(value.slice(0, start) + replacement + value.slice(end),
+            start, start + replacement.length);
+    });
+
+    toolbar.appendChild(btnBold);
+    toolbar.appendChild(btnLink);
+    return toolbar;
+}
+
 function renderListSettings(container, block) {
     const s = block.settings;
     const hiddenSettings = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
@@ -65,38 +137,11 @@ function renderListSettings(container, block) {
         itemDiv.appendChild(deleteBtn);
         itemWrapper.appendChild(itemDiv);
 
-        // Кнопка "Сделать ссылкой"
-        const linkBtn = document.createElement('button');
-        linkBtn.type = 'button';
-        linkBtn.textContent = '🔗 Сделать выделенный текст ссылкой';
-        linkBtn.style.cssText = 'width: 100%; padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-secondary); background: none; color: var(--text-muted); font-size: 11px; cursor: pointer;';
-
-        linkBtn.addEventListener('click', () => {
-            const start = textarea.selectionStart;
-            const end = textarea.selectionEnd;
-
-            if (start === end) {
-                Toast.warning('Сначала выделите текст в поле выше.');
-                return;
-            }
-
-            const selected = textarea.value.slice(start, end);
-            const url = prompt('Введите ссылку (https://… или mailto:…):');
-            if (!url) return;
-
-            const before = textarea.value.slice(0, start);
-            const after = textarea.value.slice(end);
-
-            const replacement = `[${selected}](${url})`;
-            const newValue = before + replacement + after;
-
-            textarea.value = newValue;
+        itemWrapper.appendChild(_createItemFormatToolbar(textarea, (newValue) => {
             const newItems = [...(s.items || [])];
             newItems[index] = TextSanitizer.sanitize(newValue, true);
             updateBlockSetting(block.id, 'items', newItems);
-        });
-
-        itemWrapper.appendChild(linkBtn);
+        }));
         listGroup.appendChild(itemWrapper);
     });
 

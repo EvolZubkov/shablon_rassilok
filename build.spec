@@ -15,6 +15,24 @@ from PyInstaller.utils.hooks import collect_submodules, collect_data_files, coll
 
 ROOT = os.path.abspath('.')
 
+# ── Вариант сборки: с рассылками / без рассылок ───────────────────────────────
+# POCHTELYE_BULK_MAIL=0 → панель «Рассылка» скрыта. Флаг кладётся в бинарник модулем
+# _build_flags (его читает src/build_features.py); файл генерируется в build/, чтобы не
+# менять отслеживаемые исходники. Не задана — обычная сборка (модуль не создаётся).
+sys.path.insert(0, os.path.join(ROOT, 'src'))
+from build_features import parse_flag  # noqa: E402
+
+BULK_MAIL = parse_flag(os.environ.get('POCHTELYE_BULK_MAIL'))
+FLAGS_DIR = os.path.join(ROOT, 'build', '_flags')
+BUILD_FLAGS_MODULE = '_build_flags'
+if not BULK_MAIL:
+    os.makedirs(FLAGS_DIR, exist_ok=True)
+    with open(os.path.join(FLAGS_DIR, BUILD_FLAGS_MODULE + '.py'), 'w', encoding='utf-8') as _f:
+        _f.write('# Сгенерировано build.spec — вариант сборки «без рассылок».\nBULK_MAIL = False\n')
+    print('[build] вариант: БЕЗ рассылок (BULK_MAIL = False)', flush=True)
+else:
+    print('[build] вариант: с рассылками', flush=True)
+
 
 def maybe(src, dst):
     """Include a path only when it actually exists (avoids build errors)."""
@@ -144,7 +162,8 @@ hiddenimports = [
     'cryptography.hazmat.backends.openssl',
     'requests', 'urllib3', 'certifi', 'lxml', 'lxml.etree',
     # App modules
-    'credentials_manager', 'exchange_sender', '_version',
+    'credentials_manager', 'exchange_sender', 'exchange_scheduled', 'scheduled_store', '_version', 'build_features',
+    *([BUILD_FLAGS_MODULE] if not BULK_MAIL else []),
     # Excel / ODS parsing
     'openpyxl', 'openpyxl.styles', 'openpyxl.utils',
     'odf', 'odf.opendocument', 'odf.table', 'odf.text',
@@ -162,7 +181,7 @@ hiddenimports = [
 
 a = Analysis(
     ['app.py'],
-    pathex=[ROOT, os.path.join(ROOT, 'src')],
+    pathex=[ROOT, os.path.join(ROOT, 'src'), *([FLAGS_DIR] if not BULK_MAIL else [])],
     binaries=extra_binaries,
     datas=datas,
     hiddenimports=hiddenimports,

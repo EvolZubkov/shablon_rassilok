@@ -203,6 +203,14 @@ function updateButtonAttentionUI(modal, block) {
 /**
  * Рендер canvas с блоками для редактирования
  */
+/**
+ * Состав письма изменился (блок удалён, шаблон загружен и т. п.) — панель рассылки
+ * заново ищет плейсхолдеры и возвращает превью строки на перерисованный холст.
+ */
+function notifyBulkMailCanvasChanged() {
+    if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
+}
+
 function renderUserCanvas() {
     const canvas = document.getElementById('user-canvas');
     if (!canvas) return;
@@ -218,6 +226,7 @@ function renderUserCanvas() {
             </div>
         `;
         window.updateUserEditorMeta?.();
+        notifyBulkMailCanvasChanged();
         return;
     }
 
@@ -230,6 +239,7 @@ function renderUserCanvas() {
     initInlineEditing();
     _adjustListMarkerIndents();
     window.updateUserEditorMeta?.();
+    notifyBulkMailCanvasChanged();
 
     // Рендерим canvas-блоки у которых есть элементы но нет PNG
     _renderPendingCanvasBlocks(UserAppState.blocks);
@@ -497,7 +507,7 @@ function renderUserColumnsBlock(block) {
             </div>`;
         }).join('');
 
-        return `<td style="width:${column.width}%; vertical-align:top; padding:${gap / 2}px; box-sizing:border-box;">
+        return `<td style="width:${ExpertRow.displayPercent(block.columns, column)}%; vertical-align:top; padding:${gap / 2}px; box-sizing:border-box;">
             ${columnBlocks}
         </td>`;
     }).join('');
@@ -649,7 +659,8 @@ function renderUserButton(block) {
                 background:${color};
                 color:#ffffff;
                 border-radius:6px;
-                font-weight:600;
+                font-weight:500;
+                font-family:RostelecomBasis-Medium, Arial, sans-serif;
             ">${s.text || 'Кнопка'}</span>
         </div>
     `;
@@ -736,6 +747,7 @@ function renderUserTable(block) {
     const cellPaddingV = s.cellPaddingV ?? 22;
     const cellPaddingH = s.cellPaddingH ?? 40;
     const dividerColor = s.dividerColor || '#FFFFFF';
+    const dividerWidth = Number(s.dividerWidth) || 2;
     const containerBg = s.containerBg || '#EBF1F6';
     const containerRadius = s.containerRadius ?? 28;
     const linkColor = s.linkColor || '#475569';
@@ -790,13 +802,13 @@ function renderUserTable(block) {
         .${scope} thead td { font-size:${headerFontSize}px; font-weight:bold; }
         ${sc3} td * { color:inherit !important; }
         ${sc3} td a { color:${linkColor} !important; text-decoration:underline; }
-        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:2px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:${dividerWidth}px; background-color:${dividerColor}; left:0; right:0; }
         .${scope} thead tr td:first-child::after { left:${cellPaddingH}px; }
         .${scope} thead tr td:last-child::after { right:${cellPaddingH}px; }
-        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:1px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:${dividerWidth}px; background-color:${dividerColor}; left:0; right:0; }
         .${scope} tbody tr:not(:last-child) td:first-child::after { left:${cellPaddingH}px; }
         .${scope} tbody tr:not(:last-child) td:last-child::after { right:${cellPaddingH}px; }
-        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:2px; background-color:${dividerColor}; top:0; bottom:0; }
+        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:${dividerWidth}px; background-color:${dividerColor}; top:0; bottom:0; }
         .${scope} thead td:not(:last-child)::before { top:10px; }
         .${scope} tbody tr:last-child td:not(:last-child)::before { bottom:15px; }
     `;
@@ -1051,6 +1063,12 @@ function initInlineEditing() {
             showTextToolbar(e.target);
         });
 
+        // Список плейсхолдеров в панели рассылки следит за текстом на лету:
+        // добавленный появляется (с подсветкой), удалённый исчезает.
+        el.addEventListener('input', () => {
+            if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
+        });
+
         // Сохраняем выделение при изменении мышью или клавиатурой
         el.addEventListener('mouseup', () => {
             const sel = window.getSelection();
@@ -1118,6 +1136,7 @@ function initInlineEditing() {
             selection.collapseToEnd();
 
             saveTextChanges(e.target);
+            if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
 
             // Читаем правильное поле через dataset
             const blockId = parseInt(e.target.dataset.blockId);
@@ -1565,8 +1584,11 @@ function openListEditor(blockId) {
             if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
             if (formatGroup) formatGroup.style.display = isNumbered ? 'block' : 'none';
             if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
-            s.listStyle = isNumbered ? 'numbered' : 'bullets';
-            s.bulletSize = isNumbered ? 40 : 20;
+            const nextStyle = isNumbered ? 'numbered' : 'bullets';
+            if (s.listStyle !== nextStyle) {
+                s.listStyle = nextStyle;
+                s.bulletSize = isNumbered ? 40 : 20;
+            }
         };
     });
 
@@ -1616,8 +1638,13 @@ function openListEditor(blockId) {
         pushUndoState();
         // Собираем данные
         const activeType = modal.querySelector('.toggle-buttons .toggle-btn.active');
+        const prevListStyle = s.listStyle;
         s.listStyle = activeType ? activeType.dataset.value : 'bullets';
-        s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
+        // Размер буллета меняем только при смене стиля списка — иначе
+        // сбрасывался заданный ранее (меньший) размер.
+        if (s.listStyle !== prevListStyle || !s.bulletSize) {
+            s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
+        }
         const startRaw = parseInt(document.getElementById('list-start-number').value);
         s.startNumber = isNaN(startRaw) ? 1 : startRaw;
         const activeFormat = document.querySelector('#number-format-group .toggle-btn.active');

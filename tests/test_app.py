@@ -6,6 +6,7 @@
 import pytest
 import json
 import os
+import time
 import sys
 import tempfile
 import shutil
@@ -471,3 +472,156 @@ class TestTemplateFullCycle:
         # 4. Удаляем (id не меняется при переименовании — файл тот же)
         resp = client.delete(f'/api/templates/delete?id={template_id}&type=personal')
         assert resp.get_json()['success'] is True
+
+
+class TestTemplateMove:
+    """PUT /api/templates/move — перенос общего шаблона в другую категорию."""
+
+    @staticmethod
+    def _save_shared(client, category=''):
+        os.makedirs(os.path.join(FAKE_NETWORK, 'templates'), exist_ok=True)
+        resp = client.post('/api/templates/save', json={
+            'name': 'Move Me', 'blocks': [{'id': 1, 'type': 'divider'}],
+            'type': 'shared', 'category': category,
+        }, content_type='application/json')
+        assert resp.get_json()['success'] is True
+        return resp.get_json()['id']
+
+    @staticmethod
+    def _category_of(client, template_id):
+        resp = client.get(f'/api/templates/load?id={template_id}&type=shared')
+        return resp.get_json()['template']['category']
+
+    def test_move_changes_category(self, client):
+        original_mode = email_app.APP_MODE
+        email_app.APP_MODE = 'admin'
+        try:
+            client.post('/api/templates/categories', json={'name': 'Новости'})
+            template_id = self._save_shared(client)
+            resp = client.put('/api/templates/move',
+                              json={'id': template_id, 'type': 'shared', 'category': 'Новости'})
+            assert resp.get_json()['success'] is True
+            assert self._category_of(client, template_id) == 'Новости'
+        finally:
+            email_app.APP_MODE = original_mode
+
+    def test_move_to_empty_category_clears_it(self, client):
+        original_mode = email_app.APP_MODE
+        email_app.APP_MODE = 'admin'
+        try:
+            client.post('/api/templates/categories', json={'name': 'Акции'})
+            template_id = self._save_shared(client, 'Акции')
+            resp = client.put('/api/templates/move',
+                              json={'id': template_id, 'type': 'shared', 'category': ''})
+            assert resp.get_json()['success'] is True
+            assert self._category_of(client, template_id) == ''
+        finally:
+            email_app.APP_MODE = original_mode
+
+    def test_move_rejects_unknown_category(self, client):
+        original_mode = email_app.APP_MODE
+        email_app.APP_MODE = 'admin'
+        try:
+            template_id = self._save_shared(client)
+            resp = client.put('/api/templates/move',
+                              json={'id': template_id, 'type': 'shared', 'category': 'Нет такой'})
+            assert resp.status_code == 400
+            assert resp.get_json()['success'] is False
+        finally:
+            email_app.APP_MODE = original_mode
+
+    def test_move_blocked_for_shared_in_user_mode(self, client):
+        original_mode = email_app.APP_MODE
+        email_app.APP_MODE = 'user'
+        try:
+            resp = client.put('/api/templates/move',
+                              json={'id': 'tpl_1', 'type': 'shared', 'category': ''})
+            assert resp.status_code == 403
+        finally:
+            email_app.APP_MODE = original_mode
+
+    def test_move_not_found(self, client):
+        original_mode = email_app.APP_MODE
+        email_app.APP_MODE = 'admin'
+        try:
+            resp = client.put('/api/templates/move',
+                              json={'id': 'tpl_missing', 'type': 'shared', 'category': ''})
+            assert resp.status_code == 404
+        finally:
+            email_app.APP_MODE = original_mode
+
+
+class TestCategoryVisibilityApi:
+    """Пользователь видит только общие шаблоны разрешённых категорий."""
+
+    @staticmethod
+    def _save_shared(client, name, category):
+        os.makedirs(os.path.join(FAKE_NETWORK, 'templates'), exist_ok=True)
+        resp = client.post('/api/templates/save', json={
+            'name': name, 'blocks': [{'id': 1, 'type': 'divider'}],
+            'type': 'shared', 'category': category,
+        }, content_type='application/json')
+        return resp.get_json()['id']
+
+    def _with_mode(self, mode, allowed, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', mode)
+        monkeypatch.setattr(email_app, 'get_visible_categories', lambda: allowed)
+
+    def test_user_list_filtered_by_visible_categories(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'admin')
+        client.post('/api/templates/categories', json={'name': 'Видимая'})
+        client.post('/api/templates/categories', json={'name': 'Скрытая'})
+        visible_id = self._save_shared(client, 'V', 'Видимая')
+        time.sleep(1.1)  # id шаблона строится по секундам
+        hidden_id = self._save_shared(client, 'H', 'Скрытая')
+
+        self._with_mode('user', ['Видимая'], monkeypatch)
+        resp = client.get('/api/templates/list')
+        ids = [t['id'] for t in resp.get_json()['templates']['shared']]
+        assert visible_id in ids
+        assert hidden_id not in ids
+
+    def test_admin_sees_everything(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'admin')
+        client.post('/api/templates/categories', json={'name': 'Скрытая2'})
+        hidden_id = self._save_shared(client, 'H2', 'Скрытая2')
+        monkeypatch.setattr(email_app, 'get_visible_categories', lambda: ['Другая'])
+        ids = [t['id'] for t in client.get('/api/templates/list').get_json()['templates']['shared']]
+        assert hidden_id in ids
+
+    def test_user_cannot_load_hidden_template_by_id(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'admin')
+        client.post('/api/templates/categories', json={'name': 'Скрытая3'})
+        hidden_id = self._save_shared(client, 'H3', 'Скрытая3')
+        self._with_mode('user', ['Видимая'], monkeypatch)
+        resp = client.get(f'/api/templates/load?id={hidden_id}&type=shared')
+        assert resp.status_code == 404
+
+    def test_user_categories_endpoint_filtered(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'admin')
+        client.post('/api/templates/categories', json={'name': 'Кат1'})
+        client.post('/api/templates/categories', json={'name': 'Кат2'})
+        self._with_mode('user', ['Кат1'], monkeypatch)
+        cats = client.get('/api/templates/categories').get_json()['categories']
+        assert 'Кат1' in cats and 'Кат2' not in cats
+
+
+class TestConfigExport:
+    def test_admin_downloads_config(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'admin')
+        resp = client.post('/api/config/export', json={'profile': 'audience_b', 'categories': ['Новости', 'HR']})
+        assert resp.status_code == 200
+        assert 'attachment' in resp.headers['Content-Disposition']
+        text = resp.get_data(as_text=True)
+        assert 'profile = audience_b' in text
+        assert 'visible_categories = Новости; HR' in text
+
+    def test_user_mode_forbidden(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'user')
+        resp = client.post('/api/config/export', json={'profile': 'default', 'categories': []})
+        assert resp.status_code == 403
+
+    def test_rejects_bad_profile_and_semicolon(self, client, monkeypatch):
+        monkeypatch.setattr(email_app, 'APP_MODE', 'admin')
+        assert client.post('/api/config/export', json={'profile': '../x', 'categories': []}).status_code == 400
+        assert client.post('/api/config/export', json={'profile': 'default', 'categories': ['a;b']}).status_code == 400

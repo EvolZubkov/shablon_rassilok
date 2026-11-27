@@ -187,6 +187,7 @@ const TemplatesAPI = {
             });
             const data = await response.json();
             if (data.success) {
+                this._cache.delete(`${id}:${type}`);
                 console.log('✅ Шаблон обновлён:', id);
                 return true;
             }
@@ -249,6 +250,28 @@ const TemplatesAPI = {
             return false;
         }
     },
+    /**
+     * Move a shared template to another category ('' = no category).
+     * Returns true on success, false on failure.
+     */
+    async move(id, category, type = 'shared') {
+        try {
+            const response = await fetch(`${this.baseURL}/move`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ id, category, type }),
+            });
+            const data = await response.json();
+            if (data.success) return true;
+            Toast.error('Ошибка переноса: ' + data.error);
+            return false;
+        } catch (error) {
+            console.error('Ошибка запроса переноса шаблона:', error);
+            Toast.error('Ошибка подключения к серверу');
+            return false;
+        }
+    },
+
     /**
      * Update only the preview thumbnail of an existing template.
      * Does not touch blocks — safe to call in background after blocks are already saved.

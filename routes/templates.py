@@ -13,6 +13,7 @@ Routes:
     - PATCH  /api/templates/preview        — update only the preview thumbnail
     - DELETE /api/templates/delete         — delete a template by id
     - PUT    /api/templates/rename         — rename a template in-place
+    - PUT    /api/templates/move           — move a shared template to another category
     - GET    /api/templates/categories     — get category list
     - POST   /api/templates/categories     — add a new category
     - DELETE /api/templates/categories     — remove a category
@@ -25,6 +26,8 @@ import time
 from datetime import datetime, timezone
 
 from flask import Blueprint, current_app, jsonify, request
+
+from src.category_visibility import filter_shared_templates, is_category_allowed
 
 import app as _m  # module reference — gives live access to all app.py globals
 
@@ -66,6 +69,11 @@ def templates_list():
         if request.headers.get('If-None-Match') == etag:
             return '', 304
 
+        # Пользователь видит общие шаблоны только разрешённых в config.ini категорий.
+        # Админу доступно всё — иначе он не сможет ими управлять.
+        if _m.get_app_mode() == 'user':
+            shared_meta = filter_shared_templates(shared_meta, _m.get_visible_categories())
+
         current_user = _m.get_user_from_system()
         personal_out = [dict(m, author=current_user) for m in personal_meta]
 
@@ -99,6 +107,11 @@ def templates_load():
         filepath, template = _m._find_template_by_id(base_dir, template_id, template_type)
 
         if filepath is None:
+            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
+
+        if (_m.get_app_mode() == 'user' and template_type == 'shared'
+                and not template.get('isPreset')
+                and not is_category_allowed(template.get('category', ''), _m.get_visible_categories())):
             return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
 
         return jsonify({'success': True, 'template': template})
@@ -327,11 +340,53 @@ def templates_rename():
         return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
 
 
+@bp.route('/api/templates/move', methods=['PUT'])
+def templates_move():
+    """Move a shared template to another category (empty string = no category)."""
+    try:
+        data = request.json or {}
+        template_id = (data.get('id') or '').strip()
+        template_type = str(data.get('type', 'shared')).strip().lower()
+        category = (data.get('category') or '').strip()
+
+        if not _m._validate_template_id(template_id):
+            return jsonify({'success': False, 'error': 'Не указан id шаблона'}), 400
+        if template_type != 'shared':
+            return jsonify({'success': False, 'error': 'Категории есть только у общих шаблонов'}), 400
+        if _m.get_app_mode() == 'user':
+            return jsonify({'success': False, 'error': 'Недостаточно прав'}), 403
+        if category and category not in _m.load_categories():
+            return jsonify({'success': False, 'error': 'Такой категории нет'}), 400
+
+        base_dir = _m._template_base_dir(template_type, _get_user_key())
+        filepath, template = _m._find_template_by_id(base_dir, template_id, template_type)
+        if filepath is None:
+            return jsonify({'success': False, 'error': 'Шаблон не найден'}), 404
+
+        template['category'] = category
+        _m._write_template_atomic(filepath, template)
+        _m._mirror_template_to_network(filepath, template)
+
+        _m._invalidate_template_cache(template_type)
+        _m._bump_network_version()
+        current_app.logger.info('Шаблон перемещён: %s -> %s',
+                                os.path.basename(filepath), category or 'без категории')
+        return jsonify({'success': True})
+
+    except Exception as e:
+        current_app.logger.error("templates_move error: %s", e, exc_info=True)
+        return jsonify({'success': False, 'error': 'Внутренняя ошибка сервера'}), 500
+
+
 @bp.route('/api/templates/categories', methods=['GET'])
 def templates_get_categories():
     """Получить список категорий"""
     try:
         categories = _m.load_categories()
+        if _m.get_app_mode() == 'user':
+            allowed = _m.get_visible_categories()
+            if allowed:
+                categories = [c for c in categories if c in allowed]
         return jsonify({'success': True, 'categories': categories})
     except Exception as e:
         current_app.logger.error("templates_get_categories error: %s", e, exc_info=True)

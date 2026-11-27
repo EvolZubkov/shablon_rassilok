@@ -150,6 +150,10 @@ function createSettingInput(label, value, blockId, settingKey, type = 'text', ex
     input.className = 'setting-input';
     input.type = type;
     input.value = value || '';
+    // Как у textarea (см. ниже): по этим атрибутам панель «Плейсхолдеры для рассылки»
+    // находит поле и вставляет {{поле}} на место курсора, а не в конец.
+    input.dataset.blockId = blockId;
+    input.dataset.settingKey = settingKey;
 
     input.addEventListener('input', (e) => {
         updateBlockSetting(

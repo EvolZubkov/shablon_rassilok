@@ -1026,6 +1026,7 @@ function addBannerTextElement(blockId) {
         y: 50 + (s.textElements.length * 40),
         fontSize: 16,
         fontFamily: 'rt-regular',
+        lineHeight: 1.0,
         color: '#ffffff',
         iconEnabled: false,
         icon: '',

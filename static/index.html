@@ -22,6 +22,7 @@
   <link rel="stylesheet" href="figma-gradient-panel.css">
   <link rel="stylesheet" href="bulk-mail-panel.css">
   <link rel="stylesheet" href="email-autocomplete.css">
+  <link rel="stylesheet" href="scheduled-panel.css">
 </head>
 
 <body class="admin-mode-page">
@@ -131,6 +132,13 @@
 
       <div class="admin-toolbar-right">
         <div class="toolbar-group">
+          <button id="btn-scheduled-panel" type="button" class="toolbar-btn" title="Запланированные письма" style="display:none">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <circle cx="12" cy="12" r="10"></circle>
+              <polyline points="12 6 12 12 16 14"></polyline>
+            </svg>
+            <span>Запланированные</span>
+          </button>
           <button id="btn-profiles-admin" type="button" class="toolbar-btn" title="Управление аудиториями" style="display:none">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
@@ -632,7 +640,9 @@
   <script src="js/textSanitizer.js"></script>
   <script src="js/toast.js"></script>
   <script src="js/dateTimePicker.js"></script>
+  <script src="js/shared/expertRow.js"></script>
   <script src="js/shared/utils.js"></script>
+  <script src="js/shared/typography.js"></script>
   <script src="js/shared/favoritesStore.js"></script>
   <script src="js/definitions.js"></script>
   <script src="js/configLoader.js"></script>
@@ -655,6 +665,8 @@
   <script src="js/groupOperations.js"></script>
   <script src="js/templatesAPI.js"></script>
   <script src="js/templatesUI.js"></script>
+  <script src="js/shared/templateSelection.js"></script>
+  <script src="js/templatesBulk.js"></script>
 
   <!-- 4. Drag and Drop -->
   <script src="js/dragPreview.js?v=20261026c"></script>
@@ -667,7 +679,7 @@
   <script src="js/imageRenderers.js"></script>
 
   <!-- 6. Настройки -->
-  <script src="js/settingsUI.js"></script>
+  <script src="js/settingsUI.js?v=20261116d"></script>
   <script src="js/shared/bannerGradient.js"></script>
   <script src="js/settings/settingsUtils.js"></script>
   <script src="js/settings/settingsShared.js"></script>
@@ -703,14 +715,18 @@
   <script src="js/userResources.js"></script>
 
   <!-- 9. Инициализация приложения -->
-  <script src="js/main.js"></script>
+  <script src="js/main.js?v=20261116d"></script>
   <script src="js/admin/profilesAdmin.js"></script>
-  <script src="js/admin-bulk-mail.js"></script>
-  <script src="js/user/bulkPlaceholders.js?v=20261027b"></script>
+  <script src="js/admin/scheduledEditForm.js"></script>
+  <script src="js/admin/scheduledBatch.js"></script>
+  <script src="js/admin/scheduledBodyEditor.js"></script>
+  <script src="js/admin/scheduledPanel.js"></script>
+  <script src="js/admin-bulk-mail.js?v=20261116f"></script>
+  <script src="js/user/bulkPlaceholders.js?v=20261116b"></script>
   <script src="js/user/bulkFieldPicker.js?v=20261027b"></script>
   <script src="js/user/bulkAttachSummary.js?v=20261027b"></script>
   <script src="js/user/bulkAttachments.js?v=20261027b"></script>
-  <script src="js/user/bulk-mail-panel.js?v=20261027b"></script>
+  <script src="js/user/bulk-mail-panel.js?v=20261116b"></script>
   <script src="js/shared/panelResizer.js?v=20261027a"></script>
   <script src="js/shared/panelLayout.js?v=20261027a"></script>
   <script src="js/adminInit.js"></script>

@@ -449,6 +449,11 @@ function setupCanvasContextTracking() {
     window.renderCanvas = function (...args) {
         const result = originalRenderCanvas.apply(this, args);
         updateCanvasContext();
+        // Состав письма изменился (текст набран или удалён, блок убран) — список
+        // плейсхолдеров рассылки пересчитывается с паузой: добавленный появляется,
+        // удалённый исчезает, а не висит в сопоставлении.
+        // BulkMailPanel — const в другом скрипте, на window его нет: проверяем через typeof.
+        if (typeof BulkMailPanel !== 'undefined') BulkMailPanel.schedulePlaceholderRefresh?.();
         return result;
     };
 

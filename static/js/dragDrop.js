@@ -42,20 +42,6 @@ function isButtonsRow(block) {
 }
 
 /**
- * Проверяет, можно ли в этот ряд подмешивать разные типы блоков —
- * любой контейнер колонок, КРОМЕ чистого ряда кнопок (у кнопок свой,
- * более узкий визуальный формат и свой лимит, см. isButtonsRow). Сюда
- * входят ряды из одного текста/картинок и уже смешанные ряды.
- */
-function isMixableRow(block) {
-    if (!block || !block.columns) return false;
-    if (block.type === 'group_container') return false;
-    const allBlocks = block.columns.flatMap(col => col.blocks);
-    if (allBlocks.length === 0) return false;
-    return !isButtonsRow(block);
-}
-
-/**
  * Определяет, что произойдёт, если сейчас отпустить перетаскиваемый блок
  * НАД рядом колонок parentBlock: 'grow' — добавится новая колонка,
  * 'below' — блок уйдёт под ряд, 'stack' — обычное поведение (положится
@@ -69,23 +55,27 @@ function isMixableRow(block) {
  */
 function getRowDropOutcome(parentBlock, draggedBlock, fromColumn, preferGrow) {
     if (!parentBlock || !parentBlock.columns || !draggedBlock) return 'stack';
-    const buttonsRow = isButtonsRow(parentBlock);
-    const mixableRow = isMixableRow(parentBlock);
+    if (parentBlock.type === 'group_container') return 'stack';
 
-    // Баннер, разделитель и отступ занимают всю ширину письма — в ряд не встают.
-    if ((buttonsRow || mixableRow) && !DropLogic.canJoinColumns(draggedBlock.type)) return 'below';
+    // Баннер в ряд не встаёт — только под ряд. В группе его запрещает
+    // canPlaceInColumn (клик из палитры), а перетаскивание сюда не доходит.
+    const hasBlocks = parentBlock.columns.some(col => col.blocks.length > 0);
+    if (hasBlocks && !DropLogic.canJoinColumns(draggedBlock.type)) return 'below';
+    if (!hasBlocks) return 'stack';
 
-    if (buttonsRow) {
-        if (draggedBlock.type !== 'button') return 'below';
-        if (fromColumn || !preferGrow) return 'stack';
-        return parentBlock.columns.length < MAX_BUTTON_COLUMNS ? 'grow' : 'below';
-    }
-    if (mixableRow) {
-        if (draggedBlock.type === 'button') return 'below';
-        if (fromColumn || !preferGrow) return 'stack';
-        return parentBlock.columns.length < MAX_MIXED_COLUMNS ? 'grow' : 'below';
-    }
-    return 'stack';
+    if (fromColumn || !preferGrow) return 'stack';
+    return parentBlock.columns.length < getMaxRowColumns(parentBlock, draggedBlock)
+        ? 'grow' : 'below';
+}
+
+/**
+ * Лимит колонок ряда при добавлении блока: чистый ряд кнопок с новой кнопкой
+ * (узкие «таблетки») — до MAX_BUTTON_COLUMNS, любой другой ряд — до MAX_MIXED_COLUMNS.
+ */
+function getMaxRowColumns(rowBlock, draggedBlock) {
+    return isButtonsRow(rowBlock) && draggedBlock.type === 'button'
+        ? MAX_BUTTON_COLUMNS
+        : MAX_MIXED_COLUMNS;
 }
 
 /**
@@ -473,7 +463,7 @@ function executeDrop(target) {
             : createColumnsContainer(targetBlock, moving);
         AppState.blocks[at] = mergedRow;
     } else if (target.kind === 'column' && target.mode === 'grow') {
-        const maxColumns = isButtonsRow(targetBlock) ? MAX_BUTTON_COLUMNS : MAX_MIXED_COLUMNS;
+        const maxColumns = getMaxRowColumns(targetBlock, moving);
         addBlockToRow(targetBlock, targetBlock.id, moving, maxColumns);
     } else if (target.kind === 'column') {
         const column = targetBlock.columns.find(c => c.id === target.columnId);

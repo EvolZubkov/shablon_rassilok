@@ -759,12 +759,43 @@ function hideFieldDropdown() {
     if (d) d.style.display = 'none';
 }
 
-function insertField(columnName) {
-    restoreSelection();
-    if (currentEditableElement) currentEditableElement.focus();
+/**
+ * Куда вставлять поле: сохранённая позиция курсора, если она жива (узлы не заменены
+ * перерисовкой) и лежит внутри редактируемого элемента; иначе текущее выделение,
+ * если оно внутри элемента; иначе конец элемента.
+ * @param {HTMLElement|null} editable
+ * @param {Range|null} saved
+ * @returns {Range|null}
+ */
+function resolveInsertionRange(editable, saved) {
+    if (!editable) return null;
+    const usable = range => !!range
+        && range.startContainer.isConnected && range.endContainer.isConnected
+        && editable.contains(range.startContainer) && editable.contains(range.endContainer);
 
+    if (usable(saved)) return saved.cloneRange();
     const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0) return;
+    if (selection && selection.rangeCount > 0 && usable(selection.getRangeAt(0))) {
+        return selection.getRangeAt(0).cloneRange();
+    }
+    const end = document.createRange();
+    end.selectNodeContents(editable);
+    end.collapse(false);
+    return end;
+}
+
+function insertField(columnName) {
+    const editable = currentEditableElement;
+    const target = resolveInsertionRange(editable, savedSelection);
+    if (!target) return;
+
+    // Фокус возвращаем до восстановления позиции: focus() на неактивном
+    // contenteditable сам ставит курсор, и восстановленный потерялся бы.
+    if (document.activeElement !== editable) editable.focus();
+    const selection = window.getSelection();
+    if (!selection) return;
+    selection.removeAllRanges();
+    selection.addRange(target);
 
     const range = selection.getRangeAt(0);
     range.deleteContents();

@@ -19,10 +19,12 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from flask import Blueprint, current_app, jsonify, request
 
 import app as _m  # module reference — gives live access to all app.py globals
+import scheduled_store
 from src.exchange_sender import ExchangeAuthError
 
 bp = Blueprint('exchange', __name__)
@@ -410,6 +412,21 @@ def api_recipients_suggest():
     return jsonify({'success': True, 'suggestions': suggestions})
 
 
+def _save_scheduled_letter(schedule_id: str, source: dict, from_email: str,
+                           send_at_utc: datetime.datetime) -> None:
+    """Копия блоков для правки в панели. Письмо уже принято — сбой не критичен."""
+    try:
+        scheduled_store.save_letter(_m.CACHE_BASE, schedule_id, {
+            'blocks': source.get('blocks') or [],
+            'comment': str(source.get('comment') or ''),
+            'review': bool(source.get('review')),
+            'from_email': from_email,
+            'send_at': send_at_utc.replace(tzinfo=datetime.timezone.utc).isoformat(),
+        })
+    except OSError:
+        current_app.logger.warning('scheduled: копия письма не сохранена', exc_info=True)
+
+
 @bp.route('/api/send/email', methods=['POST'])
 def api_send_email():
     """Отправляет HTML-письмо через Exchange."""
@@ -458,19 +475,33 @@ def api_send_email():
         importance   = str(data.get('importance')   or 'normal').lower()
         read_receipt = bool(data.get('read_receipt'))
 
-        _m.exchange_send_email(
+        # Блоки сохраняем только там, где есть панель «Запланированные».
+        source = data.get('source') if send_at and _m.get_app_mode() == 'admin' else None
+        schedule_id = uuid.uuid4().hex if isinstance(source, dict) else None
+
+        copy_skipped = _m.exchange_send_email(
             account, subject, html_body, to, cc, bcc,
             attachments=attachments,
             send_at=send_at,
             timezone=timezone,
             importance=importance,
             read_receipt=read_receipt,
+            schedule_id=schedule_id,
         )
+        if schedule_id and copy_skipped is not True:
+            _save_scheduled_letter(
+                schedule_id, source, from_email or creds['from_email'],
+                send_at - datetime.timedelta(hours=timezone))
         try:
             _m.log_send(len(to) + len(cc) + len(bcc))
         except Exception:
             current_app.logger.warning('analytics log_send failed', exc_info=True)
         if send_at:
+            try:
+                scheduled_store.remember_mailbox(
+                    _m.CACHE_BASE, from_email or creds['from_email'])
+            except OSError:
+                current_app.logger.warning('scheduled: ящик не запомнен', exc_info=True)
             send_at_utc = send_at - datetime.timedelta(hours=timezone)
             current_app.logger.info(
                 'send scheduled: local=%s tz=UTC+%s utc=%s',
@@ -478,8 +509,14 @@ def api_send_email():
             )
             msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
                    f' (tz=UTC+{timezone:.0f}, UTC: {send_at_utc.strftime("%H:%M")})')
+            if copy_skipped is not True:
+                msg += ('. До этого времени оно лежит в «Исходящих»: чтобы изменить, '
+                        'откройте его там и отправьте снова')
         else:
             msg = 'Письмо отправлено'
+        if copy_skipped is True:
+            msg += (' от имени ящика (SendAs). Копия в «Отправленные» '
+                    'не сохранена: доступа к папкам ящика нет')
         return jsonify({'success': True, 'message': msg})
 
     except ExchangeAuthError as e:

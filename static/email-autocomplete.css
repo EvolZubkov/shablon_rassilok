@@ -45,3 +45,38 @@
 .email-ac-note:first-child {
   border-top: 0;
 }
+
+/* Светлая тема: общее правило `[data-theme="light"] li` красит текст в тёмный,
+   поэтому фон списка тоже должен быть светлым. */
+[data-theme="light"] .email-ac-dropdown {
+  background: var(--bg-secondary, #fffdf8);
+  border-color: var(--border-secondary, #c5bcad);
+  box-shadow: 0 8px 24px rgba(31, 35, 41, 0.16);
+}
+
+[data-theme="light"] .email-ac-item {
+  color: var(--text-secondary, #343a40);
+}
+
+[data-theme="light"] .email-ac-item:hover,
+[data-theme="light"] .email-ac-item--active {
+  background: var(--bg-hover, #efe9dd);
+  color: var(--text-primary, #1f2329);
+}
+
+[data-theme="light"] .email-ac-note {
+  color: #92400e;
+  border-top-color: var(--border-secondary, #c5bcad);
+}
+
+/* Кнопки выбора файла со списком получателей (стили заданы inline в
+   exchangeModals.js, поэтому !important). */
+[data-theme="light"] .exc-pick-btn {
+  background: var(--bg-secondary, #fffdf8) !important;
+  border-color: var(--border-secondary, #c5bcad) !important;
+  color: var(--text-secondary, #343a40) !important;
+}
+
+[data-theme="light"] .exc-pick-btn:hover {
+  background: var(--bg-hover, #efe9dd) !important;
+}

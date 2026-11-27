@@ -293,6 +293,19 @@
   gap: 6px;
 }
 
+/* Только что добавленный плейсхолдер: рамка и фон, затухающие за несколько секунд. */
+.bm-mapping-row--new {
+  background: rgba(119, 0, 255, 0.16);
+  border-radius: 4px;
+  box-shadow: 0 0 0 4px rgba(119, 0, 255, 0.16);
+  animation: bm-mapping-new 1.2s ease-out;
+}
+
+@keyframes bm-mapping-new {
+  0%   { background: rgba(119, 0, 255, 0.56); box-shadow: 0 0 0 4px rgba(119, 0, 255, 0.56); }
+  100% { background: rgba(119, 0, 255, 0.16); box-shadow: 0 0 0 4px rgba(119, 0, 255, 0.16); }
+}
+
 .bm-mapping-ph {
   font-size: 11px;
   font-weight: 600;

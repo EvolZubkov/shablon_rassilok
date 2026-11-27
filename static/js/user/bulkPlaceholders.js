@@ -147,6 +147,72 @@
         return total;
     }
 
+    const escapeRe = (text) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    /** Регулярка по ключам subMap (длинные первыми), null — если подставлять нечего. */
+    function substitutionRe(subMap) {
+        const keys = Object.keys(subMap || {}).sort((a, b) => b.length - a.length);
+        return keys.length ? new RegExp(keys.map(escapeRe).join('|'), 'g') : null;
+    }
+
+    /** Что показать вместо плейсхолдера: значение строки или пометка «не задано». */
+    function shownValue(placeholder, subMap) {
+        return subMap[placeholder] || `[${placeholder.slice(2, -2)} — не задано]`;
+    }
+
+    /**
+     * Подставляет значения строки рассылки вместо {{плейсхолдеров}} за один проход:
+     * значение, похожее на плейсхолдер, повторно не подставляется.
+     * @param {string} text
+     * @param {Object<string,string>} subMap  { '{{ФИО}}': 'Иван', … }
+     */
+    function substitute(text, subMap) {
+        const re = substitutionRe(subMap);
+        return re ? text.replace(re, ph => shownValue(ph, subMap)) : text;
+    }
+
+    /**
+     * Позиция курсора в исходном тексте по позиции в тексте с подставленными значениями.
+     * Нужна, когда холст возвращает {{плейсхолдеры}} вместо значений: без пересчёта
+     * курсор терял бы место, куда пользователь кликнул.
+     * Курсор внутри подставленного значения уходит сразу после его плейсхолдера.
+     * @param {string} original  текст с {{плейсхолдерами}}
+     * @param {Object<string,string>} subMap  те же значения, что в substitute
+     * @param {number} shownOffset  позиция в тексте после подстановки
+     * @returns {number}
+     */
+    function mapOffsetToOriginal(original, subMap, shownOffset) {
+        const re = substitutionRe(subMap);
+        if (!re) return shownOffset;
+        let delta = 0;
+        for (const match of original.matchAll(re)) {
+            const shownStart = match.index + delta;
+            const shownEnd = shownStart + shownValue(match[0], subMap).length;
+            if (shownOffset < shownStart) break;
+            if (shownOffset <= shownEnd) {
+                return shownOffset === shownStart ? match.index : match.index + match[0].length;
+            }
+            delta += shownEnd - shownStart - match[0].length;
+        }
+        return shownOffset - delta;
+    }
+
+    /**
+     * Плейсхолдеры из `found`, которых не было в `previous` (регистр и ё/е не важны):
+     * по ним панель подсвечивает «новое», чтобы было видно, что только что добавилось.
+     */
+    function addedPlaceholders(previous, found) {
+        const known = new Set(previous.map(ph => normKey(nameOf(ph))));
+        const added = [];
+        found.forEach(ph => {
+            const key = normKey(nameOf(ph));
+            if (known.has(key)) return;
+            known.add(key);
+            added.push(ph);
+        });
+        return added;
+    }
+
     return {
         normKey,
         findPlaceholders,
@@ -156,6 +222,9 @@
         resolveMapping,
         diffHeaders,
         usageLabel,
-        groupUsage
+        groupUsage,
+        substitute,
+        mapOffsetToOriginal,
+        addedPlaceholders
     };
 }));

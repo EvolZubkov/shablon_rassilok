@@ -18,6 +18,7 @@ if not getattr(sys, 'frozen', False):
         sys.path.insert(0, _src_dir)
 
 from _version import __version__
+from build_features import bulk_mail_enabled
 
 from flask import abort
 import re
@@ -266,16 +267,16 @@ os.makedirs(CACHE_DIR, exist_ok=True)
 # ============================================================================
 # FEATURE FLAGS — управление функциональностью при сборке
 # ============================================================================
-# Меняй эти значения перед PyInstaller-упаковкой чтобы получить нужную версию.
 # True  = функция включена (полная версия)
 # False = функция скрыта в UI (код остаётся, просто не отображается)
 #
-# Пример для «упрощённой» сборки:
-#   FEATURES['bulk_mail']      = False   # убирает панель «Рассылка»
+# «Рассылка» задаётся сборкой: build_WIN.bat и build_linux_alt.bat собирают вариант
+# «без рассылок» через POCHTELYE_BULK_MAIL=0 (см. src/build_features.py и build.spec),
+# править app.py для этого не нужно. Остальное — как раньше, вручную:
 #   FEATURES['exchange_send']  = False   # убирает кнопки «Письмо» / «Встреча»
 #
 FEATURES: dict = {
-    'bulk_mail': True,   # Панель «Рассылка», кнопка {{}} в тулбаре
+    'bulk_mail': bulk_mail_enabled(),   # Панель «Рассылка», кнопка {{}} в тулбаре
     'exchange_send': True,   # Отправка письма / встречи через Exchange / SMTP
 }
 
@@ -812,6 +813,19 @@ def _read_app_config():
     if 'app' not in cfg:
         cfg['app'] = {}
     return cfg
+
+
+def get_visible_categories() -> list:
+    """Категории общих шаблонов, видимые этой установке (пусто — все).
+
+    Берётся из ``visible_categories`` в ``config.ini`` (значения через ``;``).
+    """
+    from src.category_visibility import VISIBLE_CATEGORIES_KEY, parse_visible_categories
+    try:
+        return parse_visible_categories(_read_app_config()['app'].get(VISIBLE_CATEGORIES_KEY, ''))
+    except Exception as e:
+        _logger.warning('[visible_categories] %s', e)
+        return []
 
 
 def _write_app_config(cfg):
@@ -1452,6 +1466,7 @@ def _initialize_cache_locked():
         if os.path.exists(network_folder):
             print(f"\n📥 Загрузка {folder}/...")
             copy_directory_with_progress(network_folder, cache_folder, folder)
+            _prune_cache_folder(network_folder, cache_folder)
 
     # Сохраняем версию
     network_version = get_network_version()
@@ -1736,6 +1751,36 @@ def _sync_dir_quiet(src: str, dst: str) -> int:
     return count
 
 
+def _prune_cache_folder(network_folder: str, cache_folder: str) -> int:
+    """Remove files from *cache_folder* that no longer exist in *network_folder*.
+
+    The cache is a mirror of the network repo; copying only ever added files, so
+    resources deleted by the admin stayed in the cache and kept showing up in
+    block pickers (they scan the cache folders).  Does nothing when the network
+    folder is missing/unreadable or both paths are the same folder.
+
+    :returns: Number of files removed.
+    """
+    if not os.path.isdir(network_folder) or not os.path.isdir(cache_folder):
+        return 0
+    if os.path.normcase(os.path.abspath(network_folder)) == os.path.normcase(os.path.abspath(cache_folder)):
+        return 0
+    try:
+        net_names = set(os.listdir(network_folder))
+    except OSError:
+        return 0
+    removed = 0
+    for fname in os.listdir(cache_folder):
+        path = os.path.join(cache_folder, fname)
+        if fname not in net_names and os.path.isfile(path):
+            try:
+                os.remove(path)
+                removed += 1
+            except OSError:
+                _logger.warning('Не удалось удалить устаревший файл кеша: %s', path)
+    return removed
+
+
 def _sync_cache_quiet() -> bool:
     """Incrementally sync the local asset cache from the network repo.
 
@@ -1769,6 +1814,10 @@ def _sync_cache_quiet() -> bool:
                        'images', 'dividers', 'banner-backgrounds',
                        'banner-logos', 'banner-icons', 'fonts'):
             total += _sync_dir_quiet(
+                os.path.join(static_src, folder),
+                os.path.join(CACHE_DIR, folder),
+            )
+            total += _prune_cache_folder(
                 os.path.join(static_src, folder),
                 os.path.join(CACHE_DIR, folder),
             )
@@ -4207,6 +4256,7 @@ from routes.settings import bp as settings_bp
 from routes.profile import bp as profile_bp
 from routes.profiles_admin import bp as profiles_admin_bp
 from routes.bulk_mail import bp as bulk_mail_bp
+from routes.scheduled import bp as scheduled_bp
 
 app.register_blueprint(utility_bp)
 app.register_blueprint(static_files_bp)
@@ -4217,6 +4267,7 @@ app.register_blueprint(exchange_bp)
 app.register_blueprint(settings_bp)
 app.register_blueprint(profile_bp)
 app.register_blueprint(profiles_admin_bp)
+app.register_blueprint(scheduled_bp)
 
 
 if __name__ == '__main__':

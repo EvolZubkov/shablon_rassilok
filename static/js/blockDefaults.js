@@ -19,6 +19,12 @@ function getDefaultSettings(type) {
         if (profileDefaults) {
             Object.assign(base, profileDefaults);
         }
+        if (type === 'banner') {
+            // Размеры шрифта баннера отрисовщик берёт прямо из профиля
+            // (getBannerTextFontSize), в настройках блока они не хранятся.
+            delete base.titleFontSize;
+            delete base.extraFontSize;
+        }
     }
 
     return base;

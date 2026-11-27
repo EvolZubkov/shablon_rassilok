@@ -1,0 +1,282 @@
+/* Панель «Запланированные письма». Размеры кратны 4px (docs/AGENTS.md). */
+dialog.sched-dialog {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  margin: auto;
+  width: min(960px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  height: -webkit-fit-content;
+  height: fit-content;
+  padding: 24px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.4);
+  color: var(--text-secondary, #e5e7eb);
+}
+
+dialog.sched-dialog[open] {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Отступы через margin: flex `gap` встроенный Chromium не поддерживает. */
+dialog.sched-dialog > * + * {
+  margin-top: 12px;
+}
+
+.sched-header > * + *,
+.sched-controls > * + * {
+  margin-left: 4px;
+}
+
+dialog.sched-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.56);
+}
+
+.sched-header,
+.sched-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sched-title {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+  color: var(--text-primary, #f9fafb);
+}
+
+.sched-mailbox {
+  flex: 1;
+  min-width: 0;
+  height: 32px;
+  padding: 0 12px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 8px;
+  color: var(--text-primary, #f9fafb);
+  font-size: 13px;
+}
+
+.sched-btn {
+  height: 32px;
+  padding: 0 12px;
+  background: var(--bg-hover, #334155);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 8px;
+  color: var(--text-primary, #f9fafb);
+  font-size: 13px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.sched-btn--danger {
+  background: var(--accent-danger, #dc2626);
+  border-color: var(--accent-danger, #dc2626);
+  color: #ffffff;
+}
+
+.sched-status {
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sched-scroll {
+  overflow: auto;
+  min-height: 0;
+}
+
+.sched-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sched-table th,
+.sched-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border-color, #334155);
+  text-align: left;
+  vertical-align: top;
+}
+
+.sched-subject,
+.sched-recipients {
+  overflow-wrap: anywhere;
+}
+
+.sched-when,
+.sched-actions {
+  white-space: nowrap;
+}
+
+.sched-note {
+  display: block;
+  font-size: 12px;
+  line-height: 16px;
+  opacity: 0.72;
+}
+
+.sched-note--warn {
+  color: var(--accent-primary, #f97316);
+  opacity: 1;
+}
+
+.sched-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.sched-view > * + * {
+  margin-top: 12px;
+}
+
+.sched-actions > * + * {
+  margin-left: 4px;
+}
+
+select.sched-mailbox {
+  padding: 0 8px;
+}
+
+.sched-form {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+.sched-form > * + * {
+  margin-top: 12px;
+}
+
+.sched-field {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+.sched-field > * + * {
+  margin-top: 4px;
+}
+
+.sched-input {
+  width: 100%;
+  min-height: 32px;
+  padding: 4px 12px;
+  background: var(--bg-primary, #0f172a);
+  border: 1px solid var(--border-color, #334155);
+  border-radius: 8px;
+  color: var(--text-primary, #f9fafb);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 20px;
+  box-sizing: border-box;
+}
+
+textarea.sched-input {
+  resize: vertical;
+}
+
+.sched-form-actions {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.sched-form-actions > * + * {
+  margin-left: 4px;
+}
+
+.sched-btn--primary {
+  background: var(--accent-primary, #f97316);
+  border-color: var(--accent-primary, #f97316);
+  color: #ffffff;
+}
+
+.sched-btn:disabled {
+  opacity: 0.48;
+  cursor: default;
+}
+
+/* Полоса правки текста запланированного письма над холстом */
+.sched-editbar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  margin: 8px 12px 0;
+  padding: 12px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--accent-primary, #f97316);
+  border-radius: 8px;
+  color: var(--text-primary, #f9fafb);
+}
+
+.sched-editbar > * + * {
+  margin-top: 8px;
+}
+
+.sched-editbar-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+body.sched-editing #btn-create-outlook,
+body.sched-editing #btn-create-meeting,
+body.sched-editing #btn-bulk-send {
+  display: none !important;
+}
+
+/* Рассылки */
+.sched-campaign td {
+  font-weight: 600;
+}
+
+.sched-campaign .sched-recipients .sched-btn {
+  display: block;
+  margin-top: 4px;
+}
+
+.sched-campaign-letter td:first-child {
+  padding-left: 24px;
+}
+
+.sched-batch {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sched-batch > * + * {
+  margin-top: 12px;
+}
+
+.sched-report {
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sched-report-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.sched-report-result {
+  margin-left: 12px;
+  text-align: right;
+}

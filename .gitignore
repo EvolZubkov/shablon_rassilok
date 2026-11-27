@@ -17,3 +17,5 @@ protocol.log
 protocol.log.*
 credentials.json
 *.zip
+# локальные данные панели «Запланированные» (dev-режим)
+/scheduled/

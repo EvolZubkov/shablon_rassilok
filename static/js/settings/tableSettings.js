@@ -288,6 +288,7 @@ function renderTableSettings(container, block) {
     container.appendChild(createSettingRange('Размер шрифта ячеек', s.fontSize, block.id, 'fontSize', 10, 24, 1, 'px'));
     container.appendChild(createSettingInput('Цвет ссылок', s.linkColor, block.id, 'linkColor', 'color'));
     container.appendChild(createSettingInput('Цвет grid-линий', s.dividerColor, block.id, 'dividerColor', 'color'));
+    container.appendChild(createSettingRange('Толщина линий', s.dividerWidth ?? 2, block.id, 'dividerWidth', 1, 6, 1, 'px'));
     container.appendChild(createSettingRange('Отступ в ячейке (верт.)', s.cellPaddingV, block.id, 'cellPaddingV', 4, 48, 1, 'px'));
     container.appendChild(createSettingRange('Отступ в ячейке (гориз.)', s.cellPaddingH, block.id, 'cellPaddingH', 4, 64, 1, 'px'));
 }
