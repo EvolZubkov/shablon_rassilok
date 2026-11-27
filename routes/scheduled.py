@@ -8,7 +8,10 @@ Routes:
     - POST /api/scheduled/cancel  — отменить отправку письма
     - POST /api/scheduled/update  — изменить тему, получателей и время
     - GET  /api/scheduled/mailboxes — ящики для выбора
+    - GET  /api/scheduled/source  — сохранённые блоки письма
+    - POST /api/scheduled/body    — заменить текст письма
 """
+import datetime
 import re
 
 from flask import Blueprint, current_app, jsonify, request
@@ -16,7 +19,8 @@ from flask import Blueprint, current_app, jsonify, request
 import app as _m
 import scheduled_store as store
 from exchange_scheduled import (
-    ScheduledNotFound, cancel_scheduled, list_scheduled, update_scheduled,
+    ScheduledNotFound, cancel_scheduled, list_scheduled, replace_body,
+    update_scheduled,
 )
 from src.exchange_sender import ExchangeAuthError
 
@@ -73,6 +77,25 @@ def _run(action):
         return _failure('Внутренняя ошибка сервера', 500)
 
 
+def _letter_rows(from_email: str) -> list:
+    """Письма ящика с пометкой, можно ли править их текст на этом компьютере."""
+    store.prune_letters(_m.CACHE_BASE, datetime.datetime.now(datetime.timezone.utc))
+    rows = list_scheduled(_open_account(from_email))
+    return [{**row, 'editable': store.has_letter(_m.CACHE_BASE, row.get('schedule_id'))}
+            for row in rows]
+
+
+def _update_local_letter(schedule_id: str, **changes) -> None:
+    """Обновляет локальную копию; письмо на сервере уже изменено, сбой не критичен."""
+    letter = store.load_letter(_m.CACHE_BASE, schedule_id)
+    if letter is None:
+        return
+    try:
+        store.save_letter(_m.CACHE_BASE, schedule_id, {**letter, **changes})
+    except OSError as e:
+        current_app.logger.warning('scheduled: копия письма не обновлена: %s', e)
+
+
 @bp.before_request
 def _admin_only():
     if _m.get_app_mode() != 'admin':
@@ -110,7 +133,7 @@ def scheduled_mailboxes():
 @bp.route('/api/scheduled/list', methods=['GET'])
 def scheduled_list():
     from_email = request.args.get('from_email', '').strip()
-    return _run(lambda: {'items': list_scheduled(_open_account(from_email))})
+    return _run(lambda: {'items': _letter_rows(from_email)})
 
 
 @bp.route('/api/scheduled/cancel', methods=['POST'])
@@ -120,7 +143,14 @@ def scheduled_cancel():
     from_email = str(data.get('from_email') or '').strip()
     if not item_id:
         return _failure('Не указано письмо', 400)
-    return _run(lambda: {'subject': cancel_scheduled(_open_account(from_email), item_id)})
+    schedule_id = str(data.get('schedule_id') or '')
+
+    def cancel():
+        subject = cancel_scheduled(_open_account(from_email), item_id)
+        store.delete_letter(_m.CACHE_BASE, schedule_id)
+        return {'subject': subject}
+
+    return _run(cancel)
 
 
 @bp.route('/api/scheduled/update', methods=['POST'])
@@ -144,8 +174,43 @@ def scheduled_update():
         'timezone': timezone,
     }
 
+    schedule_id = str(data.get('schedule_id') or '')
+
     def apply():
         update_scheduled(_open_account(from_email), item_id, **changes)
+        send_at_utc = (send_at - datetime.timedelta(hours=timezone)).replace(
+            tzinfo=datetime.timezone.utc)
+        _update_local_letter(schedule_id, send_at=send_at_utc.isoformat())
+        return {}
+
+    return _run(apply)
+
+
+@bp.route('/api/scheduled/source', methods=['GET'])
+def scheduled_source():
+    letter = store.load_letter(_m.CACHE_BASE, request.args.get('schedule_id', ''))
+    if letter is None:
+        return _failure('Блоки этого письма на компьютере не сохранены', 404)
+    return jsonify({'success': True, 'letter': letter})
+
+
+@bp.route('/api/scheduled/body', methods=['POST'])
+def scheduled_body():
+    data = request.get_json(silent=True) or {}
+    schedule_id = str(data.get('schedule_id') or '')
+    html_body = str(data.get('html_body') or '')
+    blocks = data.get('blocks')
+    if not schedule_id or not html_body or not isinstance(blocks, list) or not blocks:
+        return _failure('Письмо пустое или не указано', 400)
+    letter = store.load_letter(_m.CACHE_BASE, schedule_id) or {}
+    from_email = str(data.get('from_email') or letter.get('from_email') or '').strip()
+
+    def apply():
+        replace_body(_open_account(from_email), schedule_id,
+                     _m.prepare_html_for_email(html_body),
+                     attachments=data.get('attachments') or [])
+        _update_local_letter(schedule_id, blocks=blocks,
+                             comment=str(data.get('comment') or ''))
         return {}
 
     return _run(apply)

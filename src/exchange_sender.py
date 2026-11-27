@@ -40,9 +40,17 @@ if EXCHANGELIB_AVAILABLE:
         property_tag  = 0x000F
         property_type = 'SystemTime'
 
+    class _ScheduleIdProp(ExtendedProperty):
+        # Именованное свойство: связывает письмо в «Исходящих» с локальными
+        # блоками. Переживает правку письма в Outlook.
+        distinguished_property_set_id = 'PublicStrings'
+        property_name = 'PochtelyeScheduleId'
+        property_type = 'String'
+
     for _name, _prop in (
         ('deferred_delivery_time', _DeferredDeliveryTimeProp),
         ('client_deferred_delivery_time', _ClientDeferredDeliveryTimeProp),
+        ('pochtelye_schedule_id', _ScheduleIdProp),
     ):
         try:
             Message.register(_name, _prop)
@@ -546,8 +554,11 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                         send_at: datetime.datetime = None,
                         timezone: float = 3.0,
                         importance: str = 'normal',
-                        read_receipt: bool = False) -> bool:
+                        read_receipt: bool = False,
+                        schedule_id: str = None) -> bool:
     """Отправляет HTML-письмо через Exchange.
+
+    ``schedule_id`` — метка отложенного письма, чтобы потом изменить его текст.
 
     Возвращает True, если письмо ушло от имени ящика с правом SendAs и копия
     в «Отправленные» не сохранена; иначе False.
@@ -580,6 +591,8 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
             deferred_at = _to_ews_datetime(send_at, timezone)
             msg.deferred_delivery_time = deferred_at
             msg.client_deferred_delivery_time = deferred_at
+            if schedule_id:
+                msg.pochtelye_schedule_id = schedule_id
             _logger.info('send_email: deferred until %s (tz UTC+%s)', send_at, timezone)
         for att in attachments:
             msg.attach(att)

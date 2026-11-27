@@ -87,6 +87,18 @@ describe('ScheduledPanel в старом браузере', () => {
         expect(window.document.querySelector('.sched-form')).toBeNull()
     })
 
+    it('кнопку «Текст» показывает только для писем с сохранёнными блоками', async () => {
+        const window = loadPanel([letter, { ...letter, id: '2', editable: true }])
+
+        await window.__panel.open()
+
+        const buttons = Array.from(window.document.querySelectorAll('.sched-actions'))
+            .map(cell => Array.from(cell.children).map(b => b.textContent))
+        expect(buttons).toEqual([
+            ['Изменить', 'Отменить'], ['Изменить', 'Текст', 'Отменить'],
+        ])
+    })
+
     it('стили диалогов не используют неподдерживаемые inset и gap', () => {
         const panelCss = fs.readFileSync('./static/scheduled-panel.css', 'utf8')
         const userCss = fs.readFileSync('./static/user-styles.css', 'utf8')

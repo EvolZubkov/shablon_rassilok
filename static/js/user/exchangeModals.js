@@ -1338,6 +1338,28 @@ const ExchangeModals = (() => {
         });
     }
 
+    // ─── Запланированные письма (админ) ──────────────────────────────────────
+
+    /** Самодостаточная копия блоков холста для последующей правки письма. */
+    async function _copyBlocksForLater() {
+        // В пользовательской версии панели «Запланированные» нет.
+        if (typeof UserAppState !== 'undefined' || typeof AppState === 'undefined') return null;
+        const blocks = JSON.parse(JSON.stringify(AppState.blocks || []));
+        await _resolveBlockImages(blocks);
+        return blocks;
+    }
+
+    /**
+     * Новый текст запланированного письма из того, что сейчас на холсте.
+     * @param {{subject: string, comment: string, review: boolean}} options
+     */
+    async function buildScheduledBody({ subject, comment, review }) {
+        const html = _injectPreamble(await _generateHtml(), comment);
+        const blocks = await _copyBlocksForLater();
+        const reviewFile = review ? await _buildReviewAttachment(subject) : null;
+        return { html_body: html, blocks, comment, attachments: reviewFile ? [reviewFile] : [] };
+    }
+
     // ─── Отправка письма ─────────────────────────────────────────────────────
 
     // ─── Вспомогательные функции для «На согласование» ───────────────────────
@@ -1479,6 +1501,9 @@ const ExchangeModals = (() => {
                 if (reviewAtt) attachments.push(reviewAtt);
             }
 
+            const blocks = sendAtVal ? await _copyBlocksForLater() : null;
+            const source = blocks && { blocks, comment: commentText, review: isReview };
+
             const r = await fetch('/api/send/email', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -1486,6 +1511,7 @@ const ExchangeModals = (() => {
                                        from_email: fromEmail, html_body: html,
                                        attachments,
                                        send_at:     sendAtVal || null,
+                                       source,
                                        timezone:    -(new Date().getTimezoneOffset() / 60),
                                        importance:  _q('email-importance')?.querySelector('.bm-imp-active')?.dataset.val || 'normal',
                                        read_receipt: _q('email-read-receipt')?.checked || false })
@@ -1999,6 +2025,7 @@ const ExchangeModals = (() => {
         createRepo,
         saveRepoPath,
         refreshRepoCache,
+        buildScheduledBody,
         sendEmail,
         sendMeeting,
         toggleEmailComment,

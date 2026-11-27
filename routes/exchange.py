@@ -19,6 +19,7 @@ import subprocess
 import sys
 import threading
 import time
+import uuid
 
 from flask import Blueprint, current_app, jsonify, request
 
@@ -411,6 +412,21 @@ def api_recipients_suggest():
     return jsonify({'success': True, 'suggestions': suggestions})
 
 
+def _save_scheduled_letter(schedule_id: str, source: dict, from_email: str,
+                           send_at_utc: datetime.datetime) -> None:
+    """Копия блоков для правки в панели. Письмо уже принято — сбой не критичен."""
+    try:
+        scheduled_store.save_letter(_m.CACHE_BASE, schedule_id, {
+            'blocks': source.get('blocks') or [],
+            'comment': str(source.get('comment') or ''),
+            'review': bool(source.get('review')),
+            'from_email': from_email,
+            'send_at': send_at_utc.replace(tzinfo=datetime.timezone.utc).isoformat(),
+        })
+    except OSError:
+        current_app.logger.warning('scheduled: копия письма не сохранена', exc_info=True)
+
+
 @bp.route('/api/send/email', methods=['POST'])
 def api_send_email():
     """Отправляет HTML-письмо через Exchange."""
@@ -459,6 +475,10 @@ def api_send_email():
         importance   = str(data.get('importance')   or 'normal').lower()
         read_receipt = bool(data.get('read_receipt'))
 
+        # Блоки сохраняем только там, где есть панель «Запланированные».
+        source = data.get('source') if send_at and _m.get_app_mode() == 'admin' else None
+        schedule_id = uuid.uuid4().hex if isinstance(source, dict) else None
+
         copy_skipped = _m.exchange_send_email(
             account, subject, html_body, to, cc, bcc,
             attachments=attachments,
@@ -466,7 +486,12 @@ def api_send_email():
             timezone=timezone,
             importance=importance,
             read_receipt=read_receipt,
+            schedule_id=schedule_id,
         )
+        if schedule_id and copy_skipped is not True:
+            _save_scheduled_letter(
+                schedule_id, source, from_email or creds['from_email'],
+                send_at - datetime.timedelta(hours=timezone))
         try:
             _m.log_send(len(to) + len(cc) + len(bcc))
         except Exception:

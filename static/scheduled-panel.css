@@ -205,3 +205,33 @@ textarea.sched-input {
   opacity: 0.48;
   cursor: default;
 }
+
+/* Полоса правки текста запланированного письма над холстом */
+.sched-editbar {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+  margin: 8px 12px 0;
+  padding: 12px;
+  background: var(--bg-secondary, #1e293b);
+  border: 1px solid var(--accent-primary, #f97316);
+  border-radius: 8px;
+  color: var(--text-primary, #f9fafb);
+}
+
+.sched-editbar > * + * {
+  margin-top: 8px;
+}
+
+.sched-editbar-text {
+  display: flex;
+  flex-direction: column;
+  font-size: 12px;
+  line-height: 16px;
+}
+
+body.sched-editing #btn-create-outlook,
+body.sched-editing #btn-create-meeting,
+body.sched-editing #btn-bulk-send {
+  display: none !important;
+}

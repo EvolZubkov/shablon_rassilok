@@ -5,6 +5,7 @@ exchange_scheduled.py — письма, ожидающие отложенной 
 Удаление оттуда отменяет отправку; менять такое письмо на месте сервер
 не разрешает (ErrorAccessDenied).
 """
+import base64
 import datetime
 import logging
 
@@ -27,14 +28,20 @@ _logger = logging.getLogger(__name__)
 #: PidTagMessageFlags: письмо передано на отправку и ждёт своего времени.
 _FLAG_SUBMITTED = 0x4
 
+_RECIPIENT_KINDS = ('to', 'cc', 'bcc')
+
 _LIST_FIELDS = (
     'subject', 'to_recipients', 'cc_recipients', 'bcc_recipients',
     'has_attachments', 'deferred_delivery_time', 'schedule_message_flags',
+    'pochtelye_schedule_id',
 )
 
 
 #: Запас времени: и старое, и новое время должны быть не ближе этого к «сейчас».
 MIN_LEAD = datetime.timedelta(minutes=2)
+
+_TOO_CLOSE_MESSAGE = ('До отправки слишком близко (меньше 2 минут) — '
+                      'письмо уже не изменить.')
 
 _GONE_MESSAGE = ('Письма уже нет в «Исходящих»: оно отправлено, отменено или изменено. '
                  'Обновите список.')
@@ -66,6 +73,7 @@ def _describe(item) -> dict:
         'send_at': item.deferred_delivery_time.isoformat(),
         'has_attachments': bool(item.has_attachments),
         'waiting': bool(flags & _FLAG_SUBMITTED),
+        'schedule_id': getattr(item, 'pochtelye_schedule_id', None),
     }
 
 
@@ -73,7 +81,7 @@ def list_scheduled(account) -> list:
     """Ожидающие письма ящика, ближайшие по времени — первыми.
 
     :returns: список словарей ``id, subject, to, cc, bcc, send_at (ISO, UTC),
-        has_attachments, waiting``. ``waiting=False`` — письмо сняли с отправки
+        has_attachments, waiting, schedule_id``. ``waiting=False`` — письмо сняли с отправки
         (например, открыли в Outlook и не отправили снова).
     """
     try:
@@ -125,24 +133,79 @@ def update_scheduled(account, item_id: str, *, subject: str, to: list, cc: list,
     """
     now = now or datetime.datetime.now(datetime.timezone.utc)
     _check_changes(subject, to, cc, bcc, send_at, timezone, now)
+
+    def build(old):
+        recipients = _new_recipients(account, old, {'to': to, 'cc': cc, 'bcc': bcc})
+        return _build_replacement(
+            account, old, subject=subject.strip(), recipients=recipients,
+            body=old.body or '', when=ex._to_ews_datetime(send_at, timezone),
+            attachments=_copy_files(old.attachments))
+
+    _swap(account, lambda item: item.id == item_id, build, now)
+    _logger.info('scheduled: письмо изменено, subject=%r', subject)
+
+
+def replace_body(account, schedule_id: str, html_body: str, *,
+                 attachments: list = None, now: datetime.datetime = None) -> None:
+    """Меняет текст ожидающего письма; тема, получатели и время остаются.
+
+    Картинки берутся из нового HTML, обычные вложения — из письма на сервере.
+
+    :param schedule_id: метка письма (``pochtelye_schedule_id``): в отличие от
+        id она не меняется при заменах.
+    :param attachments: новые файлы ``{name, content (base64), mime_type}``;
+        вложение с тем же именем (и прежний файл согласования) заменяется.
+    :raises ValueError: до отправки меньше двух минут.
+    :raises ScheduledNotFound: письма уже нет в «Исходящих».
+    :raises RuntimeError: заменить или отправить письмо не удалось.
+    """
+    now = now or datetime.datetime.now(datetime.timezone.utc)
+    added = [FileAttachment(name=a['name'], content=base64.b64decode(a['content']),
+                            content_type=a.get('mime_type') or 'application/octet-stream')
+             for a in attachments or []]
+    replaced_names = {a['name'] for a in attachments or []}
+
+    new_review = any(_is_review_file(name) for name in replaced_names)
+
+    def build(old):
+        html, pictures = ex._convert_data_images_to_cid(html_body)
+        files = [a for a in old.attachments or []
+                 if not a.is_inline and a.name not in replaced_names
+                 and not (new_review and _is_review_file(a.name))]
+        return _build_replacement(
+            account, old, subject=old.subject,
+            recipients={f'{kind}_recipients': getattr(old, f'{kind}_recipients')
+                        for kind in _RECIPIENT_KINDS},
+            body=html, when=old.deferred_delivery_time,
+            attachments=[*_copy_files(files), *pictures, *added])
+
+    _swap(account, lambda item: getattr(item, 'pochtelye_schedule_id', None) == schedule_id,
+          build, now)
+    _logger.info('scheduled: изменён текст письма')
+
+
+def _is_review_file(name: str) -> bool:
+    """JSON с блоками, который прикладывается к письму «На согласование»."""
+    name = name or ''
+    return name.startswith('review_') and name.endswith('.json')
+
+
+def _swap(account, matches, build, now) -> None:
+    """Находит письмо в «Исходящих» и заменяет его построенным ``build(old)``."""
     try:
-        old = next((i for i in account.outbox.all() if i.id == item_id), None)
+        old = next((i for i in account.outbox.all() if matches(i)), None)
         if old is None:
             raise ScheduledNotFound(_GONE_MESSAGE)
         waiting = bool((old.schedule_message_flags or 0) & _FLAG_SUBMITTED)
         if waiting and old.deferred_delivery_time - now < MIN_LEAD:
-            raise ValueError('До отправки слишком близко (меньше 2 минут) — '
-                             'письмо уже не изменить.')
-        new = _build_replacement(account, old, subject.strip(),
-                                 {'to': to, 'cc': cc, 'bcc': bcc},
-                                 ex._to_ews_datetime(send_at, timezone))
+            raise ValueError(_TOO_CLOSE_MESSAGE)
+        new = build(old)
         new.save()
     except (ScheduledNotFound, ValueError):
         raise
     except Exception as e:
         _raise_readable(e)
     _replace(account, old, new)
-    _logger.info('scheduled: письмо изменено, subject=%r', subject)
 
 
 def _check_changes(subject, to, cc, bcc, send_at, timezone, now) -> None:
@@ -156,31 +219,46 @@ def _check_changes(subject, to, cc, bcc, send_at, timezone, now) -> None:
         raise ValueError('Новое время должно быть не раньше чем через 2 минуты')
 
 
-def _build_replacement(account, old, subject: str, recipients: dict, when):
-    """Копия письма с новыми темой, получателями и временем (ещё не сохранена)."""
-    mailboxes = {}
-    for kind, addresses in recipients.items():
+def _new_recipients(account, old, addresses_by_kind: dict) -> dict:
+    """Получатели нового письма; неизменённые поля не разрешаются заново."""
+    result = {}
+    for kind, addresses in addresses_by_kind.items():
         current = getattr(old, f'{kind}_recipients')
         if addresses == _addresses(current):
-            mailboxes[f'{kind}_recipients'] = current  # без повторного разрешения имён
+            result[f'{kind}_recipients'] = current
         else:
-            mailboxes[f'{kind}_recipients'] = (
+            result[f'{kind}_recipients'] = (
                 ex._to_mailboxes(addresses, account) if addresses else None)
-    new = Message(account=account, folder=account.outbox, subject=subject,
-                  body=HTMLBody(old.body or ''), **mailboxes)
-    new.importance = old.importance
-    new.is_read_receipt_requested = old.is_read_receipt_requested
-    new.deferred_delivery_time = when
-    new.client_deferred_delivery_time = when
-    for attachment in old.attachments or []:
+    return result
+
+
+def _copy_files(attachments) -> list:
+    """Копии файловых вложений письма."""
+    copies = []
+    for attachment in attachments or []:
         content = getattr(attachment, 'content', None)
         if content is None:
             raise ValueError('В письме есть вложенное письмо или элемент Outlook — '
                              'измените его в самом Outlook.')
-        new.attach(FileAttachment(
+        copies.append(FileAttachment(
             name=attachment.name, content_type=attachment.content_type,
             content=content, is_inline=attachment.is_inline,
             content_id=attachment.content_id))
+    return copies
+
+
+def _build_replacement(account, old, *, subject, recipients: dict, body, when,
+                       attachments: list):
+    """Новое письмо взамен старого (ещё не сохранено)."""
+    new = Message(account=account, folder=account.outbox, subject=subject,
+                  body=HTMLBody(body), **recipients)
+    new.importance = old.importance
+    new.is_read_receipt_requested = old.is_read_receipt_requested
+    new.deferred_delivery_time = when
+    new.client_deferred_delivery_time = when
+    new.pochtelye_schedule_id = getattr(old, 'pochtelye_schedule_id', None)
+    for attachment in attachments:
+        new.attach(attachment)
     return new
 
 

@@ -73,14 +73,19 @@ const ScheduledPanel = (() => {
         const row = document.createElement('tr');
         const subject = _element('td', 'sched-subject', item.subject || '(без темы)');
         if (item.has_attachments) subject.append(_element('span', 'sched-note', 'с вложениями'));
+        if (!item.editable) {
+            subject.append(_element('span', 'sched-note',
+                'текст отсюда не изменить: письмо отложено не здесь или до обновления'));
+        }
         const when = _element('td', 'sched-when', _formatTime(item.send_at));
         if (!item.waiting) {
             when.append(_element('span', 'sched-note sched-note--warn',
                 'снято с отправки — само не уйдёт'));
         }
         const actions = _element('td', 'sched-actions');
-        actions.append(_button('Изменить', () => _edit(item)),
-            _button('Отменить', () => _cancel(item), 'sched-btn--danger'));
+        actions.append(_button('Изменить', () => _edit(item)));
+        if (item.editable) actions.append(_button('Текст', () => _editBody(item)));
+        actions.append(_button('Отменить', () => _cancel(item), 'sched-btn--danger'));
         row.append(subject, _element('td', 'sched-recipients', formatRecipients(item)),
             when, actions);
         return row;
@@ -127,6 +132,18 @@ const ScheduledPanel = (() => {
         _mailbox.style.display = _select.value === OTHER_MAILBOX ? '' : 'none';
     }
 
+    /** Открывает текст письма в конструкторе. */
+    async function _editBody(item) {
+        const mailbox = _selectedMailbox();
+        try {
+            const query = new URLSearchParams({ schedule_id: item.schedule_id });
+            const { letter } = await _request(`/api/scheduled/source?${query}`);
+            if (ScheduledBodyEditor.start(item, letter, mailbox)) _dialog.close();
+        } catch (error) {
+            Toast.error(error.message);
+        }
+    }
+
     function _showList(visible) {
         _listView.style.display = visible ? '' : 'none';
         _formView.style.display = visible ? 'none' : '';
@@ -138,8 +155,10 @@ const ScheduledPanel = (() => {
         _formView.appendChild(ScheduledEditForm.create(item, {
             onCancel: close,
             onSave: async (changes) => {
-                await _postJson('/api/scheduled/update',
-                    { ...changes, id: item.id, from_email: _selectedMailbox() });
+                await _postJson('/api/scheduled/update', {
+                    ...changes, id: item.id, schedule_id: item.schedule_id,
+                    from_email: _selectedMailbox(),
+                });
                 Toast.success('Письмо изменено');
                 close();
                 await refresh();
@@ -172,8 +191,9 @@ const ScheduledPanel = (() => {
             + 'Оно переместится в «Удалённые».')) return;
         _status.textContent = 'Отменяю…';
         try {
-            await _postJson('/api/scheduled/cancel',
-                { id: item.id, from_email: _selectedMailbox() });
+            await _postJson('/api/scheduled/cancel', {
+                id: item.id, schedule_id: item.schedule_id, from_email: _selectedMailbox(),
+            });
             Toast.success('Отправка отменена');
         } catch (error) {
             Toast.error(error.message);
@@ -220,6 +240,10 @@ const ScheduledPanel = (() => {
     }
 
     async function open() {
+        if (typeof ScheduledBodyEditor !== 'undefined' && ScheduledBodyEditor.isActive()) {
+            Toast.warning('Сначала сохраните или отмените правку письма');
+            return;
+        }
         if (!_dialog) _dialog = _build();
         _showList(true);
         _dialog.showModal();

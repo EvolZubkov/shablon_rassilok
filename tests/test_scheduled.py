@@ -25,6 +25,7 @@ def _item(item_id, subject='Тема', when=None, flags=0x40D, to=('a@rt.ru',)):
     item.cc_recipients = None
     item.bcc_recipients = None
     item.has_attachments = False
+    item.pochtelye_schedule_id = None
     return item
 
 
@@ -48,7 +49,7 @@ class TestListScheduled:
         assert result[0] == {
             'id': '1', 'subject': 'раньше', 'to': ['a@rt.ru'], 'cc': [], 'bcc': [],
             'send_at': '2026-12-01T09:00:00+00:00', 'has_attachments': False,
-            'waiting': True,
+            'waiting': True, 'schedule_id': None,
         }
 
     def test_item_without_submit_flag_is_not_waiting(self):
