@@ -114,6 +114,29 @@ function addBlock(type, parentId = null, position = null) {
     }
 }
 
+// Разница в процентах, при которой колонки считаются равными (33/33/34).
+const EQUAL_COLUMNS_TOLERANCE = 1;
+
+/**
+ * Ширина (px) для отрисовки карточки эксперта в колонке.
+ *
+ * В равных колонках берём ширину самой узкой: иначе колонка «34%» получала
+ * более широкий холст, текст переносился иначе, и после масштабирования под
+ * слот её карточка оказывалась ниже соседних.
+ *
+ * @param {Array<{width:number, blocks:Array<{id:number}>}>} columns
+ * @param {number} blockId
+ * @returns {number}
+ */
+function getExpertRenderWidth(columns, blockId) {
+    const own = columns.find(col => col.blocks.some(b => b.id === blockId));
+    if (!own) return 300;
+    const widths = columns.map(col => col.width);
+    const narrowest = Math.min(...widths);
+    const areEqual = Math.max(...widths) - narrowest <= EQUAL_COLUMNS_TOLERANCE;
+    return Math.round(600 * (areEqual ? narrowest : own.width) / 100);
+}
+
 // Рендерится ДВАЖДЫ: один раз для письма (forEmail=true — всегда тёмный
 // текст без фона, т.к. письмо почти всегда светлое, см. getExpertTextColor
 // в imageRenderers.js) и один раз только для отображения в канвасе
@@ -142,13 +165,7 @@ function renderExpertBlock(block) {
 
     const parentBlock = findParentBlockWithColumns(block.id);
     if (parentBlock) {
-        let columnWidth = 300;
-        for (const col of parentBlock.columns) {
-            if (col.blocks.some(b => b.id === block.id)) {
-                columnWidth = Math.round(600 * col.width / 100);
-                break;
-            }
-        }
+        const columnWidth = getExpertRenderWidth(parentBlock.columns, block.id);
         renderExpertVerticalToDataUrl(block, columnWidth, applyEmailResult, true);
         renderExpertVerticalToDataUrl(block, columnWidth, applyPreviewResult, false);
         return;

@@ -772,9 +772,27 @@ const ProfilesAdmin = (() => {
         if (result.success) {
             Toast.success('Профиль сохранён');
             await _loadProfilesList();
+            await _applySavedProfile();
         } else {
             Toast.error(result.error || 'Ошибка');
         }
+    }
+
+    /** Перечитывает активный профиль и перерисовывает баннеры на холсте. */
+    async function _applySavedProfile() {
+        if (typeof ProfileLoader === 'undefined') return;
+        await ProfileLoader.load();
+        if (typeof AppState === 'undefined' || typeof renderBannerToDataUrl !== 'function') return;
+
+        const collect = blocks => (blocks || []).flatMap(b => b.columns
+            ? b.columns.flatMap(col => collect(col.blocks))
+            : [b]);
+        collect(AppState.blocks)
+            .filter(b => b.type === 'banner')
+            .forEach(b => renderBannerToDataUrl(b, dataUrl => {
+                b.settings.renderedBanner = dataUrl || null;
+                renderCanvas();
+            }));
     }
 
     async function _delete() {

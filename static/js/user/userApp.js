@@ -889,39 +889,35 @@ function showPersonalSaveChoiceDialog(templateName) {
         const dlg = document.createElement('dialog');
         dlg.className = 'app-dialog';
 
-        const box = document.createElement('div');
-        box.style.cssText = 'width:100%;';
-
         const title = document.createElement('h3');
+        title.className = 'app-dialog__title';
         title.textContent = 'Сохранить шаблон';
-        title.style.cssText = 'margin:0 0 16px 0;font-size:18px;font-weight:600;';
 
         const text = document.createElement('p');
+        text.className = 'app-dialog__text';
         text.textContent = `Обновить личный шаблон «${templateName}» или сохранить изменения как новый?`;
-        text.style.cssText = 'margin:0 0 20px 0;font-size:14px;line-height:1.5;';
 
         const actions = document.createElement('div');
-        actions.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;';
+        actions.className = 'app-dialog__actions';
 
         const finish = (value) => {
             dlg.close();
             dlg.remove();
             resolve(value);
         };
-        const addButton = (label, value) => {
+        const addButton = (label, value, modifier = '') => {
             const btn = document.createElement('button');
             btn.type = 'button';
-            btn.className = 'btn-editor';
+            btn.className = `btn-editor ${modifier}`.trim();
             btn.textContent = label;
             btn.addEventListener('click', () => finish(value));
             actions.appendChild(btn);
         };
         addButton('Отмена', null);
         addButton('Сохранить как новый', 'new');
-        addButton('Обновить', 'update');
+        addButton('Обновить', 'update', 'btn-save');
 
-        box.append(title, text, actions);
-        dlg.appendChild(box);
+        dlg.append(title, text, actions);
         dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
         document.body.appendChild(dlg);
         dlg.showModal();

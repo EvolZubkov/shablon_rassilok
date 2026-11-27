@@ -377,6 +377,7 @@ const DEFAULT_SETTINGS = {
         fontSize: 15,
         lineHeight: 1.5,
         dividerColor: '#FFFFFF',
+        dividerWidth: 2,
         cellPaddingV: 22,
         cellPaddingH: 40,
         cellTextAlign: 'left', // 'left' | 'center' | 'right' — выравнивание текста в ячейках (шапка + тело)

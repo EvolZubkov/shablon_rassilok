@@ -243,7 +243,7 @@ function renderColumnsPreview(block) {
         // column.valign (если задан в панели настроек) важнее общего colValign.
         const columnAlignSelf = column.valign ? toAlignValue(column.valign) : 'auto';
         return `
-            <div class="column" style="width: calc((100% - ${totalGapPx}px) * ${column.width} / 100); min-width: 0; align-self: ${columnAlignSelf};" data-column-id="${column.id}">
+            <div class="column" style="width: calc((100% - ${totalGapPx}px) * ${ExpertRow.displayPercent(block.columns, column)} / 100); min-width: 0; align-self: ${columnAlignSelf};" data-column-id="${column.id}">
                 <div class="column-content" data-parent-id="${block.id}" data-column-id="${column.id}" style="gap:${blockGap}px;">
                     ${columnBlocks}
                     ${dropZoneHTML}

@@ -974,6 +974,7 @@ function generateTableHTML(s) {
     const cellPaddingV = s.cellPaddingV ?? 22;
     const cellPaddingH = s.cellPaddingH ?? 40;
     const dividerColor = s.dividerColor || '#FFFFFF';
+    const dividerWidth = Number(s.dividerWidth) || 2;
     const containerBg = s.containerBg || '#EBF1F6';
     const containerRadius = s.containerRadius ?? 28;
     const linkColor = s.linkColor || '#475569';
@@ -1084,7 +1085,7 @@ function generateTableHTML(s) {
     const headerCellsHTML = columns.map((col, i) => {
         const isLastCol = i === columns.length - 1;
         return `
-                <td bgcolor="${containerBg}" style="background-color:${containerBg}; width:${widths[i]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-weight:bold; font-size:${headerFontSize}px; color:${headerTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle}${isLastCol ? '' : ` border-right:2px solid ${dividerColor};`}">
+                <td bgcolor="${containerBg}" style="background-color:${containerBg}; width:${widths[i]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-weight:bold; font-size:${headerFontSize}px; color:${headerTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle}${isLastCol ? '' : ` border-right:${dividerWidth}px solid ${dividerColor};`}">
                     ${renderCell(col)}
                 </td>`;
     }).join('');
@@ -1093,13 +1094,13 @@ function generateTableHTML(s) {
         const isLastRow = rowIndex === rows.length - 1;
         const cellsHTML = columns.map((col, colIndex) => {
             const isLastCol = colIndex === columns.length - 1;
-            const borderRight = isLastCol ? '' : `border-right:2px solid ${dividerColor};`;
+            const borderRight = isLastCol ? '' : `border-right:${dividerWidth}px solid ${dividerColor};`;
             return `
                 <td bgcolor="${containerBg}" style="background-color:${containerBg}; width:${widths[colIndex]}%; padding:${cellPaddingV}px ${cellPaddingH}px; font-size:${fontSize}px; line-height:${lineHeight}; color:${bodyTextColor}; font-family:${fontFamily}; text-align:${cellTextAlign}; ${wrapStyle} ${borderRight}">
                     ${renderCell(row[colIndex])}
                 </td>`;
         }).join('');
-        return `<tr>${cellsHTML}</tr>${isLastRow ? '' : dividerRow(1)}`;
+        return `<tr>${cellsHTML}</tr>${isLastRow ? '' : dividerRow(dividerWidth)}`;
     }).join('');
 
     // Пиксельный width="${cardWidth}" на обеих таблицах карточки, а не
@@ -1117,7 +1118,7 @@ function generateTableHTML(s) {
                         <td bgcolor="${containerBg}" style="padding:15px 0 20px; background-color:${containerBg};">
                             <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="${cardWidth}" bgcolor="${containerBg}" style="width:${cardWidth}px; border-collapse:collapse; table-layout:fixed; background-color:${containerBg};">
                                 <tr>${headerCellsHTML}</tr>
-                                ${dividerRow(2)}
+                                ${dividerRow(dividerWidth)}
                                 ${bodyRowsHTML}
                             </table>
                         </td>
@@ -1138,7 +1139,8 @@ function generateExpertHTML(s) {
     const src = s.renderedExpert;
     if (!src) return '';
 
-    const maxWidth = getAvailableBlockWidth();
+    const available = getAvailableBlockWidth();
+    const maxWidth = Math.min(available, getCurrentEmailRenderContext().expertImageWidth || available);
     const width = Math.min(Number(s.renderedExpertWidth || maxWidth), maxWidth);
     const align = ['left', 'right', 'center'].includes(s.align) ? s.align : 'center';
     const isLite = (s.variant || 'full') === 'lite';
@@ -1472,6 +1474,13 @@ function generateColumnsHTML(block) {
             nominalCells.reduce((sum, w) => sum + w, 0)
         );
 
+    // Равные колонки с экспертами: все карточки одной ширины (по самому узкому
+    // слоту), иначе у средней колонки (отступы с двух сторон) картинка ниже.
+    const expertImageWidth = (typeof ExpertRow !== 'undefined')
+        ? ExpertRow.sharedImageWidth(block.columns, cellWidths.map((cell, index) =>
+            Math.max(1, cell - paddings[index].left - paddings[index].right)))
+        : null;
+
     const columnsContent = block.columns.map((column, index) => {
         const paddingLeft = paddings[index].left;
         const paddingRight = paddings[index].right;
@@ -1494,7 +1503,8 @@ function generateColumnsHTML(block) {
         // как parentBgColor выше) — у каждой колонки своя ширина.
         const savedColumnCtx = CURRENT_EMAIL_RENDER_CONTEXT;
         CURRENT_EMAIL_RENDER_CONTEXT = Object.assign(
-            {}, savedColumnCtx || buildEmailRenderContext(), { parentContentWidth: width }
+            {}, savedColumnCtx || buildEmailRenderContext(),
+            { parentContentWidth: width, expertImageWidth }
         );
         const columnBlocks = column.blocks
             .map((childBlock, blockIndex) => (blockIndex > 0 ? blockGapRow : '') + generateBlockHTML(childBlock))

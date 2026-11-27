@@ -329,6 +329,7 @@ function renderTablePreview(block) {
     const cellPaddingV = s.cellPaddingV ?? 22;
     const cellPaddingH = s.cellPaddingH ?? 40;
     const dividerColor = s.dividerColor || '#FFFFFF';
+    const dividerWidth = Number(s.dividerWidth) || 2;
     const containerBg = s.containerBg || '#EBF1F6';
     const containerRadius = s.containerRadius ?? 28;
     const linkColor = s.linkColor || '#475569';
@@ -389,13 +390,13 @@ function renderTablePreview(block) {
         .${scope} thead td { font-size:${headerFontSize}px; font-weight:bold; }
         ${sc3} td * { color:inherit !important; }
         ${sc3} td a { color:${linkColor} !important; text-decoration:underline; }
-        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:2px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} thead tr td::after { content:""; position:absolute; bottom:0; height:${dividerWidth}px; background-color:${dividerColor}; left:0; right:0; }
         .${scope} thead tr td:first-child::after { left:${cellPaddingH}px; }
         .${scope} thead tr td:last-child::after { right:${cellPaddingH}px; }
-        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:1px; background-color:${dividerColor}; left:0; right:0; }
+        .${scope} tbody tr:not(:last-child) td::after { content:""; position:absolute; bottom:0; height:${dividerWidth}px; background-color:${dividerColor}; left:0; right:0; }
         .${scope} tbody tr:not(:last-child) td:first-child::after { left:${cellPaddingH}px; }
         .${scope} tbody tr:not(:last-child) td:last-child::after { right:${cellPaddingH}px; }
-        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:2px; background-color:${dividerColor}; top:0; bottom:0; }
+        .${scope} td:not(:last-child)::before { content:""; position:absolute; right:0; width:${dividerWidth}px; background-color:${dividerColor}; top:0; bottom:0; }
         .${scope} thead td:not(:last-child)::before { top:10px; }
         .${scope} tbody tr:last-child td:not(:last-child)::before { bottom:15px; }
     `;

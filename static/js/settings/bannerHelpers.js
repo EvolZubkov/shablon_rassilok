@@ -1012,15 +1012,6 @@ function interpolateGradientHex(startHex, endHex, ratio) {
     return `#${toHex(start.r + (end.r - start.r) * safeRatio)}${toHex(start.g + (end.g - start.g) * safeRatio)}${toHex(start.b + (end.b - start.b) * safeRatio)}`;
 }
 
-/** Размер шрифта дополнительных текстов баннера из профиля аудитории (по умолчанию 16). */
-function _profileExtraBannerFontSize() {
-    const defaults = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
-        ? ProfileLoader.getBlockDefaults('banner')
-        : null;
-    const size = Number(defaults && defaults.extraFontSize);
-    return size > 0 ? size : 16;
-}
-
 function addBannerTextElement(blockId) {
     const block = AppState.findBlockById(blockId);
     if (!block) return;
@@ -1033,7 +1024,7 @@ function addBannerTextElement(blockId) {
         text: 'Новый текст',
         x: 24,
         y: 50 + (s.textElements.length * 40),
-        fontSize: _profileExtraBannerFontSize(),
+        fontSize: 16,
         fontFamily: 'rt-regular',
         lineHeight: 1.0,
         color: '#ffffff',

@@ -770,11 +770,48 @@ function measureMultilineText(ctx, text, fontSize, lineHeight = 1.4) {
 
     return { width: maxWidth, height: totalHeight, lineCount: lines.length };
 }
+// Размеры шрифта баннера по умолчанию: первый текст и все остальные
+const BANNER_TITLE_FONT_SIZE = 28;
+const BANNER_EXTRA_FONT_SIZE = 14;
+
+/**
+ * Размер шрифта текста баннера: из профиля аудитории («Баннер» → «Шрифт:
+ * текст 1» / «Шрифт: доп. тексты»), иначе стандартный.
+ *
+ * @param {number} index - номер текстового элемента (0 — первый)
+ * @returns {number}
+ */
+function getBannerTextFontSize(index) {
+    const defaults = (typeof ProfileLoader !== 'undefined' && ProfileLoader.loaded)
+        ? ProfileLoader.getBlockDefaults('banner')
+        : null;
+    const isTitle = index === 0;
+    const size = Number(defaults && defaults[isTitle ? 'titleFontSize' : 'extraFontSize']);
+    if (size > 0) return size;
+    return isTitle ? BANNER_TITLE_FONT_SIZE : BANNER_EXTRA_FONT_SIZE;
+}
+
+// Цвета плашки баннера, на которых текст всегда белый (по макету бренда),
+// хотя по контрасту выбрался бы тёмный.
+const WHITE_TEXT_BADGE_COLORS = new Set(['#ffb608', '#29cca3', '#ff5e2e', '#fe842d']);
+
+/**
+ * Цвет текста на плашке баннера.
+ * @param {string} badgeColor - hex-цвет плашки
+ * @returns {string}
+ */
+function getBadgeTextColor(badgeColor) {
+    const hex = String(badgeColor || '').trim().toLowerCase();
+    const normalized = hex.startsWith('#') ? hex : `#${hex}`;
+    if (WHITE_TEXT_BADGE_COLORS.has(normalized)) return '#ffffff';
+    return getReadableTextColor(badgeColor);
+}
+
 // Рисуем текстовый элемент
 function drawBannerTextElement(ctx, el, iconImg, index = 0, bgColor = '#1D2533') {
     const x = el.x || 0;
     const y = el.y || 0;
-    const fontSize = (index === 0) ? 28 : 14;
+    const fontSize = getBannerTextFontSize(index);
     const fontFamily = getBannerFontFamily(el.fontFamily || 'rt-regular');
     const color = getReadableTextColor(bgColor);
     // Кавычки в тексте баннера — всегда «ёлочки» (хранимый текст не меняем).
@@ -827,7 +864,7 @@ function drawBannerTextElement(ctx, el, iconImg, index = 0, bgColor = '#1D2533')
         ctx.fill();
 
         // Auto-select text color for readability on the badge background
-        const badgeTextColor = getReadableTextColor(badgeColor);
+        const badgeTextColor = getBadgeTextColor(badgeColor);
 
         // Vertical center of the badge
         const badgeCenterY = badgeY + badgeHeight / 2;
