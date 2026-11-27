@@ -478,6 +478,9 @@ def api_send_email():
             )
             msg = (f'Письмо запланировано на {send_at.strftime("%d.%m.%Y %H:%M")}'
                    f' (tz=UTC+{timezone:.0f}, UTC: {send_at_utc.strftime("%H:%M")})')
+            if copy_skipped is not True:
+                msg += ('. До этого времени оно лежит в «Исходящих»: чтобы изменить, '
+                        'откройте его там и отправьте снова')
         else:
             msg = 'Письмо отправлено'
         if copy_skipped is True:

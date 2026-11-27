@@ -29,17 +29,25 @@ _logger = logging.getLogger(__name__)
 # серверной очереди отложенной доставки. Exchange удерживает письмо и
 # отправляет в указанное время без участия клиента.
 # Тег 0x3FEF (PidTagDeferredSendTime), тип PT_SYSTIME (0x0040).
-# Не путать с 0x000F (PR_DEFERRED_DELIVERY_TIME) — это клиентское свойство
-# Outlook, Exchange transport его игнорирует при EWS-отправке.
+# Рядом ставим и 0x000F (PR_DEFERRED_DELIVERY_TIME): Outlook заполняет оба, по
+# нему он показывает и сохраняет задержку, когда пользователь правит письмо.
 if EXCHANGELIB_AVAILABLE:
     class _DeferredDeliveryTimeProp(ExtendedProperty):
         property_tag  = 0x3FEF
         property_type = 'SystemTime'
 
-    try:
-        Message.register('deferred_delivery_time', _DeferredDeliveryTimeProp)
-    except Exception:
-        pass
+    class _ClientDeferredDeliveryTimeProp(ExtendedProperty):
+        property_tag  = 0x000F
+        property_type = 'SystemTime'
+
+    for _name, _prop in (
+        ('deferred_delivery_time', _DeferredDeliveryTimeProp),
+        ('client_deferred_delivery_time', _ClientDeferredDeliveryTimeProp),
+    ):
+        try:
+            Message.register(_name, _prop)
+        except ValueError:
+            pass  # свойство уже зарегистрировано (повторный импорт модуля)
 
 
 # ─── Утилиты ─────────────────────────────────────────────────────────────────
@@ -438,6 +446,43 @@ def _send_message(msg: 'Message') -> bool:
         return True
 
 
+def _submit_deferred(msg: 'Message') -> bool:
+    """Отправляет отложенное письмо так же, как это делает Outlook.
+
+    Письмо сохраняется в «Исходящие» и оттуда отправляется (SendItem) с копией
+    в «Отправленные». До времени доставки на сервере есть ОДИН объект в
+    «Исходящих»: его можно открыть, поправить и отправить снова — получатель
+    получит только исправленную версию. Прямой send() сразу клал отдельную
+    копию в «Отправленные», и её повторная отправка давала два письма.
+
+    :returns: True, если копия НЕ сохраняется (ящик только с SendAs), иначе False.
+    """
+    try:
+        msg.folder = msg.account.outbox
+        sent_folder = msg.account.sent
+        msg.save()
+    except Exception as e:
+        if not _is_mailbox_folders_unavailable(e):
+            raise
+        msg.folder = None
+        return _send_message(msg)
+    try:
+        msg.send(save_copy=True, copy_to_folder=sent_folder)
+    except Exception:
+        _discard_unsent(msg)
+        raise
+    return False
+
+
+def _discard_unsent(msg: 'Message') -> None:
+    """Удаляет сохранённое, но не отправленное письмо из «Исходящих»."""
+    try:
+        msg.delete()
+    except Exception as e:  # исходная ошибка отправки важнее — только логируем
+        _logger.warning('send_email: не удалось убрать неотправленное письмо '
+                        'из «Исходящих»: %s: %s', type(e).__name__, e)
+
+
 def _convert_data_images_to_cid(html_body: str):
     """
     Заменяет все data:image/... на CID-вложения.
@@ -532,7 +577,9 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
         if read_receipt:
             msg.is_read_receipt_requested = True
         if send_at is not None:
-            msg.deferred_delivery_time = _to_ews_datetime(send_at, timezone)
+            deferred_at = _to_ews_datetime(send_at, timezone)
+            msg.deferred_delivery_time = deferred_at
+            msg.client_deferred_delivery_time = deferred_at
             _logger.info('send_email: deferred until %s (tz UTC+%s)', send_at, timezone)
         for att in attachments:
             msg.attach(att)
@@ -548,13 +595,11 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                 msg.attach(file_att)
             except Exception as e:
                 _logger.warning('attachment skipped %s: %s', file_data.get('name'), e)
-        # Письмо с отложенной доставкой тоже ОТПРАВЛЯЕТСЯ (CreateItem/SendAndSaveCopy):
-        # свойство PidTagDeferredSendTime (0x3FEF) заставляет транспорт Exchange
-        # удерживать его в серверной очереди до указанного времени. Простое
-        # msg.save() в Outbox создаёт неотправленный черновик, который транспорт
-        # не берёт — он так и остаётся в «Исходящих» (в Outlook значок карандаша).
         _logger.debug('send_email: calling msg.send()')
-        copy_skipped = _send_message(msg)
+        if send_at is not None:
+            copy_skipped = _submit_deferred(msg)
+        else:
+            copy_skipped = _send_message(msg)
         if send_at is not None:
             _logger.info('send_email: submitted with deferred delivery, scheduled=%s utc=%s',
                          send_at, _to_ews_datetime(send_at, timezone))

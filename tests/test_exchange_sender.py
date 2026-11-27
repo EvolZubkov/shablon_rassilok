@@ -669,22 +669,58 @@ class TestDeferredDelivery:
             )
             instance.send.assert_called_once()
 
-    def test_send_at_is_submitted_not_saved_to_outbox(self):
-        """Отложенное письмо отправляется (send), а не сохраняется черновиком в Outbox:
-        сохранённый через save() черновик серверная очередь Exchange не подхватывает."""
-        account = self._make_account()
+    def _send_deferred(self, account, instance, **kwargs):
         send_at = datetime.datetime(2026, 9, 1, 10, 0, 0)
         sentinel = object()
-        with patch('exchange_sender.Message') as MockMsg,              patch('exchange_sender.HTMLBody'),              patch('exchange_sender._to_ews_datetime', return_value=sentinel) as to_ews,              patch('exchange_sender._convert_data_images_to_cid',
+        instance.account = account
+        with patch('exchange_sender.Message', return_value=instance),              patch('exchange_sender.HTMLBody'),              patch('exchange_sender.Mailbox'),              patch('exchange_sender._to_ews_datetime', return_value=sentinel) as to_ews,              patch('exchange_sender._convert_data_images_to_cid',
                    return_value=('<p>html</p>', [])):
-            instance = MagicMock()
-            MockMsg.return_value = instance
-            exchange_send_email(account, 'Тема', '<p>html</p>',
-                                to=['a@rt.ru'], send_at=send_at, timezone=4.0)
-            instance.send.assert_called_once()
-            instance.save.assert_not_called()
-            to_ews.assert_any_call(send_at, 4.0)
-            assert instance.__dict__['deferred_delivery_time'] is sentinel
+            result = exchange_send_email(account, 'Тема', '<p>html</p>',
+                                         to=['a@rt.ru'], send_at=send_at,
+                                         timezone=4.0, **kwargs)
+        to_ews.assert_any_call(send_at, 4.0)
+        return result, sentinel
+
+    def test_deferred_is_saved_to_outbox_then_submitted(self):
+        """Как у Outlook: один объект в «Исходящих», после доставки копия в «Отправленных»."""
+        account = self._make_account()
+        instance = MagicMock()
+        order = []
+        instance.save.side_effect = lambda *a, **k: order.append(('save', instance.folder))
+        instance.send.side_effect = lambda *a, **k: order.append(('send', k))
+
+        copy_skipped, sentinel = self._send_deferred(account, instance)
+
+        assert copy_skipped is False
+        assert order == [
+            ('save', account.outbox),
+            ('send', {'save_copy': True, 'copy_to_folder': account.sent}),
+        ]
+        assert instance.__dict__['deferred_delivery_time'] is sentinel
+        assert instance.__dict__['client_deferred_delivery_time'] is sentinel
+
+    def test_deferred_submit_failure_removes_saved_item(self):
+        """Если отправка не удалась, в «Исходящих» не должен остаться неотправленный черновик."""
+        account = self._make_account()
+        instance = MagicMock()
+        instance.send.side_effect = RuntimeError('boom')
+
+        with pytest.raises(RuntimeError):
+            self._send_deferred(account, instance)
+
+        instance.delete.assert_called_once()
+
+    def test_deferred_send_as_mailbox_falls_back_without_copy(self):
+        """Ящик только с SendAs: «Исходящих» нет, отправляем без копии."""
+        account = self._make_account()
+        instance = MagicMock()
+        instance.save.side_effect = Exception('ErrorFolderNotFound')
+        instance.send.side_effect = [Exception('ErrorFolderNotFound'), None]
+
+        copy_skipped, _ = self._send_deferred(account, instance)
+
+        assert copy_skipped is True
+        assert instance.send.call_args_list[-1] == call(save_copy=False)
 
 
 class TestToEwsDatetime:
