@@ -474,9 +474,10 @@ const TextSanitizer = (() => {
      * @param {string} text - plain text content of a single DOM text node
      * @returns {string}
      */
-    function _replaceDash(text) {
+    function _replaceDash(text, atLineStart = true) {
         // Case 3: hyphen at start of text (optionally preceded by whitespace) — list item
-        text = text.replace(/^(\s*)-(?=\s+\S)/, '$1\u2014');
+        // \u0422\u043e\u043b\u044c\u043a\u043e \u0432 \u043d\u0430\u0447\u0430\u043b\u0435 \u0441\u0442\u0440\u043e\u043a\u0438: \u0442\u0435\u043a\u0441\u0442 \u043f\u043e\u0441\u043b\u0435 \u0441\u0441\u044b\u043b\u043a\u0438 \u2014 \u043f\u0440\u043e\u0434\u043e\u043b\u0436\u0435\u043d\u0438\u0435 \u0441\u0442\u0440\u043e\u043a\u0438.
+        if (atLineStart) text = text.replace(/^(\s*)-(?=\s+\S)/, '$1\u2014');
 
         // Case 2: hyphen after sentence punctuation (, . ! ? ; :) with optional surrounding spaces
         text = text.replace(/([,\.!?;:])\s*-(?=\s)/g, '$1\u2014');
@@ -489,7 +490,8 @@ const TextSanitizer = (() => {
         text = text.replace(/[\s\u00A0]*\u2014[\s\u00A0]*/g, ' \u2014 ');
 
         // But do not leave a leading space if dash is at the very start of the node.
-        text = text.replace(/^ \u2014 /, '\u2014 ');
+        // \u041f\u043e\u0441\u043b\u0435 inline-\u044d\u043b\u0435\u043c\u0435\u043d\u0442\u0430 (\u0441\u0441\u044b\u043b\u043a\u0438) \u043f\u0440\u043e\u0431\u0435\u043b \u043f\u0435\u0440\u0435\u0434 \u0442\u0438\u0440\u0435 \u0434\u043e\u043b\u0436\u0435\u043d \u043e\u0441\u0442\u0430\u0442\u044c\u0441\u044f.
+        if (atLineStart) text = text.replace(/^ \u2014 /, '\u2014 ');
 
         return text;
     }
@@ -507,7 +509,10 @@ const TextSanitizer = (() => {
         for (const child of Array.from(root.childNodes)) {
             if (child.nodeType === 3) {
                 let t = child.textContent;
-                t = _replaceDash(t);
+                const prev = child.previousSibling;
+                const atLineStart = (!prev || (prev.nodeName === 'BR')) &&
+                    (root.nodeName === 'P' || root.nodeName === 'DIV');
+                t = _replaceDash(t, atLineStart);
                 t = _nbspHanging(t);
                 child.textContent = t;
             } else if (child.nodeType === 1) {

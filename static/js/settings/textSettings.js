@@ -8,7 +8,9 @@ function renderTextSettings(container, block) {
     // Конвертируем s.content (simple HTML) → plain text для textarea
     const plainTextValue = TextSanitizer.toPlainText(s.content || '');
 
-    const textarea = createSettingTextarea('Содержимое', plainTextValue, block.id, 'content', 6);
+    const textarea = createSettingTextarea('Содержимое', plainTextValue, block.id, 'content', 12);
+    // Крупное окно и шрифт — для удобства редактирования длинных текстов
+    textarea.querySelector('textarea')?.classList.add('setting-textarea--content');
     container.appendChild(textarea);
 
     // Перехватываем изменения — конвертируем plain text → simple HTML при сохранении

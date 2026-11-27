@@ -926,3 +926,50 @@ class TestSuggestRecipients:
     def test_name_falls_back_to_email_when_missing(self):
         out, _ = self._run([(_mb(None, 'x@rt.ru'), None)])
         assert out[0]['name'] == ''
+
+
+# ─── SendAs: ящик без доступа к папкам ─────────────────────────────────────
+
+class TestSendAsFallback:
+
+    def _account(self):
+        acc = MagicMock()
+        acc.primary_smtp_address = 'benefit@rt.ru'
+        return acc
+
+    def test_full_access_sends_with_copy_and_returns_false(self):
+        with patch('exchange_sender.Message') as MsgCls:
+            msg = MsgCls.return_value
+            msg.account = self._account()
+            result = exchange_send_email(msg.account, 'Тема', '<p>x</p>', ['a@rt.ru'])
+        assert result is False
+        msg.send.assert_called_once_with()
+
+    def test_folder_not_found_falls_back_to_send_as_without_copy(self):
+        err = Exception("[ErrorFolderNotFound]: No usable default SentItems folders")
+        with patch('exchange_sender.Message') as MsgCls, \
+             patch('exchange_sender.Mailbox') as MailboxCls:
+            msg = MsgCls.return_value
+            msg.account = self._account()
+            msg.send.side_effect = [err, None]
+            result = exchange_send_email(msg.account, 'Тема', '<p>x</p>', ['a@rt.ru'])
+        assert result is True
+        assert msg.send.call_args_list[1] == call(save_copy=False)
+        MailboxCls.assert_called_with(email_address='benefit@rt.ru')
+        assert msg.author is MailboxCls.return_value
+
+    def test_other_errors_are_not_swallowed(self):
+        with patch('exchange_sender.Message') as MsgCls:
+            msg = MsgCls.return_value
+            msg.account = self._account()
+            msg.send.side_effect = Exception('boom')
+            with pytest.raises(RuntimeError):
+                exchange_send_email(msg.account, 'Тема', '<p>x</p>', ['a@rt.ru'])
+        assert msg.send.call_count == 1
+
+    def test_draft_on_send_as_mailbox_gives_clear_error(self):
+        acc = self._account()
+        with patch('exchange_sender.Message') as MsgCls:
+            MsgCls.return_value.save.side_effect = Exception('ErrorFolderNotFound')
+            with pytest.raises(RuntimeError, match='SendAs'):
+                exchange_save_draft(acc, 'Тема', '<p>x</p>', ['a@rt.ru'])

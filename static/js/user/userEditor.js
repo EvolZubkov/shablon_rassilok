@@ -659,7 +659,8 @@ function renderUserButton(block) {
                 background:${color};
                 color:#ffffff;
                 border-radius:6px;
-                font-weight:600;
+                font-weight:500;
+                font-family:RostelecomBasis-Medium, Arial, sans-serif;
             ">${s.text || 'Кнопка'}</span>
         </div>
     `;
@@ -1582,8 +1583,11 @@ function openListEditor(blockId) {
             if (startGroup) startGroup.style.display = isNumbered ? 'block' : 'none';
             if (formatGroup) formatGroup.style.display = isNumbered ? 'block' : 'none';
             if (iconGroup) iconGroup.style.display = isNumbered ? 'none' : 'block';
-            s.listStyle = isNumbered ? 'numbered' : 'bullets';
-            s.bulletSize = isNumbered ? 40 : 20;
+            const nextStyle = isNumbered ? 'numbered' : 'bullets';
+            if (s.listStyle !== nextStyle) {
+                s.listStyle = nextStyle;
+                s.bulletSize = isNumbered ? 40 : 20;
+            }
         };
     });
 
@@ -1633,8 +1637,13 @@ function openListEditor(blockId) {
         pushUndoState();
         // Собираем данные
         const activeType = modal.querySelector('.toggle-buttons .toggle-btn.active');
+        const prevListStyle = s.listStyle;
         s.listStyle = activeType ? activeType.dataset.value : 'bullets';
-        s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
+        // Размер буллета меняем только при смене стиля списка — иначе
+        // сбрасывался заданный ранее (меньший) размер.
+        if (s.listStyle !== prevListStyle || !s.bulletSize) {
+            s.bulletSize = s.listStyle === 'numbered' ? 40 : 20;
+        }
         const startRaw = parseInt(document.getElementById('list-start-number').value);
         s.startNumber = isNaN(startRaw) ? 1 : startRaw;
         const activeFormat = document.querySelector('#number-format-group .toggle-btn.active');

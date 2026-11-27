@@ -458,7 +458,7 @@ def api_send_email():
         importance   = str(data.get('importance')   or 'normal').lower()
         read_receipt = bool(data.get('read_receipt'))
 
-        _m.exchange_send_email(
+        copy_skipped = _m.exchange_send_email(
             account, subject, html_body, to, cc, bcc,
             attachments=attachments,
             send_at=send_at,
@@ -480,6 +480,9 @@ def api_send_email():
                    f' (tz=UTC+{timezone:.0f}, UTC: {send_at_utc.strftime("%H:%M")})')
         else:
             msg = 'Письмо отправлено'
+        if copy_skipped is True:
+            msg += (' от имени ящика (SendAs). Копия в «Отправленные» '
+                    'не сохранена: доступа к папкам ящика нет')
         return jsonify({'success': True, 'message': msg})
 
     except ExchangeAuthError as e:

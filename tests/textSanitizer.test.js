@@ -557,3 +557,17 @@ describe('TextSanitizer.sanitize — цвет фрагмента', () => {
         expect(r).toContain('текст')
     })
 })
+
+// ─── applyTypography() — тире после ссылки ────────────────────────────────
+
+describe('TextSanitizer.applyTypography — тире после ссылки', () => {
+    it('сохраняет пробел между ссылкой и тире', () => {
+        const r = TextSanitizer.applyTypography('<p><a href="https://rt.ru">ссылка</a> - описание</p>')
+        expect(r).toContain('</a> — ')
+    })
+
+    it('в начале абзаца пробел перед тире не добавляется', () => {
+        const r = TextSanitizer.applyTypography('<p>- пункт</p>')
+        expect(r).toBe('<p>— пункт</p>')
+    })
+})

@@ -10,6 +10,7 @@ const UserAppState = {
     categories: [],
     currentCategory: 'all',
     currentTemplate: null,
+    currentTemplateRef: null,  // { id, type } открытого шаблона
     blocks: [],
     originalBlocks: [],
     selectedBlockId: null,
@@ -579,6 +580,7 @@ async function openTemplate(id, type) {
 
         if (templateData && templateData.blocks) {
             UserAppState.currentTemplate = templateData;
+            UserAppState.currentTemplateRef = { id: templateData.id || id, type };
             UserAppState.originalBlocks = JSON.parse(JSON.stringify(templateData.blocks));
             UserAppState.blocks = JSON.parse(JSON.stringify(templateData.blocks));
             UserAppState.originalBlocks = JSON.parse(JSON.stringify(UserAppState.blocks));
@@ -637,6 +639,7 @@ function goBack() {
     }
 
     UserAppState.currentTemplate = null;
+    UserAppState.currentTemplateRef = null;
     UserAppState.blocks = [];
     UserAppState.selectedBlockId = null;
     UserAppState.isDirty = false;
@@ -704,6 +707,7 @@ async function checkAndRestoreDraft() {
 
     UserAppState.blocks = blocks;
     UserAppState.currentTemplate = null;
+    UserAppState.currentTemplateRef = null;
     UserAppState.isDirty = true;
 
     const titleEl = document.getElementById('current-template-name');
@@ -836,6 +840,17 @@ async function showUserPreview() {
 async function saveAsPersonal() {
     if (!UserAppState.allowSavePersonal) return;
 
+    // Открыт личный шаблон — спрашиваем: обновить его или сохранить копией.
+    const ref = UserAppState.currentTemplateRef;
+    if (ref && ref.type === 'personal' && UserAppState.currentTemplate) {
+        const choice = await showPersonalSaveChoiceDialog(UserAppState.currentTemplate.name || 'Шаблон');
+        if (choice === 'update') {
+            await updatePersonalTemplate(ref.id);
+            return;
+        }
+        if (choice !== 'new') return;
+    }
+
     const baseName = UserAppState.currentTemplate?.name || 'Шаблон';
     const prefix = baseName + '_';
     const existing = UserAppState.personalTemplates
@@ -860,6 +875,79 @@ async function saveAsPersonal() {
         }
     } catch (error) {
         console.error('[USER APP] Error saving personal template:', error);
+        toaster.resolve('error', 'Ошибка сохранения');
+    }
+}
+
+/**
+ * Диалог выбора при сохранении открытого личного шаблона.
+ * @param {string} templateName
+ * @returns {Promise<'update'|'new'|null>} null — пользователь отменил
+ */
+function showPersonalSaveChoiceDialog(templateName) {
+    return new Promise((resolve) => {
+        const dlg = document.createElement('dialog');
+        dlg.className = 'app-dialog';
+
+        const box = document.createElement('div');
+        box.style.cssText = 'width:100%;';
+
+        const title = document.createElement('h3');
+        title.textContent = 'Сохранить шаблон';
+        title.style.cssText = 'margin:0 0 16px 0;font-size:18px;font-weight:600;';
+
+        const text = document.createElement('p');
+        text.textContent = `Обновить личный шаблон «${templateName}» или сохранить изменения как новый?`;
+        text.style.cssText = 'margin:0 0 20px 0;font-size:14px;line-height:1.5;';
+
+        const actions = document.createElement('div');
+        actions.style.cssText = 'display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;';
+
+        const finish = (value) => {
+            dlg.close();
+            dlg.remove();
+            resolve(value);
+        };
+        const addButton = (label, value) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'btn-editor';
+            btn.textContent = label;
+            btn.addEventListener('click', () => finish(value));
+            actions.appendChild(btn);
+        };
+        addButton('Отмена', null);
+        addButton('Сохранить как новый', 'new');
+        addButton('Обновить', 'update');
+
+        box.append(title, text, actions);
+        dlg.appendChild(box);
+        dlg.addEventListener('cancel', (e) => { e.preventDefault(); finish(null); });
+        document.body.appendChild(dlg);
+        dlg.showModal();
+    });
+}
+
+/**
+ * Перезаписать содержимое открытого личного шаблона.
+ * @param {string} id
+ */
+async function updatePersonalTemplate(id) {
+    const toaster = Toast.loading('Сохранение…');
+    try {
+        const ok = await TemplatesAPI.update(id, 'personal', UserAppState.blocks, null);
+        if (ok) {
+            UserAppState.isDirty = false;
+            UserAppState.originalBlocks = JSON.parse(JSON.stringify(UserAppState.blocks));
+            updateUserEditorMeta();
+            toaster.resolve('success', 'Шаблон обновлён');
+            await loadPersonalTemplates();
+            renderCategoryTabs();
+        } else {
+            toaster.resolve('error', 'Ошибка сохранения');
+        }
+    } catch (error) {
+        console.error('[USER APP] Error updating personal template:', error);
         toaster.resolve('error', 'Ошибка сохранения');
     }
 }

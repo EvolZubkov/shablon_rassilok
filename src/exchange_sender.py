@@ -371,6 +371,13 @@ def _wrap_exchange_error(exc: Exception) -> None:
                                 'ErrorAccessDenied')):
         raise ExchangeAuthError('Неверный логин или пароль / нет доступа к ящику')
 
+    # Ящик только с правом SendAs: папок («Отправленные», «Календарь») нет
+    if _is_mailbox_folders_unavailable(exc):
+        raise RuntimeError(
+            'Нет доступа к папкам этого ящика (у вас, вероятно, только право '
+            'SendAs). Письмо можно отправить от его имени; черновики и встречи '
+            'в нём создавать нельзя — выберите свой ящик.')
+
     # Non-existent mailbox
     if 'NonExistentMailbox' in name or 'ErrorNonExistentMailbox' in name:
         raise ValueError('Почтовый ящик не найден на сервере Exchange')
@@ -397,6 +404,39 @@ def _wrap_exchange_error(exc: Exception) -> None:
 
 
 # ─── Отправка письма ─────────────────────────────────────────────────────────
+
+def _is_mailbox_folders_unavailable(exc: Exception) -> bool:
+    """True, если ошибка значит «нет доступа к папкам ящика».
+
+    Так выглядит ящик с правом только SendAs: exchangelib не находит у него
+    «Отправленные»/«Черновики» (ErrorFolderNotFound / «No usable default …
+    folders»), хотя отправлять от его имени разрешено.
+    """
+    return ('ErrorFolderNotFound' in type(exc).__name__
+            or 'ErrorFolderNotFound' in str(exc)
+            or 'No usable default' in str(exc))
+
+
+def _send_message(msg: 'Message') -> bool:
+    """Отправляет письмо; возвращает True, если копия НЕ сохранена (SendAs).
+
+    Сначала обычная отправка с копией в «Отправленные» (ящик подключён
+    полностью). Если папок ящика нет — ящик доступен только по SendAs:
+    шлём от его имени, не сохраняя копию (писать в чужие папки нельзя).
+    """
+    try:
+        msg.send()
+        return False
+    except Exception as e:
+        if not _is_mailbox_folders_unavailable(e):
+            raise
+        sender = msg.account.primary_smtp_address
+        _logger.info('send_email: нет доступа к папкам %s — отправка как SendAs '
+                     'без копии в «Отправленные»', sender)
+        msg.author = Mailbox(email_address=sender)
+        msg.send(save_copy=False)
+        return True
+
 
 def _convert_data_images_to_cid(html_body: str):
     """
@@ -461,8 +501,12 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
                         send_at: datetime.datetime = None,
                         timezone: float = 3.0,
                         importance: str = 'normal',
-                        read_receipt: bool = False) -> None:
-    """Отправляет HTML-письмо через Exchange."""
+                        read_receipt: bool = False) -> bool:
+    """Отправляет HTML-письмо через Exchange.
+
+    Возвращает True, если письмо ушло от имени ящика с правом SendAs и копия
+    в «Отправленные» не сохранена; иначе False.
+    """
     if not to and not cc and not bcc:
         raise ValueError('Не указаны получатели')
     if to:  validate_recipients(to)
@@ -510,12 +554,13 @@ def exchange_send_email(account: 'Account', subject: str, html_body: str,
         # msg.save() в Outbox создаёт неотправленный черновик, который транспорт
         # не берёт — он так и остаётся в «Исходящих» (в Outlook значок карандаша).
         _logger.debug('send_email: calling msg.send()')
-        msg.send()
+        copy_skipped = _send_message(msg)
         if send_at is not None:
             _logger.info('send_email: submitted with deferred delivery, scheduled=%s utc=%s',
                          send_at, _to_ews_datetime(send_at, timezone))
         else:
             _logger.info('send_email: success subject=%r', subject)
+        return copy_skipped
     except (ValueError, ConnectionError):
         raise
     except Exception as e:
@@ -567,6 +612,10 @@ def exchange_save_draft(account: 'Account', subject: str, html_body: str,
     except (ValueError, ConnectionError):
         raise
     except Exception as e:
+        if _is_mailbox_folders_unavailable(e):
+            raise RuntimeError(
+                'Для ящика есть только право SendAs: черновики в нём сохранить '
+                'нельзя. Выберите свой ящик или отправляйте письмо сразу.')
         _logger.error('save_draft failed: %s: %s', type(e).__name__, e, exc_info=True)
         _wrap_exchange_error(e)
 

@@ -187,6 +187,7 @@ const TemplatesAPI = {
             });
             const data = await response.json();
             if (data.success) {
+                this._cache.delete(`${id}:${type}`);
                 console.log('✅ Шаблон обновлён:', id);
                 return true;
             }

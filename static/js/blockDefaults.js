@@ -19,6 +19,14 @@ function getDefaultSettings(type) {
         if (profileDefaults) {
             Object.assign(base, profileDefaults);
         }
+        if (type === 'banner') {
+            // titleFontSize / extraFontSize — профильные дефолты размера шрифта
+            // текстов баннера; живут в textElements[], а не в плоских настройках.
+            const first = Array.isArray(base.textElements) ? base.textElements[0] : null;
+            if (first && Number(base.titleFontSize) > 0) first.fontSize = Number(base.titleFontSize);
+            delete base.titleFontSize;
+            delete base.extraFontSize;
+        }
     }
 
     return base;

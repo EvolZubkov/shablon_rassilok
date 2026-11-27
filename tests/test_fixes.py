@@ -1263,3 +1263,30 @@ class TestDeleteConfirmationFixed:
         self.actions.delete_template('Template 1')
         self.actions.delete_template('Template 2')
         assert len(confirm_count) == 2
+
+
+def test_prune_cache_folder_removes_files_missing_on_network(tmp_path):
+    import app as _app
+    net = tmp_path / 'net'
+    cache = tmp_path / 'cache'
+    net.mkdir()
+    cache.mkdir()
+    (net / 'keep.png').write_bytes(b'1')
+    (cache / 'keep.png').write_bytes(b'1')
+    (cache / 'gone.png').write_bytes(b'1')
+
+    removed = _app._prune_cache_folder(str(net), str(cache))
+
+    assert removed == 1
+    assert (cache / 'keep.png').exists()
+    assert not (cache / 'gone.png').exists()
+
+
+def test_prune_cache_folder_ignores_same_folder(tmp_path):
+    import app as _app
+    folder = tmp_path / 'same'
+    folder.mkdir()
+    (folder / 'a.png').write_bytes(b'1')
+
+    assert _app._prune_cache_folder(str(folder), str(folder)) == 0
+    assert (folder / 'a.png').exists()

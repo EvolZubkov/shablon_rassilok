@@ -526,6 +526,9 @@ async function convertBlockImages(block) {
     if (block.columns) {
         for (let column of block.columns) {
             for (let childBlock of column.blocks) {
+                if (childBlock.type === 'button' && typeof ensureButtonRendered === 'function') {
+                    await ensureButtonRendered(childBlock, block.columns.length);
+                }
                 await convertBlockImages(childBlock);
             }
         }
@@ -545,7 +548,10 @@ async function convertBlockImages(block) {
         s.renderedTitleBar = await convertBase64ToUrl(s.renderedTitleBar, 'table_title');
     }
 
-    // Кнопка
+    // Кнопка (если картинки ещё нет — рисуем, иначе уйдёт запасной HTML)
+    if (block.type === 'button' && !s.renderedButton && typeof ensureButtonRendered === 'function') {
+        await ensureButtonRendered(block, 1);
+    }
     if (block.type === 'button' && s.renderedButton) {
         s.renderedButton = await convertBase64ToUrl(s.renderedButton, 'button');
     }
@@ -775,24 +781,19 @@ function generateButtonHTML(s) {
         const text = escapeHtml(s.text || 'Кнопка');
         const url = sanitizeUrl(s.url);
 
+        // Запасной вариант (если картинка не отрисована): «bulletproof»-кнопка на
+        // таблице — Word-движок Outlook игнорирует padding/background у <a>,
+        // поэтому фон и отступы задаём на <td>, шрифт — явно на ссылке.
         return `
             <tr>
                 <td align="${align}" style="${getPadding()} text-align:${align};">
-                    <a href="${url}" style="
-                        display:inline-block;
-                        padding:${paddingY}px ${paddingX}px;
-                        border-radius:${borderRadius}px;
-                        background:${bgColor};
-                        color:${textColor};
-                        font-size:${fontSize}px;
-                        font-weight:600;
-                        line-height:1;
-                        text-align:center;
-                        text-decoration:none;
-                        white-space:nowrap;
-                    ">
-                        ${text}
-                    </a>
+                    <table role="presentation" border="0" cellspacing="0" cellpadding="0" style="display:inline-table; border-collapse:separate;">
+                        <tr>
+                            <td align="center" bgcolor="${bgColor}" style="background-color:${bgColor}; border-radius:${borderRadius}px; padding:${paddingY}px ${paddingX}px;">
+                                <a href="${url}" style="font-family:Arial, Helvetica, sans-serif; font-size:${fontSize}px; font-weight:bold; line-height:${fontSize}px; color:${textColor}; text-decoration:none; white-space:nowrap; display:inline-block;">${text}</a>
+                            </td>
+                        </tr>
+                    </table>
                 </td>
             </tr>
         `;

@@ -1177,6 +1177,35 @@ function renderExpertToDataUrl(block, callback, forEmail = true) {
     };
 }
 
+/**
+ * Гарантирует, что у блока-кнопки есть растровая картинка (renderedButton).
+ * Без неё в письмо уходит запасной HTML (другой шрифт/вес, Outlook его
+ * искажает), поэтому вызывается при добавлении блока и перед сборкой письма.
+ *
+ * @param {Object} block
+ * @param {number} [columnsCount=1] - число колонок в строке с кнопкой
+ * @returns {Promise<void>}
+ */
+function ensureButtonRendered(block, columnsCount = 1) {
+    return new Promise((resolve) => {
+        const s = block && block.settings;
+        if (!s || block.type !== 'button' || s.renderedButton) {
+            resolve();
+            return;
+        }
+        s._isInColumn = columnsCount > 1;
+        s._columnsCount = columnsCount;
+        renderButtonToDataUrl(block, (result) => {
+            if (result && result.dataUrl) {
+                s.renderedButton = result.dataUrl;
+                s.renderedButtonW = result.width || null;
+                s.renderedButtonH = result.height || null;
+            }
+            resolve();
+        });
+    });
+}
+
 function renderButtonToDataUrl(block, callback) {
     if (!_rtFontsSettled && _rtFontsSupported()) {
         whenRtFontsReady(() => renderButtonToDataUrl(block, callback));

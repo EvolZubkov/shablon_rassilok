@@ -31,6 +31,8 @@ const ProfilesAdmin = (() => {
                 { key: 'bannerHeight',       label: 'Высота',              type: 'select', options: [
                     { value: 200, label: '200px' }, { value: 250, label: '250px' },
                 ]},
+                { key: 'titleFontSize',      label: 'Шрифт: текст 1',      type: 'range', min: 10, max: 64, unit: 'px' },
+                { key: 'extraFontSize',      label: 'Шрифт: доп. тексты',  type: 'range', min: 10, max: 64, unit: 'px' },
             ],
             hideable: ['bannerHeight', 'rightImageMode', 'colors', 'rightImage', 'logo', 'textElements'],
             caps: ['border', 'clickable'],

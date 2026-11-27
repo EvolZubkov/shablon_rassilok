@@ -94,6 +94,12 @@ function addBlock(type, parentId = null, position = null) {
         return;
     }
 
+    if (type === 'button') {
+        const parentRow = findParentBlockWithColumns(newBlock.id);
+        ensureButtonRendered(newBlock, parentRow ? parentRow.columns.length : 1)
+            .then(() => requestAnimationFrame(() => renderCanvas()));
+    }
+
     if (type === 'expert') {
         requestAnimationFrame(() => renderExpertBlock(newBlock));
     }
