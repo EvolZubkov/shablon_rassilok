@@ -44,12 +44,12 @@ const ScheduledBodyEditor = (() => {
         window.updateCanvasContext?.();
     }
 
-    function _buildBar(item, letter) {
+    function _buildBar(item, letter, title) {
         const bar = _element('div', 'sched-editbar');
         const sendAt = new Date(item.send_at).toLocaleString('ru-RU');
         const text = _element('div', 'sched-editbar-text');
         text.append(
-            _element('strong', '', `Правка запланированного письма «${item.subject}»`),
+            _element('strong', '', title || `Правка запланированного письма «${item.subject}»`),
             _element('span', '', `Уйдёт ${sendAt}. Правки этого письма, `
                 + 'сделанные в Outlook, будут заменены.'),
         );
@@ -77,17 +77,22 @@ const ScheduledBodyEditor = (() => {
      * @param {object} item - письмо из списка панели
      * @param {{blocks: object[], comment: string, review: boolean}} letter - локальная копия
      * @param {string} mailbox - ящик, в «Исходящих» которого лежит письмо
+     * @param {object} [options]
+     * @param {string} [options.title] - заголовок полосы
+     * @param {string} [options.confirmText] - вопрос перед сохранением
+     * @param {function(object)} [options.onBody] - получает готовый текст вместо
+     *   отправки одного письма (правка всей рассылки)
      * @returns {boolean} открыта ли правка
      */
-    function start(item, letter, mailbox) {
+    function start(item, letter, mailbox, options = {}) {
         if (_session) {
             Toast.warning('Сначала сохраните или отмените текущую правку письма');
             return false;
         }
         const previous = _snapshotCanvas();
         const blocks = migrateExpertLite(JSON.parse(JSON.stringify(letter.blocks)));
-        const view = _buildBar(item, letter);
-        _session = { item, letter, mailbox, previous, ...view };
+        const view = _buildBar(item, letter, options.title);
+        _session = { item, letter, mailbox, previous, options, ...view };
         _showCanvas({
             blocks,
             blockIdCounter: TemplatesUI.findMaxBlockId(blocks) + 1,
@@ -123,13 +128,19 @@ const ScheduledBodyEditor = (() => {
         saveButton.textContent = busy ? 'Сохраняю…' : 'Сохранить изменения';
     }
 
-    async function _send() {
-        const { item, letter, mailbox, comment } = _session;
-        const body = await ExchangeModals.buildScheduledBody({
+    function _buildBody() {
+        const { item, letter, comment } = _session;
+        return ExchangeModals.buildScheduledBody({
             subject: item.subject.replace(REVIEW_PREFIX, ''),
             comment: comment.value,
             review: Boolean(letter.review),
+            // рассылки уходят в светлой теме — как при первой отправке
+            theme: letter.campaign_id ? 'light' : undefined,
         });
+    }
+
+    async function _post(body) {
+        const { item, mailbox } = _session;
         const response = await fetch('/api/scheduled/body', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -147,19 +158,27 @@ const ScheduledBodyEditor = (() => {
             Toast.warning('Письмо пустое — добавьте блоки или нажмите «Отмена»');
             return;
         }
+        const { options } = _session;
         const other = TemplatesUI.currentTemplate;
         if (other && !window.confirm(`Заменить текст письма шаблоном «${other.name}», `
             + 'который открыт на холсте?')) return;
+        if (options.confirmText && !window.confirm(options.confirmText)) return;
         _setBusy(true);
+        let body;
         try {
-            await _send();
+            body = await _buildBody();
+            if (!options.onBody) await _post(body);
         } catch (error) {
             Toast.error(error.message);
             _setBusy(false);
             return;
         }
         _finish();
-        Toast.success('Текст запланированного письма изменён');
+        if (options.onBody) {
+            options.onBody(body);
+        } else {
+            Toast.success('Текст запланированного письма изменён');
+        }
     }
 
     return { start, save, cancel, isActive };

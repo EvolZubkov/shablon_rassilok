@@ -1005,6 +1005,10 @@ const BulkMailPanel = (() => {
     // Получаем чистый HTML шаблона через emailGenerator (без лейблов, со светлой темой)
     const templateHtml = await _getTemplateHtml();
 
+    // Блоки для правки отложенной рассылки в панели «Запланированные» (админ).
+    const laterBlocks = sendAtVal && typeof ExchangeModals !== 'undefined'
+      ? await ExchangeModals.copyBlocksForLater() : null;
+
     // Стартуем задачу
     let jobId;
     try {
@@ -1029,6 +1033,7 @@ const BulkMailPanel = (() => {
           stop_on_error:    stopOnError,
           delay,
           send_at:          sendAtVal || null,
+          source:           laterBlocks && { blocks: laterBlocks },
           timezone:         -(new Date().getTimezoneOffset() / 60),
           attachments:      attachments?.getSpecs() || [],
         }),

@@ -10,6 +10,8 @@ const source = fs.readFileSync('./static/js/admin/scheduledPanel.js', 'utf8')
 
 const formSource = fs.readFileSync('./static/js/admin/scheduledEditForm.js', 'utf8')
 
+const batchSource = fs.readFileSync('./static/js/admin/scheduledBatch.js', 'utf8')
+
 const letter = {
     id: '1', subject: 'Тема письма', to: ['a@rt.ru'], cc: [], bcc: [],
     send_at: '2026-12-01T09:00:00+00:00', has_attachments: false, waiting: true,
@@ -17,17 +19,23 @@ const letter = {
 
 const tick = () => new Promise(resolve => setTimeout(resolve, 0))
 
-function loadPanel(items, { mailboxes = [], calls = [] } = {}) {
+function loadPanel(items, { mailboxes = [], calls = [], campaigns, failing } = {}) {
     const dom = new JSDOM('<!doctype html><body></body>', { runScripts: 'outside-only' })
     const { window } = dom
     delete window.Element.prototype.replaceChildren
     window.HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', '') }
     window.fetch = async (url, options) => {
         calls.push({ url, body: options?.body && JSON.parse(options.body) })
-        return { ok: true, status: 200, json: async () => ({ success: true, items, mailboxes }) }
+        const status = (failing && options?.body && failing(JSON.parse(options.body))) || 200
+        return {
+            ok: status === 200, status,
+            json: async () => ({
+                success: status === 200, error: 'сбой', items, mailboxes, campaigns,
+            }),
+        }
     }
     window.Toast = { success() {}, error() {}, info() {} }
-    window.eval(`${formSource}\n${source}\nwindow.__panel = ScheduledPanel;`)
+    window.eval(`${formSource}\n${batchSource}\n${source}\nwindow.__panel = ScheduledPanel;`)
     return window
 }
 
@@ -107,5 +115,90 @@ describe('ScheduledPanel в старом браузере', () => {
         for (const css of [panelCss, userDialogCss]) {
             expect(css).not.toMatch(/^\s*(inset|gap):/m)
         }
+    })
+})
+
+describe('ScheduledPanel: массовая рассылка', () => {
+    const campaigns = { c1: { subject_template: 'Привет, {{ФИО}}', total: 5 } }
+    const mail = (id, to) => ({
+        ...letter, id, to: [to], schedule_id: id, editable: true, campaign_id: 'c1',
+    })
+    const items = [mail('1', 'a@rt.ru'), mail('2', 'b@rt.ru'), mail('3', 'c@rt.ru')]
+
+    async function openPanel(options = {}) {
+        const calls = []
+        const window = loadPanel(items, { campaigns, calls, ...options })
+        window.confirm = () => true
+        await window.__panel.open()
+        const header = window.document.querySelector('.sched-campaign')
+        const press = label => Array.from(header.querySelectorAll('button'))
+            .find(b => b.textContent === label).click()
+        return { window, calls, header, press }
+    }
+
+    const settle = async () => { for (let i = 0; i < 10; i += 1) await tick() }
+
+    it('собирает письма в свёрнутую группу со счётчиком', async () => {
+        const { window, header, press } = await openPanel()
+        const letters = () => Array.from(
+            window.document.querySelectorAll('.sched-campaign-letter'))
+
+        expect(header.textContent).toContain('ждут 3 из 5')
+        expect(letters().map(r => r.style.display)).toEqual(['none', 'none', 'none'])
+        press('Показать письма')
+        expect(letters().map(r => r.style.display)).toEqual(['', '', ''])
+    })
+
+    it('отменяет письма по одному и отчитывается', async () => {
+        const { window, calls, press } = await openPanel()
+
+        press('Отменить все')
+        await settle()
+
+        expect(calls.filter(c => c.url === '/api/scheduled/cancel').map(c => c.body.id))
+            .toEqual(['1', '2', '3'])
+        expect(window.document.querySelector('.sched-batch').textContent)
+            .toContain('Готово: 3 из 3')
+    })
+
+    it('останавливается на первой ошибке', async () => {
+        const { window, calls, press } = await openPanel({
+            failing: body => (body.id === '2' ? 502 : 200),
+        })
+
+        press('Отменить все')
+        await settle()
+
+        expect(calls.filter(c => c.url === '/api/scheduled/cancel')).toHaveLength(2)
+        const report = window.document.querySelector('.sched-batch').textContent
+        expect(report).toContain('ошибка: сбой')
+        expect(report).toContain('не обработано: 1')
+    })
+
+    it('уже отправленное письмо пропускает и идёт дальше', async () => {
+        const { calls, press } = await openPanel({
+            failing: body => (body.id === '1' ? 404 : 200),
+        })
+
+        press('Отменить все')
+        await settle()
+
+        expect(calls.filter(c => c.url === '/api/scheduled/cancel')).toHaveLength(3)
+    })
+
+    it('при смене только времени не трогает темы писем', async () => {
+        const { window, calls, press } = await openPanel()
+        press('Тема и время')
+        const form = window.document.querySelector('.sched-form')
+        expect(form.querySelector('[name=to]')).toBeNull()
+        form.querySelector('[name=send_at]').value = '2027-03-04T10:30'
+
+        form.dispatchEvent(new window.Event('submit', { cancelable: true }))
+        await settle()
+
+        const updates = calls.filter(c => c.url === '/api/scheduled/update').map(c => c.body)
+        expect(updates.map(u => u.send_at)).toEqual(Array(3).fill('2027-03-04T10:30'))
+        expect(updates[1]).toMatchObject({ subject: 'Тема письма', to: ['b@rt.ru'] })
+        expect(updates[1].subject_template).toBeUndefined()
     })
 })

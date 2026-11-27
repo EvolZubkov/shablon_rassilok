@@ -43,12 +43,16 @@ const ScheduledEditForm = (() => {
     /**
      * @param {object} item - письмо из списка панели
      * @param {{onSave: function(object): Promise<void>, onCancel: function()}} handlers
+     * @param {Object<string, string>} [labels] - показать только эти поля с этими подписями
      * @returns {HTMLFormElement}
      */
-    function create(item, { onSave, onCancel }) {
+    function create(item, { onSave, onCancel }, labels) {
         const form = _element('form', 'sched-form');
         const inputs = {};
-        FIELDS.forEach(field => {
+        const fields = labels
+            ? FIELDS.filter(f => labels[f.key]).map(f => ({ ...f, label: labels[f.key] }))
+            : FIELDS;
+        fields.forEach(field => {
             const { wrapper, input } = _field(item, field);
             inputs[field.key] = input;
             form.appendChild(wrapper);
@@ -74,7 +78,7 @@ const ScheduledEditForm = (() => {
             const changes = {
                 timezone: -(new Date(inputs.send_at.value).getTimezoneOffset() / 60),
             };
-            FIELDS.forEach(({ key }) => { changes[key] = inputs[key].value.trim(); });
+            fields.forEach(({ key }) => { changes[key] = inputs[key].value.trim(); });
             save.disabled = back.disabled = true;
             save.textContent = 'Сохраняю…';
             try {

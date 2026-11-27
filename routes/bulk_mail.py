@@ -663,6 +663,50 @@ def _remember_scheduled_mailbox(address: str) -> None:
         _logger.warning('scheduled: ящик не запомнен', exc_info=True)
 
 
+class _ScheduledCampaign:
+    """Локальные копии писем отложенной рассылки — для панели «Запланированные»."""
+
+    def __init__(self, data: dict, mapping: dict, send_at: datetime.datetime,
+                 timezone: float, from_email: str):
+        self.id = uuid.uuid4().hex
+        self._columns = sorted({column for column in mapping.values() if column})
+        send_at_utc = (send_at - datetime.timedelta(hours=timezone)).replace(
+            tzinfo=datetime.timezone.utc)
+        self._send_at = send_at_utc.isoformat()
+        self._shared = {
+            'subject_template': str(data.get('subject') or ''),
+            'mapping': mapping,
+            'blocks': data['source']['blocks'],
+            'from_email': from_email,
+        }
+        self._shared_saved = False
+
+    @classmethod
+    def for_job(cls, data: dict, mapping: dict, send_at, timezone: float, from_email: str):
+        """None, если копии не нужны: не отложенная рассылка или не админ."""
+        source = data.get('source')
+        if not send_at or not isinstance(source, dict) or not source.get('blocks'):
+            return None
+        if _m.get_app_mode() != 'admin':
+            return None
+        return cls(data, mapping, send_at, timezone, from_email)
+
+    def remember(self, schedule_id: str, row: dict) -> None:
+        """Письмо уже принято сервером, поэтому сбой записи не прерывает рассылку."""
+        try:
+            scheduled_store.save_letter(_m.CACHE_BASE, schedule_id, {
+                'campaign_id': self.id,
+                # только столбцы, подставляемые в письмо
+                'row': {column: row.get(column) for column in self._columns},
+                'send_at': self._send_at,
+            })
+            if not self._shared_saved:
+                scheduled_store.save_campaign(_m.CACHE_BASE, self.id, self._shared)
+                self._shared_saved = True
+        except (OSError, TypeError, ValueError):
+            _logger.warning('scheduled: копия письма рассылки не сохранена', exc_info=True)
+
+
 def _run_bulk_send_guarded(job_id: str, data: dict, q: queue.Queue, cancel: threading.Event):
     """Запускает рассылку так, чтобы поток не умирал молча.
 
@@ -785,6 +829,12 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
     else:
         account = conn
 
+    campaign = None
+    if channel != 'smtp' and not is_draft:
+        campaign = _ScheduledCampaign.for_job(
+            data, mapping, send_at, timezone,
+            from_email_req or creds.get('from_email', ''))
+
     sent = skipped = errors = 0
 
     # Helper to resolve the display name from mapping
@@ -884,12 +934,17 @@ def _run_bulk_send(job_id: str, data: dict, q: queue.Queue, cancel: threading.Ev
                 _m.exchange_save_draft(account, subject, body, to, cc, bcc,
                                        attachments=attachments)
             else:
-                _m.exchange_send_email(account, subject, body, to, cc, bcc,
-                                       attachments=attachments,
-                                       send_at=send_at,
-                                       timezone=timezone,
-                                       importance=importance,
-                                       read_receipt=read_receipt)
+                schedule_id = uuid.uuid4().hex if campaign else None
+                copy_skipped = _m.exchange_send_email(
+                    account, subject, body, to, cc, bcc,
+                    attachments=attachments,
+                    send_at=send_at,
+                    timezone=timezone,
+                    importance=importance,
+                    read_receipt=read_receipt,
+                    **({'schedule_id': schedule_id} if schedule_id else {}))
+                if schedule_id and copy_skipped is not True:
+                    campaign.remember(schedule_id, row)
                 if send_at and sent == 0:
                     _remember_scheduled_mailbox(from_email_req)
 

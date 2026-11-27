@@ -118,3 +118,20 @@ describe('ScheduledBodyEditor', () => {
         expect(editor.start(item, saved, 'me@rt.ru')).toBe(false)
     })
 })
+
+describe('ScheduledBodyEditor: вся рассылка', () => {
+    it('отдаёт готовый текст обработчику и сам ничего не отправляет', async () => {
+        const { editor, calls, window, original } = load()
+        const bodies = []
+        editor.start(item, { ...saved, campaign_id: 'c1' }, 'me@rt.ru', {
+            onBody: body => bodies.push(body),
+        })
+
+        await editor.save()
+
+        expect(bodies[0].html_body).toBe('<p>новое</p>')
+        expect(calls.build[0].theme).toBe('light')
+        expect(calls.fetch).toHaveLength(0)
+        expect(window.AppState.blocks).toBe(original)
+    })
+})

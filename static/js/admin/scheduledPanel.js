@@ -16,12 +16,16 @@ const ScheduledPanel = (() => {
     let _unlocked = false;
     /** Номер последнего запроса списка: ответы на более ранние отбрасываются. */
     let _listRequest = 0;
+    /** Идёт обработка всей рассылки: список и новые действия недоступны. */
+    let _batchRunning = false;
 
     async function _request(url, options) {
         const response = await fetch(url, options);
         const data = await response.json().catch(() => ({}));
         if (!response.ok || !data.success) {
-            throw new Error(data.error || `Ошибка сервера (${response.status})`);
+            const error = new Error(data.error || `Ошибка сервера (${response.status})`);
+            error.status = response.status;
+            throw error;
         }
         return data;
     }
@@ -132,6 +136,124 @@ const ScheduledPanel = (() => {
         _mailbox.style.display = _select.value === OTHER_MAILBOX ? '' : 'none';
     }
 
+    /** Экран с формой или отчётом; close() возвращает список. */
+    function _showView(node) {
+        _formView.textContent = '';
+        _formView.appendChild(node);
+        _showList(false);
+    }
+
+    function _closeView() {
+        _formView.textContent = '';
+        _showList(true);
+    }
+
+    /** Выполняет действие над письмами рассылки с отчётом по получателям. */
+    async function _runBatch(title, items, action) {
+        _batchRunning = true;
+        const view = ScheduledBatch.view(title, items, action, async () => {
+            _closeView();
+            await refresh();
+        });
+        _showView(view.element);
+        try {
+            await view.done;
+        } finally {
+            _batchRunning = false;
+        }
+    }
+
+    function _cancelCampaign({ info, items }) {
+        if (!window.confirm(`Отменить отправку всей рассылки «${info.subject_template}»: `
+            + `писем — ${items.length}? Они переместятся в «Удалённые».`)) return;
+        const mailbox = _selectedMailbox();
+        _runBatch('Отмена рассылки', items, item => _postJson('/api/scheduled/cancel',
+            { id: item.id, schedule_id: item.schedule_id, from_email: mailbox }));
+    }
+
+    function _editCampaign({ info, items }) {
+        const mailbox = _selectedMailbox();
+        const first = { subject: info.subject_template, send_at: items[0].send_at };
+        const initialTime = ScheduledEditForm.toLocalInput(first.send_at);
+        _showView(ScheduledEditForm.create(first, {
+            onCancel: _closeView,
+            onSave: async (changes) => {
+                // Неизменённое поле не трогаем: у писем могут быть свои тема и время.
+                const subjectChanged = changes.subject !== info.subject_template;
+                const timeChanged = changes.send_at !== initialTime;
+                if (!changes.subject) throw new Error('Тема обязательна');
+                if (!subjectChanged && !timeChanged) { _closeView(); return; }
+                _runBatch('Изменение рассылки', items, item => {
+                    const sendAt = timeChanged
+                        ? changes.send_at : ScheduledEditForm.toLocalInput(item.send_at);
+                    return _postJson('/api/scheduled/update', {
+                        id: item.id, schedule_id: item.schedule_id, from_email: mailbox,
+                        subject: item.subject, to: item.to, cc: item.cc, bcc: item.bcc,
+                        subject_template: subjectChanged ? changes.subject : undefined,
+                        send_at: sendAt,
+                        timezone: -(new Date(sendAt).getTimezoneOffset() / 60),
+                    });
+                });
+            },
+        }, { subject: 'Тема (поля вида {{ФИО}} подставятся)', send_at: 'Когда отправить всё' }));
+    }
+
+    async function _editCampaignText({ campaignId, info, items }) {
+        const mailbox = _selectedMailbox();
+        try {
+            const query = new URLSearchParams({ campaign_id: campaignId });
+            const { letter } = await _request(`/api/scheduled/source?${query}`);
+            const started = ScheduledBodyEditor.start(
+                { ...items[0], subject: info.subject_template }, letter, mailbox, {
+                    title: `Правка текста рассылки «${info.subject_template}»`,
+                    confirmText: 'Заменить текст во всех ожидающих письмах рассылки? '
+                        + 'Правки отдельных писем будут перезаписаны.',
+                    onBody: body => _applyCampaignText(campaignId, mailbox, body),
+                });
+            if (started) _dialog.close();
+        } catch (error) {
+            Toast.error(error.message);
+        }
+    }
+
+    async function _applyCampaignText(campaignId, mailbox, body) {
+        _dialog.showModal();
+        try {
+            // Пока шла правка, часть писем могла уйти — берём свежий список.
+            const query = new URLSearchParams({ from_email: mailbox });
+            const data = await _request(`/api/scheduled/list?${query}`);
+            const waiting = data.items.filter(i => i.campaign_id === campaignId);
+            await _runBatch('Замена текста рассылки', waiting, item => _postJson(
+                '/api/scheduled/body', {
+                    ...body, schedule_id: item.schedule_id, from_email: mailbox,
+                    whole_campaign: true,
+                }));
+        } catch (error) {
+            Toast.error(`Текст не изменён: ${error.message}`);
+        }
+    }
+
+    /** Строки таблицы: отдельные письма и свёрнутые рассылки. */
+    function _tableRows(data) {
+        return ScheduledBatch.group(data.items, data.campaigns).flatMap(entry => {
+            if (entry.item) return [_renderRow(entry.item)];
+            const letters = entry.items.map(_renderRow);
+            letters.forEach(row => {
+                row.classList.add('sched-campaign-letter');
+                row.style.display = 'none';
+            });
+            const header = ScheduledBatch.headerRow(entry, {
+                onEdit: () => _editCampaign(entry),
+                onText: () => _editCampaignText(entry),
+                onCancel: () => _cancelCampaign(entry),
+                onToggle: visible => letters.forEach(row => {
+                    row.style.display = visible ? '' : 'none';
+                }),
+            });
+            return [header, ...letters];
+        });
+    }
+
     /** Открывает текст письма в конструкторе. */
     async function _editBody(item) {
         const mailbox = _selectedMailbox();
@@ -175,7 +297,7 @@ const ScheduledPanel = (() => {
             const query = new URLSearchParams({ from_email: _selectedMailbox() });
             const data = await _request(`/api/scheduled/list?${query}`);
             if (request !== _listRequest) return;
-            _setRows(data.items.map(_renderRow));
+            _setRows(_tableRows(data));
             _status.textContent = data.items.length
                 ? `Ожидают отправки: ${data.items.length}`
                 : 'Запланированных писем нет';
@@ -245,6 +367,7 @@ const ScheduledPanel = (() => {
             return;
         }
         if (!_dialog) _dialog = _build();
+        if (_batchRunning) { _dialog.showModal(); return; }
         _showList(true);
         _dialog.showModal();
         await _loadMailboxes();

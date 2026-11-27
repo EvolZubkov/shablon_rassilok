@@ -2,8 +2,9 @@
 scheduled_store.py — локальные данные панели «Запланированные письма».
 
 Состояние панели — ``<base>/scheduled/state.json``, блоки отложенных писем —
-``<base>/scheduled/letters/<метка>.json`` (содержат персональные данные:
-удаляются после отмены или через неделю после отправки). ``base`` — пользовательская папка
+``<base>/scheduled/letters/<метка>.json``, общие данные массовых рассылок —
+``<base>/scheduled/campaigns/<номер>.json``. Копии содержат персональные данные:
+удаляются после отмены или через неделю после отправки. ``base`` — пользовательская папка
 Почтелья (не обновляемый кеш), поэтому данные переживают перезапуск и
 обновление приложения.
 """
@@ -135,12 +136,7 @@ def delete_letter(base: str, schedule_id: str) -> None:
 
 def prune_letters(base: str, now: datetime.datetime) -> None:
     """Удаляет копии писем, отправленных больше недели назад."""
-    try:
-        names = os.listdir(_letters_dir(base))
-    except OSError:
-        return
-    for name in names:
-        schedule_id = name[:-len('.json')]
+    for schedule_id in _stored_ids(_letters_dir(base)):
         letter = load_letter(base, schedule_id)
         try:
             send_at = datetime.datetime.fromisoformat(letter['send_at'])
@@ -149,3 +145,55 @@ def prune_letters(base: str, now: datetime.datetime) -> None:
             continue
         if expired:
             delete_letter(base, schedule_id)
+    _drop_empty_campaigns(base)
+
+
+def _stored_ids(folder: str) -> list:
+    try:
+        names = os.listdir(folder)
+    except OSError:
+        return []
+    return [name[:-len('.json')] for name in names if name.endswith('.json')]
+
+
+def _campaigns_dir(base: str) -> str:
+    return os.path.join(base, 'scheduled', 'campaigns')
+
+
+def _campaign_path(base: str, campaign_id: str):
+    if not _SCHEDULE_ID.fullmatch(campaign_id or ''):
+        return None
+    return os.path.join(_campaigns_dir(base), f'{campaign_id}.json')
+
+
+def save_campaign(base: str, campaign_id: str, campaign: dict) -> None:
+    path = _campaign_path(base, campaign_id)
+    if path is None:
+        raise ValueError('Некорректный номер рассылки')
+    _write_json(path, campaign)
+
+
+def load_campaign(base: str, campaign_id: str):
+    path = _campaign_path(base, campaign_id)
+    return (_read_json(path) or None) if path else None
+
+
+def _campaign_ids_of_letters(base: str) -> list:
+    letters = (load_letter(base, i) for i in _stored_ids(_letters_dir(base)))
+    return [letter.get('campaign_id') for letter in letters if letter]
+
+
+def campaign_size(base: str, campaign_id: str) -> int:
+    """Сколько писем рассылки (ждущих и недавно отправленных) известно."""
+    return _campaign_ids_of_letters(base).count(campaign_id)
+
+
+def _drop_empty_campaigns(base: str) -> None:
+    used = set(_campaign_ids_of_letters(base))
+    for campaign_id in _stored_ids(_campaigns_dir(base)):
+        path = _campaign_path(base, campaign_id)
+        if path and campaign_id not in used:
+            try:
+                os.remove(path)
+            except OSError as e:
+                _logger.warning('scheduled: данные рассылки не удалены: %s', e)

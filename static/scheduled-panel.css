@@ -235,3 +235,48 @@ body.sched-editing #btn-create-meeting,
 body.sched-editing #btn-bulk-send {
   display: none !important;
 }
+
+/* Рассылки */
+.sched-campaign td {
+  font-weight: 600;
+}
+
+.sched-campaign .sched-recipients .sched-btn {
+  display: block;
+  margin-top: 4px;
+}
+
+.sched-campaign-letter td:first-child {
+  padding-left: 24px;
+}
+
+.sched-batch {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.sched-batch > * + * {
+  margin-top: 12px;
+}
+
+.sched-report {
+  overflow: auto;
+  margin: 12px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sched-report-line {
+  display: flex;
+  justify-content: space-between;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border-color, #334155);
+}
+
+.sched-report-result {
+  margin-left: 12px;
+  text-align: right;
+}
